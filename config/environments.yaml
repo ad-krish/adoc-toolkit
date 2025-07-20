@@ -1,0 +1,24 @@
+# ADOC Toolkit Environment Configuration
+# Configure your AccelData Observability Cloud environments here
+
+environments:
+  cs-india:
+    name: "cs-india"
+    base_url: "https://cs-india.acceldata.app"
+    access_key: "YH9WUQ8DJ809D4B"
+    secret_key: "X9BAJL01GH9DUHBXXYM4IDAQWIZLUY"
+  
+  training:
+    name: "training" 
+    base_url: "https://training.acceldata.app"
+    access_key: "VL6PQHAQTFAU5GV"
+    secret_key: "AH404JQYDYQWTZQD7BN0688617WLZZ"
+  
+  se-demo:
+    name: "se-demo"
+    base_url: "https://se-demo.acceldata.app"
+    access_key: "GV1PJ3XYFJZEBV0"
+    secret_key: "HWNMVIVGIAG6XQ83Y12F6OK2LTBVRR"
+
+# Default environment to use if none specified
+default_environment: "se-demo"

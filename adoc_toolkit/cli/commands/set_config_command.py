@@ -1,0 +1,315 @@
+"""Set configuration command implementation."""
+
+from typing import Any
+
+from rich.console import Console
+from rich.table import Table
+
+from ...config import get_config_manager
+from .base import Command
+
+
+class SetConfigCommand(Command):
+    """Command to set configuration values."""
+
+    def __init__(self) -> None:
+        """Initialize set-config command."""
+        super().__init__()
+        self.console = Console()
+
+    @property
+    def name(self) -> str:
+        """Get command name."""
+        return "set-config"
+
+    @property
+    def description(self) -> str:
+        """Get command description."""
+        return "Set configuration values for ADOC toolkit"
+
+    @property
+    def aliases(self) -> list[str]:
+        """Get command aliases."""
+        return ["config", "set"]
+
+    def get_help(self) -> str:
+        """Get detailed help for set-config command."""
+        help_text = f"{self.name}: {self.description}\n"
+        help_text += "Usage: set-config <key> <value>\n"
+        help_text += "       set-config --list\n"
+        help_text += "       set-config --show <key>\n\n"
+
+        help_text += "Available configuration keys:\n"
+        help_text += "  HTTP Configuration:\n"
+        help_text += (
+            "    http.timeout    - HTTP request timeout in seconds (default: 120)\n"
+        )
+        help_text += "    http.retries    - Number of retry attempts (default: 3)\n"
+        help_text += "    http.proxy      - HTTP proxy URL (optional)\n\n"
+
+        help_text += "  Logging Configuration:\n"
+        help_text += "    log.level       - Log level: TRACE, DEBUG, INFO, ERROR (default: INFO)\n"
+        help_text += "    log.filepath    - Path to log file (optional)\n"
+        help_text += (
+            "    log.rotate.onsize - Log rotation size threshold (default: 10MB)\n"
+        )
+        help_text += "    log.rotate.ontime - Log rotation time threshold in minutes (default: 120)\n\n"
+
+        help_text += "  Audit Configuration:\n"
+        help_text += "    audit.logfile   - Path to audit log file (optional)\n\n"
+
+        help_text += "Examples:\n"
+        help_text += "  set-config http.timeout 60\n"
+        help_text += "  set-config http.retries 5\n"
+        help_text += "  set-config http.proxy https://proxy.example.com:8080\n"
+        help_text += "  set-config http.proxy none    # Remove proxy\n"
+        help_text += "  set-config log.level DEBUG\n"
+        help_text += "  set-config log.filepath ./my-app.log\n"
+        help_text += "  set-config log.rotate.onsize 50MB\n"
+        help_text += "  set-config audit.logfile ./audit.log\n"
+        help_text += "  set-config --list             # Show all configuration\n"
+        help_text += "  set-config --show log.level   # Show specific value\n"
+
+        return help_text
+
+    def execute(self, args: list[str]) -> bool:
+        """Execute the set-config command.
+
+        Args:
+            args: Command arguments
+
+        Returns:
+            True to continue interactive mode
+        """
+        if not args:
+            self.console.print("Usage: set-config <key> <value>", style="yellow")
+            self.console.print(
+                "Use 'set-config --help' for more information.", style="yellow"
+            )
+            return True
+
+        # Handle special flags
+        if args[0] == "--list":
+            return self._list_config()
+        elif args[0] == "--show" and len(args) >= 2:
+            return self._show_config(args[1])
+        elif len(args) < 2:
+            self.console.print("Error: Both key and value are required", style="red")
+            self.console.print("Usage: set-config <key> <value>", style="yellow")
+            return True
+
+        key = args[0]
+        value = args[1]
+
+        return self._set_config(key, value)
+
+    def _set_config(self, key: str, value: str) -> bool:
+        """Set a configuration value.
+
+        Args:
+            key: Configuration key
+            value: Value to set
+
+        Returns:
+            True to continue interactive mode
+        """
+        # Validate the key and value
+        is_valid, converted_value, error_msg = get_config_manager().validate_value(
+            key, value
+        )
+
+        if not is_valid:
+            self.console.print(f"Error: {error_msg}", style="red")
+            return True
+
+        # Set the configuration
+        try:
+            get_config_manager().set(key, converted_value)
+            self.console.print(
+                f"✅ Configuration set: {key} = {self._format_value(converted_value)}",
+                style="green",
+            )
+
+            # Show a helpful message for HTTP config changes
+            if key.startswith("http."):
+                self.console.print(
+                    "💡 HTTP configuration changes will apply to new requests",
+                    style="blue",
+                )
+
+        except Exception as e:
+            self.console.print(f"Error setting configuration: {e}", style="red")
+
+        return True
+
+    def _list_config(self) -> bool:
+        """List all configuration values.
+
+        Returns:
+            True to continue interactive mode
+        """
+        config = get_config_manager().list_all()
+
+        if not config:
+            self.console.print("No configuration values set", style="yellow")
+            return True
+
+        table = Table(title="ADOC Toolkit Configuration")
+        table.add_column("Key", style="cyan")
+        table.add_column("Value", style="green")
+        table.add_column("Description", style="dim")
+
+        descriptions = {
+            "http.timeout": "HTTP request timeout in seconds",
+            "http.retries": "Number of retry attempts for failed requests",
+            "http.proxy": "HTTP proxy URL for requests",
+            "log.level": "Log level for application logging",
+            "log.filepath": "Path to log file",
+            "log.rotate.onsize": "Log rotation size threshold",
+            "log.rotate.ontime": "Log rotation time threshold in minutes",
+            "audit.logfile": "Path to audit log file",
+        }
+
+        # Flatten nested configuration for display
+        flat_config = self._flatten_config(config)
+
+        for key, value in sorted(flat_config.items()):
+            description = descriptions.get(key, "")
+            formatted_value = self._format_value(value)
+            table.add_row(key, formatted_value, description)
+
+        self.console.print(table)
+        return True
+
+    def _show_config(self, key: str) -> bool:
+        """Show a specific configuration value.
+
+        Args:
+            key: Configuration key to show
+
+        Returns:
+            True to continue interactive mode
+        """
+        value = get_config_manager().get(key)
+
+        if value is None:
+            self.console.print(f"Configuration key '{key}' not found", style="yellow")
+            return True
+
+        self.console.print(f"{key}: {self._format_value(value)}", style="green")
+        return True
+
+    def _flatten_config(self, config: dict, prefix: str = "") -> dict:
+        """Flatten nested configuration dictionary.
+
+        Args:
+            config: Configuration dictionary to flatten
+            prefix: Key prefix for nested keys
+
+        Returns:
+            Flattened configuration dictionary
+        """
+        flattened = {}
+
+        for key, value in config.items():
+            full_key = f"{prefix}.{key}" if prefix else key
+
+            if isinstance(value, dict):
+                flattened.update(self._flatten_config(value, full_key))
+            else:
+                flattened[full_key] = value
+
+        return flattened
+
+    def _format_value(self, value: Any) -> str:
+        """Format configuration value for display.
+
+        Args:
+            value: Value to format
+
+        Returns:
+            Formatted string representation
+        """
+        if value is None:
+            return "[dim]None[/dim]"
+        elif isinstance(value, bool):
+            return "[green]true[/green]" if value else "[red]false[/red]"
+        elif isinstance(value, str) and not value:
+            return "[dim](empty)[/dim]"
+        else:
+            return str(value)
+
+    def get_completions(self, current_input: str, cursor_position: int) -> list[str]:
+        """Get auto-completion suggestions for set-config command.
+
+        Args:
+            current_input: Current input text
+            cursor_position: Current cursor position
+
+        Returns:
+            List of completion suggestions
+        """
+        words = current_input.split()
+
+        # All available configuration keys
+        all_config_keys = [
+            "http.timeout",
+            "http.retries",
+            "http.proxy",
+            "log.level",
+            "log.filepath",
+            "log.rotate.onsize",
+            "log.rotate.ontime",
+            "audit.logfile",
+        ]
+
+        # If we're typing the second argument after --show
+        if len(words) >= 2 and words[1] == "--show":
+            if len(words) <= 3 and not (
+                len(words) == 3 and current_input.endswith(" ")
+            ):
+                if len(words) == 2 or current_input.endswith(" "):
+                    return all_config_keys
+                else:
+                    partial_key = words[2]
+                    return [
+                        key for key in all_config_keys if key.startswith(partial_key)
+                    ]
+
+        # For value completions, provide contextual suggestions
+        if len(words) == 2 and current_input.endswith(" "):
+            key = words[1]
+            if key == "http.proxy":
+                return [
+                    "https://proxy.example.com:8080",
+                    "http://proxy.example.com:3128",
+                    "none",
+                ]
+            elif key == "http.timeout":
+                return ["30", "60", "120", "300"]
+            elif key == "http.retries":
+                return ["0", "1", "3", "5"]
+            elif key == "log.level":
+                return ["TRACE", "DEBUG", "INFO", "ERROR"]
+            elif key == "log.filepath":
+                return ["logs/adoc-toolkit.log", "./adoc-toolkit.log", "none"]
+            elif key == "log.rotate.onsize":
+                return ["10MB", "50MB", "100MB", "1GB"]
+            elif key == "log.rotate.ontime":
+                return ["60", "120", "240", "480"]
+            elif key == "audit.logfile":
+                return ["audit/adoc-audit.log", "./audit.log", "none"]
+
+        # If we're typing the first argument (the key)
+        if len(words) <= 2:
+            keys = all_config_keys + ["--list", "--show"]
+
+            if len(words) <= 1 or current_input.endswith(" "):
+                # Complete from beginning (after command or space)
+                return keys
+            else:
+                # Filter based on current partial input
+                partial_key = words[-1]
+                return [key for key in keys if key.startswith(partial_key)]
+
+        return []

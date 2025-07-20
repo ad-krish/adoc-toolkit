@@ -1,0 +1,140 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "adoc-toolkit"
+version = "0.1.0"
+description = "AccelData Observability Cloud toolkit"
+readme = "README.md"
+license = "MIT"
+authors = [
+    {name = "User", email = "user@example.com"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "click>=8.0.0",
+    "httpx>=0.28.1",
+    "pandas>=2.3.1",
+    "prompt-toolkit>=3.0.0",
+    "pydantic>=2.11.7",
+    "pyyaml>=6.0.2",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "mypy>=1.0.0",
+    "ruff>=0.1.0",
+    "black>=23.0.0",
+]
+export = [
+    "pyarrow>=14.0.0",  # For Parquet export format
+    "fastavro>=1.8.0",  # For Avro export format
+]
+
+[project.scripts]
+adoc-toolkit = "adoc_toolkit.cli:main"
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+# Ignore some complex type issues for now
+[[tool.mypy.overrides]]
+module = "tests.*"
+# Allow some flexibility in test files
+warn_return_any = false
+disallow_untyped_defs = false
+disable_error_code = ["arg-type", "index", "assignment", "return-value"]
+
+[[tool.mypy.overrides]]
+module = "adoc_toolkit.models.configuration_data"
+# Complex pydantic + dict hybrid behavior
+disable_error_code = ["index", "operator"]
+
+[[tool.mypy.overrides]]
+module = "adoc_toolkit.audit.mixins"
+# Complex decorator return types
+disable_error_code = ["return-value"]
+
+[[tool.mypy.overrides]]
+module = "adoc_toolkit.audit.audit_entry"
+# Complex pydantic field assignments
+disable_error_code = ["assignment"]
+
+[[tool.mypy.overrides]]
+module = "adoc_toolkit.audit.service"
+# Complex return type issues
+disable_error_code = ["no-any-return"]
+
+[[tool.mypy.overrides]]
+module = "adoc_toolkit.cli.commands.use_command"
+# Unreachable code due to file formatting
+disable_error_code = ["unreachable"]
+
+[[tool.mypy.overrides]]
+module = "adoc_toolkit.cli.commands.export_metrics_command"
+# Optional dependencies and complex data handling
+disable_error_code = ["import-not-found", "import-untyped", "assignment", "no-any-return", "attr-defined", "no-untyped-def"]
+
+[[tool.mypy.overrides]]
+module = "tests.test_export_metrics_command"
+# Test file with optional dependencies
+disable_error_code = ["import-not-found", "import-untyped", "var-annotated"]
+
+[[tool.mypy.overrides]]
+module = "adoc_toolkit.cli.interactive"
+# Complex interactive prompt handling
+disable_error_code = ["no-untyped-def"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.17.0",
+    "pytest>=8.4.1",
+    "types-pyyaml>=6.0.12.20250516",
+]
