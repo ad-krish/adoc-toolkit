@@ -7,14 +7,14 @@ name = "adoc-toolkit"
 version = "0.1.0"
 description = "AccelData Observability Cloud toolkit"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 authors = [
     {name = "User", email = "user@example.com"},
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",

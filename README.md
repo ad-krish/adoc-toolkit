@@ -1,6 +1,6 @@
 # ADOC Toolkit
 
-AccelData Observability Cloud toolkit for managing and interacting with ADOC resources.
+Acceldata Observability Cloud ("ADOC") toolkit for managing and interacting with ADOC SaaS.
 
 ## Installation
 
@@ -104,4 +104,4 @@ uv run mypy .
 
 ## License
 
-MIT License
+Apache License 2.0 - see [LICENSE](LICENSE) file for details.
