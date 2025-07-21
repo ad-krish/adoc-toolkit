@@ -1,10 +1,11 @@
 """Use command implementation."""
 
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 import yaml
 
+from ...models import CompletionItem
 from .base import Command
 
 
@@ -114,8 +115,10 @@ class UseCommand(Command):
 
         return True
 
-    def get_completions(self, current_input: str, cursor_position: int) -> list[str]:
-        """Get auto-completion suggestions for environment names."""
+    def get_completions(
+        self, current_input: str, cursor_position: int
+    ) -> list[Union[str, CompletionItem]]:
+        """Get auto-completion suggestions for environment names with descriptions."""
         config = self._load_config()
         if not config or "environments" not in config:
             return []
@@ -131,10 +134,21 @@ class UseCommand(Command):
             # Filter environment names that start with the current argument
             if current_arg:
                 completions = [
-                    env for env in env_names if env.startswith(current_arg.lower())
+                    CompletionItem(
+                        text=env,
+                        description=f"Environment: {config['environments'][env].get('description', 'No description available')}",  # noqa: E501
+                    )
+                    for env in env_names
+                    if env.startswith(current_arg.lower())
                 ]
             else:
-                completions = env_names
+                completions = [
+                    CompletionItem(
+                        text=env,
+                        description=f"Environment: {config['environments'][env].get('description', 'No description available')}",  # noqa: E501
+                    )
+                    for env in env_names
+                ]
 
             return completions
 

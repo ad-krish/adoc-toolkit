@@ -6,6 +6,7 @@ from .base import Command
 # Import all commands to make them available
 from .exit_command import ExitCommand
 from .export_metrics_command import ExportMetricsCommand
+from .get_command import GetCommand
 from .help_command import HelpCommand
 from .history_command import HistoryCommand
 from .set_config_command import SetConfigCommand
@@ -16,6 +17,7 @@ __all__ = [
     "Command",
     "ExitCommand",
     "ExportMetricsCommand",
+    "GetCommand",
     "HelpCommand",
     "HistoryCommand",
     "SetConfigCommand",

@@ -1,11 +1,11 @@
 """Set configuration command implementation."""
 
-from typing import Any
+from typing import Any, Union
 
 from rich.console import Console
-from rich.table import Table
 
 from ...config import get_config_manager
+from ...models import CompletionItem
 from .base import Command
 
 
@@ -45,15 +45,19 @@ class SetConfigCommand(Command):
             "    http.timeout    - HTTP request timeout in seconds (default: 120)\n"
         )
         help_text += "    http.retries    - Number of retry attempts (default: 3)\n"
-        help_text += "    http.proxy      - HTTP proxy URL (optional)\n\n"
+        help_text += "    http.proxy      - HTTP proxy URL (optional)\n"
+        help_text += "    http.response.type - Response format: json, table, "
+        help_text += "csv (default: json)\n\n"
 
         help_text += "  Logging Configuration:\n"
-        help_text += "    log.level       - Log level: TRACE, DEBUG, INFO, ERROR (default: INFO)\n"
+        help_text += "    log.level       - Log level: TRACE, DEBUG, INFO, "
+        help_text += "ERROR (default: INFO)\n"
         help_text += "    log.filepath    - Path to log file (optional)\n"
         help_text += (
             "    log.rotate.onsize - Log rotation size threshold (default: 10MB)\n"
         )
-        help_text += "    log.rotate.ontime - Log rotation time threshold in minutes (default: 120)\n\n"
+        help_text += "    log.rotate.ontime - Log rotation time threshold in "
+        help_text += "minutes (default: 120)\n\n"
 
         help_text += "  Audit Configuration:\n"
         help_text += "    audit.logfile   - Path to audit log file (optional)\n\n"
@@ -63,6 +67,8 @@ class SetConfigCommand(Command):
         help_text += "  set-config http.retries 5\n"
         help_text += "  set-config http.proxy https://proxy.example.com:8080\n"
         help_text += "  set-config http.proxy none    # Remove proxy\n"
+        help_text += "  set-config http.response.type table\n"
+        help_text += "  set-config http.response.type csv\n"
         help_text += "  set-config log.level DEBUG\n"
         help_text += "  set-config log.filepath ./my-app.log\n"
         help_text += "  set-config log.rotate.onsize 50MB\n"
@@ -143,60 +149,66 @@ class SetConfigCommand(Command):
         return True
 
     def _list_config(self) -> bool:
-        """List all configuration values.
+        """List all configuration values with descriptions."""
+        config_manager = get_config_manager()
+        config_items = config_manager.get_all_config_items()
 
-        Returns:
-            True to continue interactive mode
-        """
-        config = get_config_manager().list_all()
-
-        if not config:
-            self.console.print("No configuration values set", style="yellow")
+        if not config_items:
+            self.console.print("No configuration items found.", style="yellow")
             return True
 
-        table = Table(title="ADOC Toolkit Configuration")
-        table.add_column("Key", style="cyan")
-        table.add_column("Value", style="green")
-        table.add_column("Description", style="dim")
+        # Create a table to display configuration
+        from rich.table import Table
 
-        descriptions = {
-            "http.timeout": "HTTP request timeout in seconds",
-            "http.retries": "Number of retry attempts for failed requests",
-            "http.proxy": "HTTP proxy URL for requests",
-            "log.level": "Log level for application logging",
-            "log.filepath": "Path to log file",
-            "log.rotate.onsize": "Log rotation size threshold",
-            "log.rotate.ontime": "Log rotation time threshold in minutes",
-            "audit.logfile": "Path to audit log file",
-        }
+        table = Table(title="Configuration Settings")
+        table.add_column("Key", style="cyan", width=30)
+        table.add_column("Value", style="white", width=20)
+        table.add_column("Description", style="green", width=50)
+        table.add_column("Type", style="yellow", width=10)
+        table.add_column("Options", style="blue", width=30)
 
-        # Flatten nested configuration for display
-        flat_config = self._flatten_config(config)
+        for key, item in config_items.items():
+            # Format the value
+            value_str = self._format_value(item.value)
 
-        for key, value in sorted(flat_config.items()):
-            description = descriptions.get(key, "")
-            formatted_value = self._format_value(value)
-            table.add_row(key, formatted_value, description)
+            # Format options
+            options_str = ""
+            if item.options:
+                options_str = ", ".join(map(str, item.options))
+
+            table.add_row(key, value_str, item.description, item.type, options_str)
 
         self.console.print(table)
         return True
 
     def _show_config(self, key: str) -> bool:
-        """Show a specific configuration value.
+        """Show detailed information for a specific configuration key."""
+        config_manager = get_config_manager()
+        config_item = config_manager.get_with_metadata(key)
 
-        Args:
-            key: Configuration key to show
-
-        Returns:
-            True to continue interactive mode
-        """
-        value = get_config_manager().get(key)
-
-        if value is None:
-            self.console.print(f"Configuration key '{key}' not found", style="yellow")
+        if not config_item:
+            self.console.print(f"Configuration key '{key}' not found.", style="red")
             return True
 
-        self.console.print(f"{key}: {self._format_value(value)}", style="green")
+        # Create a table to display configuration details
+        from rich.table import Table
+
+        table = Table(title=f"Configuration: {key}")
+        table.add_column("Property", style="cyan", width=20)
+        table.add_column("Value", style="white", width=40)
+
+        table.add_row("Current Value", self._format_value(config_item.value))
+        table.add_row("Description", config_item.description)
+        table.add_row("Type", config_item.type)
+        table.add_row("Default", self._format_value(config_item.default))
+
+        if config_item.options:
+            options_str = ", ".join(map(str, config_item.options))
+            table.add_row("Valid Options", options_str)
+        else:
+            table.add_row("Valid Options", "Any value of type " + config_item.type)
+
+        self.console.print(table)
         return True
 
     def _flatten_config(self, config: dict, prefix: str = "") -> dict:
@@ -239,29 +251,23 @@ class SetConfigCommand(Command):
         else:
             return str(value)
 
-    def get_completions(self, current_input: str, cursor_position: int) -> list[str]:
-        """Get auto-completion suggestions for set-config command.
+    def get_completions(
+        self, current_input: str, cursor_position: int
+    ) -> list[Union[str, CompletionItem]]:
+        """Get auto-completion suggestions for set-config command with descriptions.
 
         Args:
             current_input: Current input text
             cursor_position: Current cursor position
 
         Returns:
-            List of completion suggestions
+            List of completion suggestions with descriptions
         """
         words = current_input.split()
 
-        # All available configuration keys
-        all_config_keys = [
-            "http.timeout",
-            "http.retries",
-            "http.proxy",
-            "log.level",
-            "log.filepath",
-            "log.rotate.onsize",
-            "log.rotate.ontime",
-            "audit.logfile",
-        ]
+        # Get all configuration items with their metadata
+        config_manager = get_config_manager()
+        config_items = config_manager.get_all_config_items()
 
         # If we're typing the second argument after --show
         if len(words) >= 2 and words[1] == "--show":
@@ -269,47 +275,77 @@ class SetConfigCommand(Command):
                 len(words) == 3 and current_input.endswith(" ")
             ):
                 if len(words) == 2 or current_input.endswith(" "):
-                    return all_config_keys
+                    return [
+                        CompletionItem(text=key, description=item.description)
+                        for key, item in config_items.items()
+                    ]
                 else:
                     partial_key = words[2]
                     return [
-                        key for key in all_config_keys if key.startswith(partial_key)
+                        CompletionItem(text=key, description=item.description)
+                        for key, item in config_items.items()
+                        if key.startswith(partial_key)
                     ]
 
-        # For value completions, provide contextual suggestions
+        # For value completions, provide contextual suggestions with descriptions
         if len(words) == 2 and current_input.endswith(" "):
             key = words[1]
-            if key == "http.proxy":
-                return [
-                    "https://proxy.example.com:8080",
-                    "http://proxy.example.com:3128",
-                    "none",
-                ]
-            elif key == "http.timeout":
-                return ["30", "60", "120", "300"]
-            elif key == "http.retries":
-                return ["0", "1", "3", "5"]
-            elif key == "log.level":
-                return ["TRACE", "DEBUG", "INFO", "ERROR"]
-            elif key == "log.filepath":
-                return ["logs/adoc-toolkit.log", "./adoc-toolkit.log", "none"]
-            elif key == "log.rotate.onsize":
-                return ["10MB", "50MB", "100MB", "1GB"]
-            elif key == "log.rotate.ontime":
-                return ["60", "120", "240", "480"]
-            elif key == "audit.logfile":
-                return ["audit/adoc-audit.log", "./audit.log", "none"]
+            if key in config_items:
+                item = config_items[key]
+                if item.options:
+                    return [
+                        CompletionItem(
+                            text=str(option), description=f"Value for {key} parameter"
+                        )
+                        for option in item.options
+                    ]
+                else:
+                    # Provide some common suggestions based on type
+                    if item.type == "string":
+                        return [
+                            CompletionItem(
+                                text="none", description="Disable this setting"
+                            ),
+                            CompletionItem(
+                                text="default", description="Use default value"
+                            ),
+                        ]
+                    elif item.type == "integer":
+                        return [
+                            CompletionItem(text="0", description="Zero value"),
+                            CompletionItem(text="1", description="Single value"),
+                            CompletionItem(text="10", description="Small value"),
+                            CompletionItem(text="100", description="Medium value"),
+                        ]
 
         # If we're typing the first argument (the key)
         if len(words) <= 2:
-            keys = all_config_keys + ["--list", "--show"]
+            keys = list(config_items.keys()) + ["--list", "--show"]
+            key_descriptions = {
+                **{key: item.description for key, item in config_items.items()},
+                "--list": "List all configuration values",
+                "--show": "Show specific configuration value",
+            }
 
             if len(words) <= 1 or current_input.endswith(" "):
                 # Complete from beginning (after command or space)
-                return keys
+                return [
+                    CompletionItem(
+                        text=key,
+                        description=key_descriptions.get(key, "Configuration option"),
+                    )
+                    for key in keys
+                ]
             else:
                 # Filter based on current partial input
                 partial_key = words[-1]
-                return [key for key in keys if key.startswith(partial_key)]
+                return [
+                    CompletionItem(
+                        text=key,
+                        description=key_descriptions.get(key, "Configuration option"),
+                    )
+                    for key in keys
+                    if key.startswith(partial_key)
+                ]
 
         return []

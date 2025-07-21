@@ -1,4 +1,4 @@
-"""Export metrics command for ADOC toolkit."""
+"""Export metrics command implementation."""
 
 import json
 from concurrent.futures import ThreadPoolExecutor
@@ -9,7 +9,6 @@ from typing import Any, Optional
 import pandas as pd
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.panel import Panel
 from rich.table import Table
 
 from ...http import ADOCHTTPClient, HTTPError
@@ -155,7 +154,8 @@ Examples:
 
                 if df.empty:
                     console.print(
-                        "Warning: No data retrieved. Check your environment configuration.",
+                        "Warning: No data retrieved. Check your environment "
+                        "configuration.",
                         style="yellow",
                     )
                     return True
@@ -326,7 +326,7 @@ Examples:
             elif arg in ["--output-type", "--output-dir", "--output-filename"]:
                 if i + 1 >= len(args):
                     raise ValueError(f"{arg} requires a value")
-                parsed[arg.strip("--")] = args[i + 1]
+                parsed[arg.replace("--", "")] = args[i + 1]
                 i += 1
             else:
                 raise ValueError(f"Unknown argument: {arg}")
@@ -341,7 +341,8 @@ Examples:
                 import pyarrow  # noqa: F401
             except ImportError:
                 console.print(
-                    "Error: pyarrow is required for Parquet format. Install with: uv sync --extra export or uv add pyarrow",
+                    "Error: pyarrow is required for Parquet format. Install "
+                    "with: uv sync --extra export or uv add pyarrow",
                     style="red",
                 )
                 return False
@@ -350,7 +351,8 @@ Examples:
                 import fastavro  # noqa: F401
             except ImportError:
                 console.print(
-                    "Error: fastavro is required for Avro format. Install with: uv sync --extra export or uv add fastavro",
+                    "Error: fastavro is required for Avro format. Install "
+                    "with: uv sync --extra export or uv add fastavro",
                     style="red",
                 )
                 return False
@@ -629,18 +631,14 @@ Examples:
         total_records = len(df)
         total_columns = len(df.columns)
 
-        rule_types = df["Rule Type"].value_counts()
-        execution_statuses = df["Execution Status"].value_counts()
+        # Calculate statistics for numeric columns
         quality_scores_numeric = pd.to_numeric(
             df["Quality Score"], errors="coerce"
         ).dropna()
-        asset_types = df["Asset Type"].value_counts()
         open_alerts_numeric = pd.to_numeric(df["Open Alerts"], errors="coerce").dropna()
 
         # Summary Table
-        summary_table = Table(
-            title="Export Summary", show_header=True, header_style="bold magenta"
-        )
+        summary_table = Table(title="", show_header=True, header_style="bold magenta")
         summary_table.add_column("Metric", style="cyan")
         summary_table.add_column("Value", style="white")
         summary_table.add_row("Total Records", f"{total_records:,}")
@@ -663,108 +661,3 @@ Examples:
                 "Avg Alerts per Rule", f"{open_alerts_numeric.mean():.1f}"
             )
         console.print(summary_table)
-
-        # Rule Type Distribution
-        if not rule_types.empty:
-            rule_table = Table(
-                title="Rule Type Distribution",
-                show_header=True,
-                header_style="bold green",
-            )
-            rule_table.add_column("Rule Type", style="cyan")
-            rule_table.add_column("Count", justify="right", style="white")
-            rule_table.add_column("Percentage", justify="right", style="yellow")
-            for rule_type, count in rule_types.head(10).items():
-                percentage = (count / total_records) * 100
-                rule_table.add_row(str(rule_type), f"{count:,}", f"{percentage:.1f}%")
-            console.print(rule_table)
-
-        # Execution Status Distribution
-        if not execution_statuses.empty:
-            status_table = Table(
-                title="Execution Status Distribution",
-                show_header=True,
-                header_style="bold blue",
-            )
-            status_table.add_column("Status", style="cyan")
-            status_table.add_column("Count", justify="right", style="white")
-            status_table.add_column("Percentage", justify="right", style="yellow")
-            for status, count in execution_statuses.items():
-                percentage = (count / total_records) * 100
-                status_table.add_row(str(status), f"{count:,}", f"{percentage:.1f}%")
-            console.print(status_table)
-
-        # Asset Type Distribution
-        if not asset_types.empty:
-            asset_table = Table(
-                title="Top Asset Types", show_header=True, header_style="bold cyan"
-            )
-            asset_table.add_column("Asset Type", style="cyan")
-            asset_table.add_column("Count", justify="right", style="white")
-            asset_table.add_column("Percentage", justify="right", style="yellow")
-            for asset_type, count in asset_types.head(5).items():
-                percentage = (count / total_records) * 100
-                asset_table.add_row(str(asset_type), f"{count:,}", f"{percentage:.1f}%")
-            console.print(asset_table)
-
-        # Quality Score Distribution
-        if not quality_scores_numeric.empty:
-            score_ranges = pd.cut(
-                quality_scores_numeric,
-                bins=[0, 50, 70, 85, 95, 100],
-                labels=[
-                    "Poor (0-50)",
-                    "Fair (51-70)",
-                    "Good (71-85)",
-                    "Very Good (86-95)",
-                    "Excellent (96-100)",
-                ],
-                include_lowest=True,
-            ).value_counts()
-            quality_table = Table(
-                title="Quality Score Distribution",
-                show_header=True,
-                header_style="bold yellow",
-            )
-            quality_table.add_column("Quality Range", style="cyan")
-            quality_table.add_column("Count", justify="right", style="white")
-            quality_table.add_column("Percentage", justify="right", style="yellow")
-            for range_name, count in score_ranges.items():
-                percentage = (count / len(quality_scores_numeric)) * 100
-                quality_table.add_row(
-                    str(range_name), f"{count:,}", f"{percentage:.1f}%"
-                )
-            console.print(quality_table)
-
-        # Data Quality Insights
-        insights = []
-        if not quality_scores_numeric.empty:
-            avg_score = quality_scores_numeric.mean()
-            if avg_score >= 90:
-                insights.append("🟢 Excellent overall data quality (avg score ≥ 90)")
-            elif avg_score >= 80:
-                insights.append("🟡 Good overall data quality (avg score ≥ 80)")
-            else:
-                insights.append("🔴 Data quality needs attention (avg score < 80)")
-        if not execution_statuses.empty:
-            success_rate = (execution_statuses.get("SUCCESS", 0) / total_records) * 100
-            if success_rate >= 95:
-                insights.append(f"🟢 High execution success rate ({success_rate:.1f}%)")
-            elif success_rate >= 80:
-                insights.append(
-                    f"🟡 Moderate execution success rate ({success_rate:.1f}%)"
-                )
-            else:
-                insights.append(f"🔴 Low execution success rate ({success_rate:.1f}%)")
-        if not open_alerts_numeric.empty:
-            high_alert_rules = (open_alerts_numeric > 5).sum()
-            if high_alert_rules > 0:
-                insights.append(f"⚠️  {high_alert_rules} rules have > 5 open alerts")
-        if insights:
-            console.print(
-                Panel(
-                    "\n".join(insights),
-                    title="Data Quality Insights",
-                    border_style="bright_blue",
-                )
-            )

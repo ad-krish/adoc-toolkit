@@ -91,10 +91,10 @@ class ShowEnvCommand(Command):
         secret_key = env_info.get("secret_key", "")
 
         print(
-            f"Access Key: {self._mask_key(access_key) if access_key else 'Not configured'}"
+            f"Access Key: {self._mask_key(access_key) if access_key else 'Not configured'}"  # noqa: E501
         )
         print(
-            f"Secret Key: {self._mask_key(secret_key) if secret_key else 'Not configured'}"
+            f"Secret Key: {self._mask_key(secret_key) if secret_key else 'Not configured'}"  # noqa: E501
         )
 
         return True

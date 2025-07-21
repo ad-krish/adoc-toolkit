@@ -1,0 +1,340 @@
+{
+  "version": "1.0",
+  "description": "ADOC Toolkit API Reference for GET endpoints",
+  "endpoints": {
+    "/catalog-server/api/assets/search": {
+      "url": "/catalog-server/api/assets/search",
+      "description": "Search for assets in catalog",
+      "query_params": {
+        "name": {
+          "type": "string",
+          "description": "Asset name to search for"
+        },
+        "ids": {
+          "type": "string",
+          "description": "Comma-separated list of asset IDs"
+        }
+      },
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets": {
+      "url": "/catalog-server/api/assets",
+      "description": "Retrieve an asset by its unique identifier (UID).",
+      "query_params": {
+        "uid": {
+          "type": "string",
+          "description": "A unique identifier (UID) for the asset."
+        }
+      },
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/discover": {
+      "url": "/catalog-server/api/assets/discover",
+      "description": "Retrieve a list of assets based on specified query parameters",
+      "query_params": {
+        "parents": {
+          "type": "boolean",
+          "description": "Whether to include parent assets in the response."
+        },
+        "page": {
+          "type": "integer",
+          "description": "The page number to retrieve."
+        },
+        "size": {
+          "type": "integer",
+          "description": "The number of assets to include per page."
+        },
+        "profiled_assets": {
+          "type": "boolean",
+          "description": "Whether to include profiled assets in the response."
+        },
+        "watchers": {
+          "type": "boolean",
+          "description": "Whether to include watchers in the response."
+        },
+        "asset_type_ids": {
+          "type": "string",
+          "description": "Comma-separated list of asset type IDs."
+        }
+      },
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/list/facets": {
+      "url": "/catalog-server/api/assets/list/facets",
+      "description": "Retrieve a list of facets for assets.",
+      "query_params": {
+        "parents": {
+          "type": "boolean",
+          "description": "Whether to include parent assets in the response."
+        },
+        "asset_type_ids": {
+          "type": "string",
+          "description": "Comma-separated list of asset type IDs."
+        },
+        "page": {
+          "type": "integer",
+          "description": "The page number to retrieve."
+        },
+        "size": {
+          "type": "integer",
+          "description": "The number of assets to include per page."
+        },
+        "profiled_assets": {
+          "type": "boolean",
+          "description": "Whether to include profiled assets in the response."
+        },
+        "watchers": {
+          "type": "boolean",
+          "description": "Whether to include watchers in the response."
+        }
+      },
+      "response_type": "json"
+    },
+    "/catalog-server/api/asset-types": {
+      "url": "/catalog-server/api/asset-types",
+      "description": "Retrieve a list of asset types.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/profiling": {
+      "url": "/catalog-server/api/profiling",
+      "description": "Profiling API",
+      "query_params": {
+        "page": {
+          "type": "integer",
+          "description": "The page number to retrieve."
+        },
+        "size": {
+          "type": "integer",
+          "description": "The number of assets to include per page."
+        },
+        "assetName": {
+          "type": "string",
+          "description": "The name of the asset to profile."
+        }
+      },
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/reference-assets/jobs": {
+      "url": "/catalog-server/api/assets/reference-assets/jobs",
+      "description": "Retrieve a list of jobs for reference assets.",
+      "query_params": {
+        "page": {
+          "type": "integer",
+          "description": "The page number to retrieve."
+        },
+        "size": {
+          "type": "integer",
+          "description": "The number of assets to include per page."
+        }
+      },
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/reference-assets": {
+      "url": "/catalog-server/api/assets/reference-assets",
+      "description": "Retrieve a list of reference assets.",
+      "query_params": {
+        "analyticsPipelineId": {
+          "type": "integer",
+          "description": "The ID of the analytics pipeline."
+        }
+      },
+      "response_type": "json"
+    },
+    "/catalog-server/api/source-types": {
+      "url": "/catalog-server/api/source-types",
+      "description": "Retrieve a list of source types.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/data-sources": {
+      "url": "/catalog-server/api/data-sources",
+      "description": "Retrieve a list of data sources.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assemblies/auto-profile-configurations": {
+      "url": "/catalog-server/api/assemblies/auto-profile-configurations",
+      "description": "Retrieve a list of auto-profile configurations.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/connection-types": {
+      "url": "/catalog-server/api/connection-types",
+      "description": "Retrieve a list of connection types.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/connections": {
+      "url": "/catalog-server/api/connections",
+      "description": "Retrieve a list of connections.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/analytics-pipelines": {
+      "url": "/catalog-server/api/analytics-pipelines",
+      "description": "Retrieve a list of analytics pipelines.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/rules/export/policy-definitions": {
+      "url": "/catalog-server/api/rules/export/policy-definitions",
+      "description": "Export policy definitions.",
+      "query_params": {
+        "ruleStatus": {
+          "type": "string",
+          "description": "The status of the rule."
+        },
+        "includeTags": {
+          "type": "boolean",
+          "description": "Whether to include tags in the response."
+        },
+        "search_str": {
+          "type": "string",
+          "description": "The search string to filter the rules."
+        },
+        "onlyActive": {
+          "type": "boolean",
+          "description": "Whether to only include active rules."
+        },
+        "ids": {
+          "type": "string",
+          "description": "Comma-separated list of rule IDs."
+        },
+        "filename": {
+          "type": "string",
+          "description": "The filename to export the rules to."
+        },
+        "releaseVersion": {
+          "type": "string",
+          "description": "The release version to export the rules to."
+        },
+        "rules_page": {
+          "type": "integer",
+          "description": "The page number to retrieve."
+        },
+        "rules_page_size": {
+          "type": "integer",
+          "description": "The number of rules to include per page."
+        },
+        "assemblyIds": {
+          "type": "string",
+          "description": "Comma-separated list of assembly IDs."
+        }
+      },
+      "response_type": "json"
+    },
+    "/catalog-server/api/rules": {
+      "url": "/catalog-server/api/rules",
+      "description": "Retrieve a list of rules.",
+      "query_params": {
+        "page": {
+          "type": "integer",
+          "description": "The page number to retrieve."
+        },
+        "size": {
+          "type": "integer",
+          "description": "The number of rules to include per page."
+        },
+        "ruleStatus": {
+          "type": "string",
+          "description": "The status of the rule."
+        },
+        "assemblyIds": {
+          "type": "string",
+          "description": "Comma-separated list of assembly IDs."
+        },
+        "ids": {
+          "type": "string",
+          "description": "Comma-separated list of rule IDs."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether to only include enabled rules."
+        }
+      },
+      "response_type": "json"
+    },
+    "/catalog-server/api/rules/executions": {
+      "url": "/catalog-server/api/rules/executions",
+      "description": "Retrieve a list of rule executions.",
+      "query_params": {
+        "page": {
+          "type": "integer",
+          "description": "The page number to retrieve."
+        },
+        "size": {
+          "type": "integer",
+          "description": "The number of rule executions to include per page."
+        },
+        "executionStatus": {
+          "type": "string",
+          "description": "The status of the rule execution."
+        },
+        "resultStatus": {
+          "type": "string",
+          "description": "The status of the rule execution result."
+        },
+        "ruleId": {
+          "type": "string",
+          "description": "The ID of the rule to retrieve executions for."
+        }
+      },
+      "response_type": "json"
+    },
+    "/catalog-server/api/rules/grouped-executions": {
+      "url": "/catalog-server/api/rules/grouped-executions",
+      "description": "Retrieve a list of grouped rule executions.",
+      "query_params": {
+        "page": {
+          "type": "integer",
+          "description": "The page number to retrieve."
+        },
+        "size": {
+          "type": "integer",
+          "description": "The number of rule executions to include per page."
+        },
+        "startedAfter": {
+          "type": "string",
+          "description": "The date and time to filter the rule executions by."
+        },
+        "finishedBefore": {
+          "type": "string",
+          "description": "The date and time to filter the rule executions by."
+        }
+      },
+      "response_type": "json"
+    },
+    "/catalog-server/api/rules/data-quality": {
+      "url": "/catalog-server/api/rules/data-quality",
+      "description": "Retrieve a list of data quality rules.",
+      "query_params": {
+        "page": {
+          "type": "integer",
+          "description": "The page number to retrieve."
+        },
+        "size": {
+          "type": "integer",
+          "description": "The number of data quality rules to include per page."
+        },
+        "ruleStatus": {
+          "type": "string",
+          "description": "The status of the data quality rule."
+        },
+        "assetIds": {
+          "type": "string",
+          "description": "Comma-separated list of asset IDs."
+        },
+        "ids": {
+          "type": "string",
+          "description": "Comma-separated list of rule IDs."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether to only include enabled rules."
+        }
+      },
+      "response_type": "json"
+    }
+  }
+}

@@ -13,10 +13,12 @@ from rich.console import Console
 from rich.text import Text
 
 from ..http import ADOCHTTPClient
+from ..models import CompletionItem
 from .commands import (
     Command,
     ExitCommand,
     ExportMetricsCommand,
+    GetCommand,
     HelpCommand,
     HistoryCommand,
     SetConfigCommand,
@@ -40,34 +42,87 @@ class ADOCCompleter(Completer):
             # Complete command names
             for cmd_name, cmd in self.commands.items():
                 if cmd_name == cmd.name:  # Only show primary names, not aliases
-                    yield Completion(cmd_name, start_position=0)
+                    yield Completion(
+                        cmd_name, start_position=0, display_meta=cmd.description
+                    )
         elif len(words) == 1 and not text.endswith(" "):
             # Complete command names that start with the current word
             current_word = words[0]
             for cmd_name, cmd in self.commands.items():
                 if cmd_name == cmd.name and cmd_name.startswith(current_word):
-                    yield Completion(cmd_name, start_position=-len(current_word))
+                    yield Completion(
+                        cmd_name,
+                        start_position=-len(current_word),
+                        display_meta=cmd.description,
+                    )
         else:
             # Command-specific completions
             cmd_name = words[0]
             if cmd_name in self.commands:
                 command = self.commands[cmd_name]
-                completions = command.get_completions(text, document.cursor_position)
 
+                # Try to get structured completions first
+                try:
+                    structured_completions = command.get_structured_completions(
+                        text, document.cursor_position
+                    )
+                    if structured_completions:
+                        # Get the current word being typed
+                        if text.endswith(" "):
+                            # Starting a new word
+                            for completion in structured_completions:
+                                yield Completion(
+                                    completion.text,
+                                    start_position=0,
+                                    display_meta=completion.description,
+                                )
+                        else:
+                            # Completing current word
+                            current_word = words[-1]
+                            for completion in structured_completions:
+                                if completion.text.startswith(current_word):
+                                    yield Completion(
+                                        completion.text,
+                                        start_position=-len(current_word),
+                                        display_meta=completion.description,
+                                    )
+                        return
+                except AttributeError:
+                    # Fall back to old-style completions if get_structured_completions
+                    # doesn't exist
+                    pass
+
+                # Fall back to old-style completions
+                completions = command.get_completions(text, document.cursor_position)
                 if completions:
                     # Get the current word being typed
                     if text.endswith(" "):
                         # Starting a new word
                         for completion in completions:
-                            yield Completion(completion, start_position=0)
+                            if isinstance(completion, CompletionItem):
+                                yield Completion(
+                                    completion.text,
+                                    start_position=0,
+                                    display_meta=completion.description,
+                                )
+                            else:
+                                yield Completion(completion, start_position=0)
                     else:
                         # Completing current word
                         current_word = words[-1]
                         for completion in completions:
-                            if completion.startswith(current_word):
-                                yield Completion(
-                                    completion, start_position=-len(current_word)
-                                )
+                            if isinstance(completion, CompletionItem):
+                                if completion.text.startswith(current_word):
+                                    yield Completion(
+                                        completion.text,
+                                        start_position=-len(current_word),
+                                        display_meta=completion.description,
+                                    )
+                            else:
+                                if completion.startswith(current_word):
+                                    yield Completion(
+                                        completion, start_position=-len(current_word)
+                                    )
 
 
 class InteractiveProcessor:
@@ -133,6 +188,7 @@ class InteractiveProcessor:
         export_metrics_cmd = ExportMetricsCommand(
             environment_info_callback=self.get_current_environment_info
         )
+        get_cmd = GetCommand(http_client=self.http_client)
 
         self.register_command(help_cmd)
         self.register_command(exit_cmd)
@@ -141,6 +197,7 @@ class InteractiveProcessor:
         self.register_command(history_cmd)
         self.register_command(set_config_cmd)
         self.register_command(export_metrics_cmd)
+        self.register_command(get_cmd)
 
     def register_command(self, command: Command) -> None:
         """Register a command in the processor.
@@ -281,9 +338,9 @@ class InteractiveProcessor:
             response: HTTPResponse object
         """
         # Log request information
-        method = response.request_info.get("method", "UNKNOWN")
-        endpoint = response.request_info.get("endpoint", "unknown")
-        retries = response.request_info.get("retries_attempted", 0)
+        method = response.request_info.method
+        endpoint = response.request_info.endpoint
+        retries = response.request_info.retries_attempted
 
         if response.is_success:
             style = "green"

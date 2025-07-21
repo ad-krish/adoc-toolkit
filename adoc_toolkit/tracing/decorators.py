@@ -3,13 +3,13 @@
 from functools import wraps
 from typing import Any, Callable, Optional, TypeVar
 
+from ..logs import trace_operation
 from .utils import (
     decrement_trace_depth,
     format_trace_message,
     increment_trace_depth,
     is_trace_enabled,
 )
-from ..logs import trace_operation
 
 # Type variable for tracing decorator
 F = TypeVar("F", bound=Callable[..., Any])

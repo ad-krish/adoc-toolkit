@@ -133,7 +133,8 @@ class ADOCHTTPClient(_AuditMixin):
         base_url = env_info.get("base_url")
         if not base_url:
             raise HTTPError(
-                "No environment selected. Use 'use <environment>' to set an environment."
+                "No environment selected. Use 'use <environment>' to set an "
+                "environment."
             )
         if not endpoint.startswith("/"):
             endpoint = f"/{endpoint}"
@@ -305,7 +306,8 @@ class ADOCHTTPClient(_AuditMixin):
                         else "Connection"
                     )
                     last_exception = HTTPError(
-                        f"Request {error_type.lower()} after {client_config['timeout']}s: {e}"
+                        f"Request {error_type.lower()} after "
+                        f"{client_config['timeout']}s: {e}"
                         if error_type == "Timeout"
                         else f"Connection error: {e}"
                     )
@@ -316,11 +318,12 @@ class ADOCHTTPClient(_AuditMixin):
                     )
                     if attempt < retries:
                         self.console.print(
-                            f"{error_type} error, retrying... (attempt {attempt + 1}/{retries})",
+                            f"{error_type} error, retrying... (attempt "
+                            f"{attempt + 1}/{retries})",
                             style="yellow",
                         )
                         continue
-                    raise last_exception
+                    raise last_exception from None
                 except httpx.HTTPError as e:
                     last_exception = HTTPError(f"HTTP error: {e}")
                     trace_error(
@@ -328,7 +331,7 @@ class ADOCHTTPClient(_AuditMixin):
                         f"HTTP error: {e}",
                         attempt=attempt,
                     )
-                    raise last_exception
+                    raise last_exception from None
                 except Exception as e:
                     last_exception = HTTPError(f"Unexpected error: {e}")
                     trace_error(
@@ -336,7 +339,7 @@ class ADOCHTTPClient(_AuditMixin):
                         f"Unexpected: {e}",
                         attempt=attempt,
                     )
-                    raise last_exception
+                    raise last_exception from None
             raise last_exception or HTTPError("Request failed after all retries")
 
     def get(

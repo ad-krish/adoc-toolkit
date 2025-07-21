@@ -183,113 +183,351 @@ def test_execute_show_nonexistent_config() -> None:
 
 def test_completions_for_keys() -> None:
     """Test auto-completion for configuration keys."""
-    cmd = SetConfigCommand()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config_file = Path(temp_dir) / "test-config.json"
 
-    # Test completion at start
-    completions = cmd.get_completions("set-config ", 11)
-    assert "http.timeout" in completions
-    assert "http.retries" in completions
-    assert "http.proxy" in completions
-    assert "log.level" in completions
-    assert "log.filepath" in completions
-    assert "log.rotate.onsize" in completions
-    assert "log.rotate.ontime" in completions
-    assert "audit.logfile" in completions
-    assert "--list" in completions
-    assert "--show" in completions
+        # Create enhanced config file for testing
+        enhanced_config = {
+            "http": {
+                "timeout": {
+                    "value": 120,
+                    "description": "HTTP request timeout in seconds",
+                    "type": "integer",
+                    "options": [30, 60, 120, 300],
+                    "default": 120,
+                },
+                "retries": {
+                    "value": 3,
+                    "description": "Number of retry attempts for failed requests",
+                    "type": "integer",
+                    "options": [0, 1, 3, 5],
+                    "default": 3,
+                },
+                "proxy": {
+                    "value": None,
+                    "description": "HTTP proxy URL for requests",
+                    "type": "string",
+                    "options": [
+                        "https://proxy.example.com:8080",
+                        "http://proxy.example.com:3128",
+                        "none",
+                    ],
+                    "default": None,
+                },
+                "response": {
+                    "type": {
+                        "value": "json",
+                        "description": "Response format type",
+                        "type": "string",
+                        "options": ["json", "table", "csv"],
+                        "default": "json",
+                    }
+                },
+            },
+            "audit": {
+                "logfile": {
+                    "value": None,
+                    "description": "Path to audit log file",
+                    "type": "string",
+                    "options": ["audit/adoc-audit.log", "./audit.log", "none"],
+                    "default": None,
+                }
+            },
+            "log": {
+                "level": {
+                    "value": "TRACE",
+                    "description": "Logging level for application logs",
+                    "type": "string",
+                    "options": ["TRACE", "DEBUG", "INFO", "ERROR"],
+                    "default": "TRACE",
+                },
+                "filepath": {
+                    "value": None,
+                    "description": "Path to log file",
+                    "type": "string",
+                    "options": ["logs/adoc-toolkit.log", "./adoc-toolkit.log", "none"],
+                    "default": None,
+                },
+                "rotate": {
+                    "onsize": {
+                        "value": "10MB",
+                        "description": "Log rotation size limit",
+                        "type": "string",
+                        "options": ["10MB", "50MB", "100MB", "1GB"],
+                        "default": "10MB",
+                    },
+                    "ontime": {
+                        "value": 120,
+                        "description": "Log rotation time interval in minutes",
+                        "type": "integer",
+                        "options": [60, 120, 240, 480],
+                        "default": 120,
+                    },
+                },
+            },
+        }
 
-    # Test partial completion for HTTP
-    completions = cmd.get_completions("set-config http.t", 17)
-    assert "http.timeout" in completions
-    assert "http.retries" not in completions
+        # Write enhanced config file
+        import json
 
-    # Test partial completion for log keys
-    completions = cmd.get_completions("set-config l", 12)
-    assert "log.level" in completions
-    assert "log.filepath" in completions
-    assert "log.rotate.onsize" in completions
-    assert "log.rotate.ontime" in completions
-    assert "http.timeout" not in completions
+        with open(config_file, "w") as f:
+            json.dump(enhanced_config, f, indent=2)
 
-    # Test partial completion for log.
-    completions = cmd.get_completions("set-config log.", 15)
-    assert "log.level" in completions
-    assert "log.filepath" in completions
-    assert "log.rotate.onsize" in completions
-    assert "log.rotate.ontime" in completions
-    assert "audit.logfile" not in completions
+        # Reset config manager with the enhanced config file
+        from adoc_toolkit.config import reset_config_manager
+
+        reset_config_manager(config_file)
+
+        cmd = SetConfigCommand()
+
+        # Test completion at start
+        completions = cmd.get_completions("set-config ", 11)
+        assert any(c.text == "http.timeout" for c in completions)
+        assert any(c.text == "http.retries" for c in completions)
+        assert any(c.text == "http.proxy" for c in completions)
+        assert any(c.text == "log.level" for c in completions)
+        assert any(c.text == "log.filepath" for c in completions)
+        assert any(c.text == "log.rotate.onsize" for c in completions)
+        assert any(c.text == "log.rotate.ontime" for c in completions)
+        assert any(c.text == "audit.logfile" for c in completions)
+        assert any(c.text == "--list" for c in completions)
+        assert any(c.text == "--show" for c in completions)
+
+        # Test partial completion for HTTP
+        completions = cmd.get_completions("set-config http.t", 17)
+        assert any(c.text == "http.timeout" for c in completions)
+        assert not any(c.text == "http.retries" for c in completions)
+
+        # Test partial completion for log keys
+        completions = cmd.get_completions("set-config l", 12)
+        assert any(c.text == "log.level" for c in completions)
+        assert any(c.text == "log.filepath" for c in completions)
+        assert any(c.text == "log.rotate.onsize" for c in completions)
+        assert any(c.text == "log.rotate.ontime" for c in completions)
+        assert not any(c.text == "http.timeout" for c in completions)
+
+        # Test partial completion for log.
+        completions = cmd.get_completions("set-config log.", 15)
+        assert any(c.text == "log.level" for c in completions)
+        assert any(c.text == "log.filepath" for c in completions)
+        assert any(c.text == "log.rotate.onsize" for c in completions)
+        assert any(c.text == "log.rotate.ontime" for c in completions)
+        assert not any(c.text == "audit.logfile" for c in completions)
 
 
 def test_completions_for_show_flag() -> None:
     """Test auto-completion for --show flag."""
-    cmd = SetConfigCommand()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config_file = Path(temp_dir) / "test-config.json"
 
-    completions = cmd.get_completions("set-config --show ", 18)
-    assert "http.timeout" in completions
-    assert "http.retries" in completions
-    assert "http.proxy" in completions
-    assert "log.level" in completions
-    assert "log.filepath" in completions
-    assert "log.rotate.onsize" in completions
-    assert "log.rotate.ontime" in completions
-    assert "audit.logfile" in completions
+        # Create enhanced config file for testing
+        enhanced_config = {
+            "http": {
+                "timeout": {
+                    "value": 120,
+                    "description": "HTTP request timeout in seconds",
+                    "type": "integer",
+                    "options": [30, 60, 120, 300],
+                    "default": 120,
+                },
+                "retries": {
+                    "value": 3,
+                    "description": "Number of retry attempts for failed requests",
+                    "type": "integer",
+                    "options": [0, 1, 3, 5],
+                    "default": 3,
+                },
+                "proxy": {
+                    "value": None,
+                    "description": "HTTP proxy URL for requests",
+                    "type": "string",
+                    "options": [
+                        "https://proxy.example.com:8080",
+                        "http://proxy.example.com:3128",
+                        "none",
+                    ],
+                    "default": None,
+                },
+            },
+            "log": {
+                "level": {
+                    "value": "TRACE",
+                    "description": "Logging level for application logs",
+                    "type": "string",
+                    "options": ["TRACE", "DEBUG", "INFO", "ERROR"],
+                    "default": "TRACE",
+                },
+                "filepath": {
+                    "value": None,
+                    "description": "Path to log file",
+                    "type": "string",
+                    "options": ["logs/adoc-toolkit.log", "./adoc-toolkit.log", "none"],
+                    "default": None,
+                },
+                "rotate": {
+                    "onsize": {
+                        "value": "10MB",
+                        "description": "Log rotation size limit",
+                        "type": "string",
+                        "options": ["10MB", "50MB", "100MB", "1GB"],
+                        "default": "10MB",
+                    },
+                    "ontime": {
+                        "value": 120,
+                        "description": "Log rotation time interval in minutes",
+                        "type": "integer",
+                        "options": [60, 120, 240, 480],
+                        "default": 120,
+                    },
+                },
+            },
+            "audit": {
+                "logfile": {
+                    "value": None,
+                    "description": "Path to audit log file",
+                    "type": "string",
+                    "options": ["audit/adoc-audit.log", "./audit.log", "none"],
+                    "default": None,
+                }
+            },
+        }
+
+        # Write enhanced config file
+        import json
+
+        with open(config_file, "w") as f:
+            json.dump(enhanced_config, f, indent=2)
+
+        # Reset config manager with the enhanced config file
+        from adoc_toolkit.config import reset_config_manager
+
+        reset_config_manager(config_file)
+
+        cmd = SetConfigCommand()
+
+        completions = cmd.get_completions("set-config --show ", 18)
+        assert any(c.text == "http.timeout" for c in completions)
+        assert any(c.text == "http.retries" for c in completions)
+        assert any(c.text == "http.proxy" for c in completions)
+        assert any(c.text == "log.level" for c in completions)
+        assert any(c.text == "log.filepath" for c in completions)
+        assert any(c.text == "log.rotate.onsize" for c in completions)
+        assert any(c.text == "log.rotate.ontime" for c in completions)
+        assert any(c.text == "audit.logfile" for c in completions)
 
 
 def test_completions_for_values() -> None:
     """Test auto-completion for configuration values."""
-    cmd = SetConfigCommand()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config_file = Path(temp_dir) / "test-config.json"
 
-    # Test timeout value completions
-    completions = cmd.get_completions("set-config http.timeout ", 24)
-    assert "30" in completions
-    assert "60" in completions
-    assert "120" in completions
-    assert "300" in completions
+        # Create enhanced config file for testing
+        enhanced_config = {
+            "http": {
+                "timeout": {
+                    "value": 120,
+                    "description": "HTTP request timeout in seconds",
+                    "type": "integer",
+                    "options": [30, 60, 120, 300],
+                    "default": 120,
+                },
+                "retries": {
+                    "value": 3,
+                    "description": "Number of retry attempts for failed requests",
+                    "type": "integer",
+                    "options": [0, 1, 3, 5],
+                    "default": 3,
+                },
+                "proxy": {
+                    "value": None,
+                    "description": "HTTP proxy URL for requests",
+                    "type": "string",
+                    "options": [
+                        "https://proxy.example.com:8080",
+                        "http://proxy.example.com:3128",
+                        "none",
+                    ],
+                    "default": None,
+                },
+            },
+            "log": {
+                "level": {
+                    "value": "TRACE",
+                    "description": "Logging level for application logs",
+                    "type": "string",
+                    "options": ["TRACE", "DEBUG", "INFO", "ERROR"],
+                    "default": "TRACE",
+                },
+                "filepath": {
+                    "value": None,
+                    "description": "Path to log file",
+                    "type": "string",
+                    "options": ["logs/adoc-toolkit.log", "./adoc-toolkit.log", "none"],
+                    "default": None,
+                },
+                "rotate": {
+                    "onsize": {
+                        "value": "10MB",
+                        "description": "Log rotation size limit",
+                        "type": "string",
+                        "options": ["10MB", "50MB", "100MB", "1GB"],
+                        "default": "10MB",
+                    }
+                },
+            },
+        }
 
-    # Test retries value completions
-    completions = cmd.get_completions("set-config http.retries ", 24)
-    assert "0" in completions
-    assert "1" in completions
-    assert "3" in completions
-    assert "5" in completions
+        # Write enhanced config file
+        import json
 
-    # Test proxy value completions
-    completions = cmd.get_completions("set-config http.proxy ", 22)
-    assert "https://proxy.example.com:8080" in completions
-    assert "none" in completions
+        with open(config_file, "w") as f:
+            json.dump(enhanced_config, f, indent=2)
 
-    # Test log level value completions
-    completions = cmd.get_completions("set-config log.level ", 21)
-    assert "TRACE" in completions
-    assert "DEBUG" in completions
-    assert "INFO" in completions
-    assert "ERROR" in completions
+        # Reset config manager with the enhanced config file
+        from adoc_toolkit.config import reset_config_manager
 
-    # Test log filepath value completions
-    completions = cmd.get_completions("set-config log.filepath ", 24)
-    assert "logs/adoc-toolkit.log" in completions
-    assert "./adoc-toolkit.log" in completions
-    assert "none" in completions
+        reset_config_manager(config_file)
 
-    # Test log rotation size value completions
-    completions = cmd.get_completions("set-config log.rotate.onsize ", 30)
-    assert "10MB" in completions
-    assert "50MB" in completions
-    assert "100MB" in completions
-    assert "1GB" in completions
+        cmd = SetConfigCommand()
 
-    # Test log rotation time value completions
-    completions = cmd.get_completions("set-config log.rotate.ontime ", 30)
-    assert "60" in completions
-    assert "120" in completions
-    assert "240" in completions
-    assert "480" in completions
+        # Test timeout value completions
+        completions = cmd.get_completions("set-config http.timeout ", 24)
+        assert any(c.text == "30" for c in completions)
+        assert any(c.text == "60" for c in completions)
+        assert any(c.text == "120" for c in completions)
+        assert any(c.text == "300" for c in completions)
 
-    # Test audit logfile value completions
-    completions = cmd.get_completions("set-config audit.logfile ", 25)
-    assert "audit/adoc-audit.log" in completions
-    assert "./audit.log" in completions
-    assert "none" in completions
+        # Test retries value completions
+        completions = cmd.get_completions("set-config http.retries ", 24)
+        assert any(c.text == "0" for c in completions)
+        assert any(c.text == "1" for c in completions)
+        assert any(c.text == "3" for c in completions)
+        assert any(c.text == "5" for c in completions)
+
+        # Test proxy value completions
+        completions = cmd.get_completions("set-config http.proxy ", 22)
+        assert any(c.text == "https://proxy.example.com:8080" for c in completions)
+        assert any(c.text == "none" for c in completions)
+
+        # Test log level value completions
+        completions = cmd.get_completions("set-config log.level ", 21)
+        assert any(c.text == "TRACE" for c in completions)
+        assert any(c.text == "DEBUG" for c in completions)
+        assert any(c.text == "INFO" for c in completions)
+        assert any(c.text == "ERROR" for c in completions)
+
+        # Test log filepath value completions
+        completions = cmd.get_completions("set-config log.filepath ", 24)
+        assert any(c.text == "logs/adoc-toolkit.log" for c in completions)
+        assert any(c.text == "./adoc-toolkit.log" for c in completions)
+        assert any(c.text == "none" for c in completions)
+
+        # Test log rotation size value completions
+        completions = cmd.get_completions("set-config log.rotate.onsize ", 30)
+        assert any(c.text == "10MB" for c in completions)
+        assert any(c.text == "50MB" for c in completions)
+        assert any(c.text == "100MB" for c in completions)
+        assert any(c.text == "1GB" for c in completions)
 
 
 def test_flatten_config() -> None:

@@ -1,12 +1,26 @@
 """Configuration data model."""
 
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
 from ..audit.audit_config import AuditConfig
 from ..http.http_config import HTTPConfig
 from ..logs.log_config import LogConfig
+
+
+class ConfigItem(BaseModel):
+    """Model for configuration items with descriptions and metadata."""
+
+    value: Any = Field(description="Configuration value")
+    description: str = Field(
+        description="Human-readable description of the configuration"
+    )
+    type: str = Field(description="Data type of the configuration")
+    options: Optional[list[Any]] = Field(
+        default=None, description="Valid options for this configuration"
+    )
+    default: Any = Field(description="Default value for this configuration")
 
 
 class ConfigurationData(BaseModel):
@@ -43,16 +57,75 @@ class ConfigurationData(BaseModel):
 
         return obj
 
+    def get_with_metadata(self, key: str) -> Optional[ConfigItem]:
+        """Get configuration value with metadata by dot-notation key."""
+        parts = key.split(".")
+        obj = self
+
+        for part in parts:
+            if hasattr(obj, part):
+                obj = getattr(obj, part)
+            elif (
+                hasattr(obj, "__getitem__")
+                and hasattr(obj, "__contains__")
+                and part in obj
+            ):
+                obj = obj[part]
+            else:
+                return None
+
+        # Check if the object is a ConfigItem
+        if isinstance(obj, dict) and "value" in obj and "description" in obj:
+            return ConfigItem.model_validate(obj)
+
+        return None
+
+    def get_all_config_items(self) -> dict[str, ConfigItem]:
+        """Get all configuration items with their metadata."""
+        config_items = {}
+
+        def traverse_config(obj: Any, prefix: str = "") -> None:
+            if isinstance(obj, dict):
+                for key, value in obj.items():
+                    current_key = f"{prefix}.{key}" if prefix else key
+                    if (
+                        isinstance(value, dict)
+                        and "value" in value
+                        and "description" in value
+                    ):
+                        # This is a ConfigItem
+                        config_items[current_key] = ConfigItem.model_validate(value)
+                    else:
+                        # Continue traversing
+                        traverse_config(value, current_key)
+            elif hasattr(obj, "__dict__"):
+                # Handle Pydantic models
+                for key, value in obj.__dict__.items():
+                    if not key.startswith("_"):
+                        current_key = f"{prefix}.{key}" if prefix else key
+                        traverse_config(value, current_key)
+
+        traverse_config(self)
+        return config_items
+
     def set(self, key: str, value: Any) -> None:
         """Set configuration value by dot-notation key."""
         parts = key.split(".")
 
         # Handle known HTTP configuration with validation
-        if key.startswith("http.") and len(parts) == 2:
-            http_key = parts[1]
-            if hasattr(self.http, http_key):
-                setattr(self.http, http_key, value)
-                return
+        if key.startswith("http.") and len(parts) >= 2:
+            if len(parts) == 2:
+                # Direct http config (e.g., http.timeout, http.retries)
+                http_key = parts[1]
+                if hasattr(self.http, http_key):
+                    setattr(self.http, http_key, value)
+                    return
+            elif len(parts) == 3 and parts[1] == "response":
+                # HTTP response config (e.g., http.response.type)
+                response_key = parts[2]
+                if hasattr(self.http.response, response_key):
+                    setattr(self.http.response, response_key, value)
+                    return
 
         # Handle known audit configuration with validation
         if key.startswith("audit.") and len(parts) == 2:
@@ -67,6 +140,18 @@ class ConfigurationData(BaseModel):
                 # Direct log config (e.g., log.level, log.filepath)
                 log_key = parts[1]
                 if hasattr(self.log, log_key):
+                    # Special handling for log.level to convert string to enum
+                    if log_key == "level" and isinstance(value, str):
+                        from adoc_toolkit.logs import LogLevel
+
+                        try:
+                            value = LogLevel(value.upper())
+                        except ValueError:
+                            valid_levels = [level.value for level in LogLevel]
+                            raise ValueError(
+                                f"Invalid log level '{value}'. Must be one of: "
+                                f"{', '.join(valid_levels)}"
+                            ) from None
                     setattr(self.log, log_key, value)
                     return
             elif len(parts) == 3 and parts[1] == "rotate":

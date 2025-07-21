@@ -158,14 +158,14 @@ environments:
 
             # Test completion for empty argument
             completions = cmd.get_completions("use ", 4)
-            assert "dev" in completions
-            assert "staging" in completions
-            assert "production" in completions
+            assert any(c.text == "dev" for c in completions)
+            assert any(c.text == "staging" for c in completions)
+            assert any(c.text == "production" for c in completions)
 
             # Test partial completion
             completions = cmd.get_completions("use d", 5)
-            assert "dev" in completions
-            assert "staging" not in completions
+            assert any(c.text == "dev" for c in completions)
+            assert not any(c.text == "staging" for c in completions)
 
 
 def test_config_caching() -> None:

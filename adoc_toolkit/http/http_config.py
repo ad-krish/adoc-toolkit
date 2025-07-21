@@ -1,9 +1,27 @@
 """HTTP configuration model."""
 
+from enum import Enum
 from typing import Optional
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator
+
+
+class ResponseType(str, Enum):
+    """HTTP response formatting types."""
+
+    JSON = "json"
+    TABLE = "table"
+    CSV = "csv"
+
+
+class HTTPResponseConfig(BaseModel):
+    """HTTP response configuration settings."""
+
+    type: ResponseType = Field(
+        default=ResponseType.JSON,
+        description="Response formatting type (json|table|csv)",
+    )
 
 
 class HTTPConfig(BaseModel):
@@ -12,6 +30,9 @@ class HTTPConfig(BaseModel):
     timeout: int = Field(default=120, description="Request timeout in seconds")
     retries: int = Field(default=3, description="Number of retry attempts")
     proxy: Optional[str] = Field(default=None, description="HTTP proxy URL")
+    response: HTTPResponseConfig = Field(
+        default_factory=HTTPResponseConfig, description="Response configuration"
+    )
 
     @field_validator("timeout")
     @classmethod
@@ -35,6 +56,12 @@ class HTTPConfig(BaseModel):
             raise ValueError("Retries must be non-negative")
         if v > 10:
             raise ValueError("Retries cannot exceed 10")
+        return v
+
+    @field_validator("response")
+    @classmethod
+    def validate_response_config(cls, v: HTTPResponseConfig) -> HTTPResponseConfig:
+        """Validate response configuration."""
         return v
 
     @field_validator("proxy")
