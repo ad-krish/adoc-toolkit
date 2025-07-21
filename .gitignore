@@ -26,6 +26,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 uv.lock
+config/environments.yaml
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
