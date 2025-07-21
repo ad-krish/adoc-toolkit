@@ -37,30 +37,33 @@ get <url> [query-params]
 ADOC > use se-demo
 Environment set to se-demo
 
-# Health check
-ADOC > get health
+# Search for assets
+ADOC > get /catalog-server/api/assets/search name=Snowflake
 
-# List environments
-ADOC > get environments
+# Get asset by UID
+ADOC > get /catalog-server/api/assets uid=1234567890
 
-# List datasets
-ADOC > get datasets
+# List asset types
+ADOC > get /catalog-server/api/asset-types
+
+# List data sources
+ADOC > get /catalog-server/api/data-sources
 ```
 
 ### With Query Parameters
 
 ```bash
-# Filter datasets by environment
-ADOC > get datasets environment=prod
+# Search with multiple parameters
+ADOC > get /catalog-server/api/assets/search name=Snowflake ids=1234567890
 
-# Limit results
-ADOC > get datasets limit=10
+# Get assets with pagination
+ADOC > get /catalog-server/api/assets/discover page=1 size=10
 
-# Multiple parameters
-ADOC > get datasets environment=prod limit=10 status=active
+# Get rules with filters
+ADOC > get /catalog-server/api/rules page=1 size=20 ruleStatus=active
 
-# Metrics with time range
-ADOC > get metrics dataset=my-dataset start_time=2024-01-01T00:00:00Z end_time=2024-01-02T00:00:00Z
+# Get rule executions
+ADOC > get /catalog-server/api/rules/executions page=1 size=10 executionStatus=completed
 ```
 
 ### Help and Documentation
@@ -70,65 +73,8 @@ ADOC > get metrics dataset=my-dataset start_time=2024-01-01T00:00:00Z end_time=2
 ADOC > get --help
 
 # Help for specific endpoint
-ADOC > get --help datasets
+ADOC > get --help /catalog-server/api/assets/search
 ```
-
-## Available URLs
-
-The following URLs are available in the API reference:
-
-| URL | Description |
-|-----|-------------|
-| `/health` | Health check endpoint |
-| `/api/v1/environments` | List all environments |
-| `/api/v1/datasets` | List all datasets |
-| `/api/v1/metrics` | Get metrics data |
-| `/api/v1/alerts` | List all alerts |
-| `/api/v1/users` | List all users |
-| `/api/v1/config` | Get system configuration |
-| `/catalog-server/api/assets/search` | Search for assets in catalog |
-| `/catalog-server/api/assets` | List all assets |
-
-## Query Parameters
-
-### Common Parameters
-
-Most endpoints support these common parameters:
-
-- **limit**: Maximum number of results to return (default: 100)
-- **offset**: Number of results to skip (default: 0)
-
-### URL-Specific Parameters
-
-#### `/api/v1/datasets` URL
-
-- **environment**: Filter by environment name
-- **status**: Filter by dataset status (`active`, `inactive`, `error`)
-
-#### `/api/v1/metrics` URL
-
-- **dataset**: Dataset name to filter metrics
-- **metric**: Specific metric name
-- **start_time**: Start time in ISO format (YYYY-MM-DDTHH:MM:SSZ)
-- **end_time**: End time in ISO format (YYYY-MM-DDTHH:MM:SSZ)
-- **interval**: Time interval for aggregation (`1m`, `5m`, `15m`, `1h`, `6h`, `1d`)
-
-#### `/api/v1/alerts` URL
-
-- **status**: Filter by alert status (`active`, `resolved`, `acknowledged`)
-- **severity**: Filter by alert severity (`low`, `medium`, `high`, `critical`)
-- **environment**: Filter by environment name
-
-#### `/api/v1/users` URL
-
-- **role**: Filter by user role (`admin`, `user`, `viewer`)
-- **status**: Filter by user status (`active`, `inactive`)
-
-#### `/catalog-server/api/assets/search` URL
-
-- **name**: Asset name to search for
-- **type**: Asset type filter (`database`, `table`, `view`, `column`)
-- **ids**: Comma-separated list of asset IDs
 
 ## Auto-completion
 
@@ -143,23 +89,19 @@ The command provides intelligent auto-completion:
 ```bash
 # Start typing a URL
 ADOC > get /<TAB>
-# Shows: /health, /api/v1/environments, /catalog-server/api/assets/search, etc.
+# Shows: /catalog-server/api/assets/search, /catalog-server/api/assets, etc.
 
 # Start typing a specific URL
 ADOC > get /catalog-server/<TAB>
-# Shows: /catalog-server/api/assets/search, /catalog-server/api/assets
+# Shows: /catalog-server/api/assets/search, /catalog-server/api/assets, etc.
 
 # Show parameters for a URL
 ADOC > get /catalog-server/api/assets/search?<TAB>
-# Shows: name, type, ids, limit, offset
+# Shows: name, ids
 
 # Complete parameter value
-ADOC > get /catalog-server/api/assets/search?type=d<TAB>
-# Completes to: get /catalog-server/api/assets/search?type=database
-
-# Add another parameter
-ADOC > get /catalog-server/api/assets/search?name=Snowflake&<TAB>
-# Shows remaining parameters: type, ids, limit, offset
+ADOC > get /catalog-server/api/assets/search?name=S<TAB>
+# Completes to: get /catalog-server/api/assets/search?name=Snowflake
 ```
 
 ## Aliases
@@ -185,24 +127,6 @@ set-config http.response.type table   # Table format
 set-config http.response.type csv     # CSV format
 ```
 
-### API Reference File
-
-Endpoints are defined in `config/adoc-toolkit-api-reference.json`. This file contains:
-
-- Endpoint URLs and descriptions
-- Query parameter definitions
-- Parameter types and validation rules
-- Default values and valid options
-
-### Environment Integration
-
-The command requires an environment to be set using the `use` command. It automatically uses the current environment's configuration:
-- **Base URL**: From the active environment
-- **Access Key**: For authentication
-- **Secret Key**: For authentication
-
-If no environment is set, the command will fail with a helpful error message directing you to set an environment first.
-
 ## Error Handling
 
 The command provides comprehensive error handling:
@@ -213,68 +137,19 @@ The command provides comprehensive error handling:
 - **HTTP Errors**: Displays detailed error messages for failed requests
 - **Authentication Errors**: Handles authentication failures gracefully
 
-## Integration with Other Commands
-
-- **use**: Switch environments before making requests
-- **show-env**: Check current environment configuration
-- **help**: Get help for the get command
-
 ## Examples with Real Data
 
 ### No Environment Set
 ```bash
-ADOC > get health
+ADOC > get /catalog-server/api/assets/search
 Error: No environment selected
 Please set an environment first using:
   use <environment-name>
 Available environments:
-  cs-india
-  training
-  se-demo
+  dev
+  uat
+  prod
 ```
-
-### Health Check
-```bash
-ADOC > get health
-{
-  "status": "healthy",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "version": "1.2.3"
-}
-```
-
-### List Datasets
-```bash
-ADOC > get datasets environment=prod limit=5
-{
-  "datasets": [
-    {
-      "name": "prod-dataset-1",
-      "environment": "prod",
-      "status": "active",
-      "created_at": "2024-01-01T00:00:00Z"
-    }
-  ],
-  "total": 25,
-  "limit": 5,
-  "offset": 0
-}
-```
-
-### Get Metrics
-```bash
-ADOC > get metrics dataset=my-dataset start_time=2024-01-15T00:00:00Z end_time=2024-01-15T23:59:59Z interval=1h
-{
-  "metrics": [
-    {
-      "timestamp": "2024-01-15T00:00:00Z",
-      "value": 42.5,
-      "metric": "cpu_usage"
-    }
-  ]
-}
-```
-
 ## Related Commands
 
 - [`use`](use.md): Switch between environments
