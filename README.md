@@ -31,8 +31,6 @@ uv run mypy .
 
 ## Usage
 
-### Interactive Mode
-
 ```bash
 # Run interactive mode
 uv run adoc-toolkit -i
