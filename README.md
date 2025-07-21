@@ -6,7 +6,7 @@ Acceldata Observability Cloud ("ADOC") toolkit for managing and interacting with
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/niranta-life/adoc-toolkit.git
 cd adoc-toolkit
 
 # Install dependencies
