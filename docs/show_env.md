@@ -28,10 +28,10 @@ None - this command takes no arguments.
 ```bash
 # Show current environment configuration
 ADOC > show-env
-Current Environment: se-demo
-Base URL: https://se-demo.acceldata.app
-Access Key: GV******V0
-Secret Key: HW******VRR
+Current Environment: uat-dev
+Base URL: https://uat-dev.acceldata.app
+Access Key: AB******CD
+Secret Key: EF******GH
 ```
 
 ### Help and Documentation
@@ -71,11 +71,8 @@ For security purposes, access and secret keys are masked in the output:
 ### Masking Examples
 
 ```bash
-# Original key: "GV1PJ3XYFJZEBV0"
-# Masked output: "GV******V0"
-
-# Original key: "HWNMVIVGIAG6XQ83Y12F6OK2LTBVRR"
-# Masked output: "HW******VRR"
+# Original key: "ABCDEFGHIJKLM"
+# Masked output: "AB******LM"
 ```
 
 ## Output Information
@@ -109,20 +106,20 @@ Use 'use <environment-name>' to select an environment
 
 ### Environment Set
 ```bash
-ADOC > use cs-india
-Environment set to cs-india
+ADOC > use uat-env
+Environment set to uat-env
 
 ADOC > show-env
-Current Environment: cs-india
-Base URL: https://cs-india.acceldata.app
-Access Key: YH******4B
-Secret Key: X9******UY
+Current Environment: uat-env
+Base URL: https://uat-env.acceldata.app
+Access Key: AB******CD
+Secret Key: EF******GH
 ```
 
 ### Environment with Missing Configuration
 ```bash
 ADOC > show-env
-Current Environment: se-demo
+Current Environment: uat-env
 Base URL: Not configured
 Access Key: Not configured
 Secret Key: Not configured

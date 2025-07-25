@@ -80,9 +80,7 @@ Switches the active environment for ADOC operations.
 Environment configurations are stored in config/environments.yaml
 
 Available environments:
-  cs-india: cs-india
-  training: training
-  se-demo: se-demo
+  dev: dev
 
 # Get help for show-env command
 ADOC > help show-env

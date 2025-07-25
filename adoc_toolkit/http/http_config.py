@@ -13,6 +13,7 @@ class ResponseType(str, Enum):
     JSON = "json"
     TABLE = "table"
     CSV = "csv"
+    HUMAN = "human"
 
 
 class HTTPResponseConfig(BaseModel):

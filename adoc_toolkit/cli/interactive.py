@@ -2,8 +2,9 @@
 
 import json
 import shlex
+from functools import reduce
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable, Any, Iterator
 
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import Completer, Completion
@@ -23,8 +24,388 @@ from .commands import (
     HistoryCommand,
     SetConfigCommand,
     ShowEnvCommand,
+    TextToDQPolicyCommand,
     UseCommand,
 )
+
+
+# Pure functions for command processing
+def parse_input_safely(user_input: str) -> list[str]:
+    """Parse user input safely, handling unmatched quotes.
+    
+    Args:
+        user_input: Raw user input string
+        
+    Returns:
+        List of parsed parts
+    """
+    try:
+        return shlex.split(user_input.strip())
+    except ValueError:
+        return user_input.strip().split()
+
+
+def extract_command_and_args(parts: list[str]) -> tuple[str, list[str]]:
+    """Extract command name and arguments from parsed parts.
+    
+    Args:
+        parts: List of parsed input parts
+        
+    Returns:
+        Tuple of (command_name, arguments_list)
+    """
+    if not parts:
+        return "", []
+    return parts[0].lower(), parts[1:]
+
+
+def parse_input(user_input: str) -> tuple[str, list[str]]:
+    """Parse user input into command and arguments using pure functions.
+    
+    Args:
+        user_input: Raw user input
+        
+    Returns:
+        Tuple of (command_name, arguments_list)
+    """
+    parts = parse_input_safely(user_input)
+    return extract_command_and_args(parts)
+
+
+def should_add_to_history(command_text: str, excluded_commands: set[str]) -> bool:
+    """Determine if a command should be added to history.
+    
+    Args:
+        command_text: The command text to check
+        excluded_commands: Set of excluded command names
+        
+    Returns:
+        True if command should be added to history
+    """
+    parts = command_text.strip().split()
+    if not parts:
+        return False
+    
+    command_name = parts[0].lower()
+    
+    # Skip excluded commands
+    if command_name in excluded_commands:
+        return False
+    
+    # Skip if it's just a number (history recall)
+    if len(parts) == 1 and command_name.isdigit():
+        return False
+    
+    return True
+
+
+def update_history_list(history: list[str], command_text: str, max_history: int) -> list[str]:
+    """Update history list with new command, maintaining order and limits.
+    
+    Args:
+        history: Current history list
+        command_text: New command to add
+        max_history: Maximum history size
+        
+    Returns:
+        Updated history list
+    """
+    # Remove duplicate if it exists
+    filtered_history = [cmd for cmd in history if cmd != command_text]
+    
+    # Add to front of history (most recent first)
+    updated_history = [command_text] + filtered_history
+    
+    # Maintain max history limit
+    return updated_history[:max_history]
+
+
+def create_history_data(history: list[str], max_history: int) -> dict[str, Any]:
+    """Create history data structure for serialization.
+    
+    Args:
+        history: Current history list
+        max_history: Maximum history size
+        
+    Returns:
+        Dictionary with history data
+    """
+    return {
+        "version": "1.0",
+        "history": history[:max_history],
+    }
+
+
+def validate_history_data(history_data: dict[str, Any]) -> Optional[list[str]]:
+    """Validate and extract history list from loaded data.
+    
+    Args:
+        history_data: Loaded history data
+        
+    Returns:
+        Validated history list or None if invalid
+    """
+    if not isinstance(history_data, dict):
+        return None
+    
+    if "history" not in history_data:
+        return None
+    
+    history_list = history_data["history"]
+    if not isinstance(history_list, list):
+        return None
+    
+    return history_list
+
+
+def load_history_from_file(history_file: Path, max_history: int) -> list[str]:
+    """Load command history from file using pure functions.
+    
+    Args:
+        history_file: Path to history file
+        max_history: Maximum history size
+        
+    Returns:
+        List of history commands
+    """
+    try:
+        if not history_file.exists():
+            return []
+        
+        with open(history_file, encoding="utf-8") as f:
+            history_data = json.load(f)
+        
+        history_list = validate_history_data(history_data)
+        if history_list is None:
+            return []
+        
+        # Load history with most recent first, limit to max_history
+        return history_list[:max_history]
+        
+    except (json.JSONDecodeError, OSError, KeyError, TypeError):
+        # If file is corrupted or unreadable, start with empty history
+        return []
+
+
+def save_history_to_file(history_file: Path, history: list[str], max_history: int) -> bool:
+    """Save command history to file using pure functions.
+    
+    Args:
+        history_file: Path to history file
+        history: Current history list
+        max_history: Maximum history size
+        
+    Returns:
+        True if save was successful, False otherwise
+    """
+    try:
+        history_data = create_history_data(history, max_history)
+        
+        # Ensure parent directory exists
+        history_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Write to temporary file first, then rename for atomic operation
+        temp_file = history_file.with_suffix(".tmp")
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(history_data, f, indent=2, ensure_ascii=False)
+        
+        # Atomic rename
+        temp_file.replace(history_file)
+        return True
+        
+    except (OSError, TypeError):
+        # Fail silently - history persistence is not critical to functionality
+        return False
+
+
+def create_environment_info(environment: Optional[str], config: Optional[dict]) -> dict[str, str]:
+    """Create environment info dictionary using pure function.
+    
+    Args:
+        environment: Current environment name
+        config: Environment configuration
+        
+    Returns:
+        Dictionary with environment info
+    """
+    if not config:
+        return {}
+    
+    return {
+        "environment": environment or "",
+        "base_url": config.get("base_url", ""),
+        "access_key": config.get("access_key", ""),
+        "secret_key": config.get("secret_key", ""),
+    }
+
+
+def create_prompt_text(environment: Optional[str]) -> str:
+    """Create prompt text using pure function.
+    
+    Args:
+        environment: Current environment name
+        
+    Returns:
+        Formatted prompt text
+    """
+    if environment:
+        return f"ADOC ({environment}) > "
+    return "ADOC > "
+
+
+def create_status_message(response) -> tuple[str, str]:
+    """Create status message and style for HTTP response using pure function.
+    
+    Args:
+        response: HTTPResponse object
+        
+    Returns:
+        Tuple of (status_message, style)
+    """
+    method = response.request_info.method
+    endpoint = response.request_info.endpoint
+    retries = response.request_info.retries_attempted
+    
+    if response.is_success:
+        style = "green"
+        status_msg = f"✅ {method} {endpoint} - {response.status_code}"
+    elif response.is_client_error:
+        style = "yellow"
+        status_msg = f"⚠️  {method} {endpoint} - {response.status_code}"
+    else:
+        style = "red"
+        status_msg = f"❌ {method} {endpoint} - {response.status_code}"
+    
+    if retries > 0:
+        status_msg += f" (after {retries} retries)"
+    
+    return status_msg, style
+
+
+def extract_error_message(response) -> Optional[str]:
+    """Extract error message from response using pure function.
+    
+    Args:
+        response: HTTPResponse object
+        
+    Returns:
+        Error message string or None
+    """
+    if response.is_success:
+        return None
+    
+    try:
+        error_data = response.json()
+        if isinstance(error_data, dict):
+            if "message" in error_data:
+                return error_data["message"]
+            elif "error" in error_data:
+                return error_data["error"]
+    except ValueError:
+        # Not JSON, show raw text if reasonable length
+        if len(response.text) < 200:
+            return response.text
+    
+    return None
+
+
+def create_command_completions(commands: dict[str, Command]) -> Iterator[Completion]:
+    """Create command name completions using pure function.
+    
+    Args:
+        commands: Dictionary of available commands
+        
+    Yields:
+        Completion objects for command names
+    """
+    for cmd_name, cmd in commands.items():
+        if cmd_name == cmd.name:  # Only show primary names, not aliases
+            yield Completion(
+                cmd_name, start_position=0, display_meta=cmd.description
+            )
+
+
+def create_filtered_completions(commands: dict[str, Command], current_word: str) -> Iterator[Completion]:
+    """Create filtered command completions using pure function.
+    
+    Args:
+        commands: Dictionary of available commands
+        current_word: Current word being typed
+        
+    Yields:
+        Completion objects for matching commands
+    """
+    for cmd_name, cmd in commands.items():
+        if cmd_name == cmd.name and cmd_name.startswith(current_word):
+            yield Completion(
+                cmd_name,
+                start_position=-len(current_word),
+                display_meta=cmd.description,
+            )
+
+
+def create_structured_completion(completion: Any, start_position: int) -> Completion:
+    """Create completion object from structured completion data using pure function.
+    
+    Args:
+        completion: Completion data (CompletionItem or string)
+        start_position: Start position for completion
+        
+    Returns:
+        Completion object
+    """
+    if isinstance(completion, CompletionItem):
+        return Completion(
+            completion.text,
+            start_position=start_position,
+            display_meta=completion.description,
+        )
+    else:
+        return Completion(completion, start_position=start_position)
+
+
+def create_completion_from_structured(completion: Any, current_word: str, is_new_word: bool) -> Completion:
+    """Create completion from structured completion data using pure function.
+    
+    Args:
+        completion: Structured completion data
+        current_word: Current word being typed
+        is_new_word: Whether starting a new word
+        
+    Returns:
+        Completion object
+    """
+    if is_new_word:
+        return create_structured_completion(completion, 0)
+    else:
+        if isinstance(completion, CompletionItem):
+            if completion.text.startswith(current_word):
+                return Completion(
+                    completion.text,
+                    start_position=-len(current_word),
+                    display_meta=completion.description,
+                )
+        else:
+            if completion.startswith(current_word):
+                return Completion(completion, start_position=-len(current_word))
+        return None
+
+
+def filter_valid_completions(completions: list[Any], current_word: str, is_new_word: bool) -> Iterator[Completion]:
+    """Filter and create valid completions using pure function.
+    
+    Args:
+        completions: List of completion data
+        current_word: Current word being typed
+        is_new_word: Whether starting a new word
+        
+    Yields:
+        Valid Completion objects
+    """
+    for completion in completions:
+        result = create_completion_from_structured(completion, current_word, is_new_word)
+        if result is not None:
+            yield result
 
 
 class ADOCCompleter(Completer):
@@ -39,22 +420,12 @@ class ADOCCompleter(Completer):
         words = text.split()
 
         if not words:
-            # Complete command names
-            for cmd_name, cmd in self.commands.items():
-                if cmd_name == cmd.name:  # Only show primary names, not aliases
-                    yield Completion(
-                        cmd_name, start_position=0, display_meta=cmd.description
-                    )
+            # Complete command names using pure function
+            yield from create_command_completions(self.commands)
         elif len(words) == 1 and not text.endswith(" "):
             # Complete command names that start with the current word
             current_word = words[0]
-            for cmd_name, cmd in self.commands.items():
-                if cmd_name == cmd.name and cmd_name.startswith(current_word):
-                    yield Completion(
-                        cmd_name,
-                        start_position=-len(current_word),
-                        display_meta=cmd.description,
-                    )
+            yield from create_filtered_completions(self.commands, current_word)
         else:
             # Command-specific completions
             cmd_name = words[0]
@@ -68,24 +439,18 @@ class ADOCCompleter(Completer):
                     )
                     if structured_completions:
                         # Get the current word being typed
-                        if text.endswith(" "):
+                        is_new_word = text.endswith(" ")
+                        current_word = words[-1] if not is_new_word else ""
+                        
+                        if is_new_word:
                             # Starting a new word
                             for completion in structured_completions:
-                                yield Completion(
-                                    completion.text,
-                                    start_position=0,
-                                    display_meta=completion.description,
-                                )
+                                yield create_structured_completion(completion, 0)
                         else:
                             # Completing current word
-                            current_word = words[-1]
-                            for completion in structured_completions:
-                                if completion.text.startswith(current_word):
-                                    yield Completion(
-                                        completion.text,
-                                        start_position=-len(current_word),
-                                        display_meta=completion.description,
-                                    )
+                            yield from filter_valid_completions(
+                                structured_completions, current_word, False
+                            )
                         return
                 except AttributeError:
                     # Fall back to old-style completions if get_structured_completions
@@ -96,33 +461,10 @@ class ADOCCompleter(Completer):
                 completions = command.get_completions(text, document.cursor_position)
                 if completions:
                     # Get the current word being typed
-                    if text.endswith(" "):
-                        # Starting a new word
-                        for completion in completions:
-                            if isinstance(completion, CompletionItem):
-                                yield Completion(
-                                    completion.text,
-                                    start_position=0,
-                                    display_meta=completion.description,
-                                )
-                            else:
-                                yield Completion(completion, start_position=0)
-                    else:
-                        # Completing current word
-                        current_word = words[-1]
-                        for completion in completions:
-                            if isinstance(completion, CompletionItem):
-                                if completion.text.startswith(current_word):
-                                    yield Completion(
-                                        completion.text,
-                                        start_position=-len(current_word),
-                                        display_meta=completion.description,
-                                    )
-                            else:
-                                if completion.startswith(current_word):
-                                    yield Completion(
-                                        completion, start_position=-len(current_word)
-                                    )
+                    is_new_word = text.endswith(" ")
+                    current_word = words[-1] if not is_new_word else ""
+                    
+                    yield from filter_valid_completions(completions, current_word, is_new_word)
 
 
 class InteractiveProcessor:
@@ -189,6 +531,7 @@ class InteractiveProcessor:
             environment_info_callback=self.get_current_environment_info
         )
         get_cmd = GetCommand(http_client=self.http_client)
+        text_to_dq_policy_cmd = TextToDQPolicyCommand()
 
         self.register_command(help_cmd)
         self.register_command(exit_cmd)
@@ -198,6 +541,7 @@ class InteractiveProcessor:
         self.register_command(set_config_cmd)
         self.register_command(export_metrics_cmd)
         self.register_command(get_cmd)
+        self.register_command(text_to_dq_policy_cmd)
 
     def register_command(self, command: Command) -> None:
         """Register a command in the processor.
@@ -207,7 +551,7 @@ class InteractiveProcessor:
         """
         self.commands[command.name] = command
 
-        # Register aliases
+        # Register aliases using functional approach
         for alias in command.aliases:
             self.commands[alias] = command
 
@@ -224,20 +568,12 @@ class InteractiveProcessor:
         self.current_environment_config = environment_config
 
     def get_current_environment_info(self) -> dict:
-        """Get current environment information.
+        """Get current environment information using pure function.
 
         Returns:
             Dictionary with environment info (base_url, access_key, secret_key)
         """
-        if not self.current_environment_config:
-            return {}
-
-        return {
-            "environment": self.current_environment,
-            "base_url": self.current_environment_config.get("base_url", ""),
-            "access_key": self.current_environment_config.get("access_key", ""),
-            "secret_key": self.current_environment_config.get("secret_key", ""),
-        }
+        return create_environment_info(self.current_environment, self.current_environment_config)
 
     def add_to_history(self, command_text: str) -> None:
         """Add a command to the history, handling duplicates and limits.
@@ -245,31 +581,14 @@ class InteractiveProcessor:
         Args:
             command_text: The full command text to add to history
         """
-        # Don't add excluded commands or numbers (history recalls)
-        parts = command_text.strip().split()
-        if not parts:
+        # Use pure function to check if command should be added
+        if not should_add_to_history(command_text, self._excluded_commands):
             return
 
-        command_name = parts[0].lower()
-
-        # Skip excluded commands
-        if command_name in self._excluded_commands:
-            return
-
-        # Skip if it's just a number (history recall)
-        if len(parts) == 1 and command_name.isdigit():
-            return
-
-        # Remove duplicate if it exists
-        if command_text in self.command_history:
-            self.command_history.remove(command_text)
-
-        # Add to front of history (most recent first)
-        self.command_history.insert(0, command_text)
-
-        # Maintain max history limit
-        if len(self.command_history) > self._max_history:
-            self.command_history = self.command_history[: self._max_history]
+        # Use pure function to update history
+        self.command_history = update_history_list(
+            self.command_history, command_text, self._max_history
+        )
 
         # Save to file after each addition
         self._save_history_file()
@@ -291,45 +610,14 @@ class InteractiveProcessor:
         self._pending_recall_command = command_text
 
     def _load_history_file(self) -> None:
-        """Load command history from file on startup."""
-        try:
-            if self._history_file.exists():
-                with open(self._history_file, encoding="utf-8") as f:
-                    history_data = json.load(f)
-
-                # Validate the data structure
-                if isinstance(history_data, dict) and "history" in history_data:
-                    history_list = history_data["history"]
-                    if isinstance(history_list, list):
-                        # Load history with most recent first, limit to max_history
-                        self.command_history = history_list[: self._max_history]
-        except (json.JSONDecodeError, OSError, KeyError, TypeError):
-            # If file is corrupted or unreadable, start with empty history
-            # Don't show error to user as this is not critical
-            self.command_history = []
+        """Load command history from file on startup using pure function."""
+        self.command_history = load_history_from_file(
+            self._history_file, self._max_history
+        )
 
     def _save_history_file(self) -> None:
-        """Save command history to file."""
-        try:
-            history_data = {
-                "version": "1.0",
-                "history": self.command_history[: self._max_history],
-            }
-
-            # Ensure parent directory exists
-            self._history_file.parent.mkdir(parents=True, exist_ok=True)
-
-            # Write to temporary file first, then rename for atomic operation
-            temp_file = self._history_file.with_suffix(".tmp")
-            with open(temp_file, "w", encoding="utf-8") as f:
-                json.dump(history_data, f, indent=2, ensure_ascii=False)
-
-            # Atomic rename
-            temp_file.replace(self._history_file)
-
-        except (OSError, TypeError):
-            # Fail silently - history persistence is not critical to functionality
-            pass
+        """Save command history to file using pure function."""
+        save_history_to_file(self._history_file, self.command_history, self._max_history)
 
     def _handle_http_response(self, response) -> None:
         """Handle HTTP responses with default logging and error reporting.
@@ -337,51 +625,24 @@ class InteractiveProcessor:
         Args:
             response: HTTPResponse object
         """
-        # Log request information
-        method = response.request_info.method
-        endpoint = response.request_info.endpoint
-        retries = response.request_info.retries_attempted
-
-        if response.is_success:
-            style = "green"
-            status_msg = f"✅ {method} {endpoint} - {response.status_code}"
-        elif response.is_client_error:
-            style = "yellow"
-            status_msg = f"⚠️  {method} {endpoint} - {response.status_code}"
-        else:
-            style = "red"
-            status_msg = f"❌ {method} {endpoint} - {response.status_code}"
-
-        if retries > 0:
-            status_msg += f" (after {retries} retries)"
-
+        # Use pure functions to create status message and extract error
+        status_msg, style = create_status_message(response)
         self.console.print(status_msg, style=style)
 
-        # For non-success responses, show error details if available
-        if not response.is_success:
-            try:
-                error_data = response.json()
-                if isinstance(error_data, dict) and "message" in error_data:
-                    self.console.print(f"Error: {error_data['message']}", style="red")
-                elif isinstance(error_data, dict) and "error" in error_data:
-                    self.console.print(f"Error: {error_data['error']}", style="red")
-            except ValueError:
-                # Not JSON, show raw text if reasonable length
-                if len(response.text) < 200:
-                    self.console.print(f"Error: {response.text}", style="red")
+        error_message = extract_error_message(response)
+        if error_message:
+            self.console.print(f"Error: {error_message}", style="red")
 
     def _get_prompt_text(self) -> str:
-        """Get the prompt text with current environment."""
-        if self.current_environment:
-            return f"ADOC ({self.current_environment}) > "
-        return "ADOC > "
+        """Get the prompt text with current environment using pure function."""
+        return create_prompt_text(self.current_environment)
 
     def get_completer(self) -> ADOCCompleter:
         """Create a custom completer for available commands."""
         return ADOCCompleter(self.commands)
 
     def parse_input(self, user_input: str) -> tuple[str, list[str]]:
-        """Parse user input into command and arguments.
+        """Parse user input into command and arguments using pure function.
 
         Args:
             user_input: Raw user input
@@ -389,16 +650,7 @@ class InteractiveProcessor:
         Returns:
             Tuple of (command_name, arguments_list)
         """
-        try:
-            parts = shlex.split(user_input.strip())
-        except ValueError:
-            # Handle unmatched quotes gracefully
-            parts = user_input.strip().split()
-
-        if not parts:
-            return "", []
-
-        return parts[0].lower(), parts[1:]
+        return parse_input(user_input)
 
     def execute_command(self, command_name: str, args: list[str]) -> bool:
         """Execute a command by name.
