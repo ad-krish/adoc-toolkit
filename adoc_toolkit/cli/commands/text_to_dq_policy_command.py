@@ -5,7 +5,7 @@ import re
 from functools import reduce
 from itertools import product
 from operator import methodcaller
-from typing import Any
+from typing import Any, List, Optional, Tuple
 
 from rich.console import Console
 
@@ -14,186 +14,6 @@ from ...llm.client import get_llm_client
 from ...models import CompletionItem
 from .base import Command
 from .dq_policy_llm_client import DQPolicyLLMClient
-
-
-def parse_uids(uids_str: str) -> list[str]:
-    """Parse comma-separated UIDs string into a list.
-
-    Args:
-        uids_str: Comma-separated string of UIDs
-
-    Returns:
-        List of stripped UIDs
-    """
-    return list(filter(None, map(methodcaller("strip"), uids_str.split(","))))
-
-
-def parse_arguments(args: list[str]) -> tuple[str, list[str]]:
-    """Parse command arguments using functional approach.
-
-    Args:
-        args: List of command arguments
-
-    Returns:
-        Tuple of (text, uids)
-    """
-
-    def reducer(
-        acc: tuple[str, list[str]], item: tuple[int, str]
-    ) -> tuple[str, list[str]]:
-        idx, arg = item
-        text, uids = acc
-
-        if arg == "--uids":
-            if idx + 1 < len(args):
-                uids_str = args[idx + 1]
-                return text, parse_uids(uids_str)
-            else:
-                raise ValueError("--uids requires a comma-separated list")
-        elif idx > 0 and args[idx - 1] == "--uids":
-            # Skip this argument as it was already processed
-            return acc
-        else:
-            return text + " " + arg, uids
-
-    try:
-        text, uids = reduce(reducer, enumerate(args), ("", []))
-        return text.strip(), uids
-    except ValueError as e:
-        raise ValueError(str(e)) from e
-
-
-def validate_llm_config(llm_config) -> str | None:
-    """Validate LLM configuration and return error message if invalid.
-
-    Args:
-        llm_config: LLM configuration object
-
-    Returns:
-        Error message if validation fails, None if valid
-    """
-    if not llm_config.apikey:
-        return (
-            "Error: LLM API key not configured. "
-            "Use 'set-config llm.apikey <your-api-key>'"
-        )
-
-    if not llm_config.vendor:
-        return "Error: LLM vendor not configured. Use 'set-config llm.vendor <vendor>'"
-
-    return None
-
-
-def parse_json_response(response_content: str) -> list[dict[str, Any]]:
-    """Parse JSON response from LLM using functional approach.
-
-    Args:
-        response_content: Raw response content from LLM
-
-    Returns:
-        List of parsed policies
-    """
-    try:
-        parsed_content = json.loads(response_content)
-        return parsed_content if isinstance(parsed_content, list) else [parsed_content]
-    except json.JSONDecodeError:
-        # Try to extract JSON from the response using regex
-        json_match = re.search(r"\{.*\}", response_content, re.DOTALL)
-        if json_match:
-            return [json.loads(json_match.group())]
-        else:
-            raise ValueError("Could not parse JSON from LLM response") from None
-
-
-def create_policy_with_uid(policy_template: dict[str, Any], uid: str) -> dict[str, Any]:
-    """Create a policy copy with updated UID.
-
-    Args:
-        policy_template: Template policy to copy
-        uid: UID to set in the policy
-
-    Returns:
-        New policy with updated UID
-    """
-    policy = json.loads(json.dumps(policy_template))
-
-    # Update the tableAssetId with the current UID
-    if "rule" in policy and "backingAsset" in policy["rule"]:
-        table_asset_id = int(uid) if uid.isdigit() else uid
-        policy["rule"]["backingAsset"]["tableAssetId"] = table_asset_id
-
-    return policy
-
-
-def format_policy_display_text(
-    policy_idx: int,
-    uid: str,
-    policy_count: int,
-    total_policies: int,
-    multiple_policies: bool,
-) -> str:
-    """Format the display text for a policy.
-
-    Args:
-        policy_idx: Index of the policy
-        uid: UID for the policy
-        policy_count: Current policy count
-        total_policies: Total number of policies
-        multiple_policies: Whether there are multiple policies
-
-    Returns:
-        Formatted display text
-    """
-    if multiple_policies:
-        return (
-            f"\n✅ Generated Data Quality Policy {policy_idx + 1} "
-            f"for UID {uid} ({policy_count}/{total_policies}):"
-        )
-    else:
-        return (
-            f"\n✅ Generated Data Quality Policy for UID {uid} "
-            f"({policy_count}/{total_policies}):"
-        )
-
-
-def process_policies_with_uids(
-    policies: list[dict[str, Any]], uids: list[str], console: Console
-) -> None:
-    """Process policies with UIDs using functional approach.
-
-    Args:
-        policies: List of policy templates
-        uids: List of UIDs to apply policies to
-        console: Console for output
-    """
-    # Create cross product: policies × UIDs
-    total_policies = len(policies) * len(uids)
-    console.print(
-        f"🔄 Creating cross product: {len(policies)} policies × "
-        f"{len(uids)} UIDs = {total_policies} total policies",
-        style="blue",
-    )
-
-    # Generate all policy-UID combinations
-    policy_uid_combinations = list(product(enumerate(policies), enumerate(uids)))
-
-    # Process each combination
-    for (policy_idx, policy_template), (uid_idx, uid) in policy_uid_combinations:
-        policy_count = policy_idx * len(uids) + uid_idx + 1
-
-        # Create policy with UID
-        policy = create_policy_with_uid(policy_template, uid)
-
-        # Display the policy
-        display_text = format_policy_display_text(
-            policy_idx, uid, policy_count, total_policies, len(policies) > 1
-        )
-        console.print(display_text, style="green")
-        console.print(json.dumps(policy, indent=2), style="white")
-
-        # Add separator between policies (but not after the last one)
-        if policy_count < total_policies:
-            console.print("\n" + "=" * 50, style="blue")
 
 
 class TextToDQPolicyCommand(Command):
@@ -290,7 +110,7 @@ class TextToDQPolicyCommand(Command):
 
         # Parse arguments using functional approach
         try:
-            text, uids = parse_arguments(args)
+            text, uids = self._parse_arguments(args)
         except ValueError as e:
             self.console.print(str(e), style="red")
             return True
@@ -300,6 +120,178 @@ class TextToDQPolicyCommand(Command):
             return True
 
         return self._generate_dq_policy(text, uids)
+
+    def _parse_arguments(self, args: list[str]) -> tuple[str, list[str]]:
+        """Parse command arguments using functional approach.
+
+        Args:
+            args: List of command arguments
+
+        Returns:
+            Tuple of (text, uids)
+        """
+        def reducer(
+            acc: tuple[str, list[str]], item: tuple[int, str]
+        ) -> tuple[str, list[str]]:
+            idx, arg = item
+            text, uids = acc
+
+            if arg == "--uids":
+                if idx + 1 < len(args):
+                    uids_str = args[idx + 1]
+                    return text, self._parse_uids(uids_str)
+                else:
+                    raise ValueError("--uids requires a comma-separated list")
+            elif idx > 0 and args[idx - 1] == "--uids":
+                # Skip this argument as it was already processed
+                return acc
+            else:
+                return text + " " + arg, uids
+
+        try:
+            text, uids = reduce(reducer, enumerate(args), ("", []))
+            return text.strip(), uids
+        except ValueError as e:
+            raise ValueError(str(e)) from e
+
+    def _parse_uids(self, uids_str: str) -> list[str]:
+        """Parse comma-separated UIDs string into a list.
+
+        Args:
+            uids_str: Comma-separated string of UIDs
+
+        Returns:
+            List of stripped UIDs
+        """
+        return list(filter(None, map(methodcaller("strip"), uids_str.split(","))))
+
+    def _validate_llm_config(self, llm_config) -> Optional[str]:
+        """Validate LLM configuration and return error message if invalid.
+
+        Args:
+            llm_config: LLM configuration object
+
+        Returns:
+            Error message if validation fails, None if valid
+        """
+        if not llm_config.apikey:
+            return (
+                "Error: LLM API key not configured. "
+                "Use 'set-config llm.apikey <your-api-key>'"
+            )
+
+        if not llm_config.vendor:
+            return "Error: LLM vendor not configured. Use 'set-config llm.vendor <vendor>'"
+
+        return None
+
+    def _parse_json_response(self, response_content: str) -> list[dict[str, Any]]:
+        """Parse JSON response from LLM using functional approach.
+
+        Args:
+            response_content: Raw response content from LLM
+
+        Returns:
+            List of parsed policies
+        """
+        try:
+            parsed_content = json.loads(response_content)
+            return parsed_content if isinstance(parsed_content, list) else [parsed_content]
+        except json.JSONDecodeError:
+            # Try to extract JSON from the response using regex
+            json_match = re.search(r"\{.*\}", response_content, re.DOTALL)
+            if json_match:
+                return [json.loads(json_match.group())]
+            else:
+                raise ValueError("Could not parse JSON from LLM response") from None
+
+    def _create_policy_with_uid(self, policy_template: dict[str, Any], uid: str) -> dict[str, Any]:
+        """Create a policy copy with updated UID.
+
+        Args:
+            policy_template: Template policy to copy
+            uid: UID to set in the policy
+
+        Returns:
+            New policy with updated UID
+        """
+        policy = json.loads(json.dumps(policy_template))
+
+        # Update the tableAssetId with the current UID
+        if "rule" in policy and "backingAsset" in policy["rule"]:
+            table_asset_id = int(uid) if uid.isdigit() else uid
+            policy["rule"]["backingAsset"]["tableAssetId"] = table_asset_id
+
+        return policy
+
+    def _format_policy_display_text(
+        self,
+        policy_idx: int,
+        uid: str,
+        policy_count: int,
+        total_policies: int,
+        multiple_policies: bool,
+    ) -> str:
+        """Format the display text for a policy.
+
+        Args:
+            policy_idx: Index of the policy
+            uid: UID for the policy
+            policy_count: Current policy count
+            total_policies: Total number of policies
+            multiple_policies: Whether there are multiple policies
+
+        Returns:
+            Formatted display text
+        """
+        if multiple_policies:
+            return (
+                f"\n✅ Generated Data Quality Policy {policy_idx + 1} "
+                f"for UID {uid} ({policy_count}/{total_policies}):"
+            )
+        else:
+            return (
+                f"\n✅ Generated Data Quality Policy for UID {uid} "
+                f"({policy_count}/{total_policies}):"
+            )
+
+    def _process_policies_with_uids(
+        self, policies: list[dict[str, Any]], uids: list[str]
+    ) -> None:
+        """Process policies with UIDs using functional approach.
+
+        Args:
+            policies: List of policy templates
+            uids: List of UIDs to apply policies to
+        """
+        # Create cross product: policies × UIDs
+        total_policies = len(policies) * len(uids)
+        self.console.print(
+            f"🔄 Creating cross product: {len(policies)} policies × "
+            f"{len(uids)} UIDs = {total_policies} total policies",
+            style="blue",
+        )
+
+        # Generate all policy-UID combinations
+        policy_uid_combinations = list(product(enumerate(policies), enumerate(uids)))
+
+        # Process each combination
+        for (policy_idx, policy_template), (uid_idx, uid) in policy_uid_combinations:
+            policy_count = policy_idx * len(uids) + uid_idx + 1
+
+            # Create policy with UID
+            policy = self._create_policy_with_uid(policy_template, uid)
+
+            # Display the policy
+            display_text = self._format_policy_display_text(
+                policy_idx, uid, policy_count, total_policies, len(policies) > 1
+            )
+            self.console.print(display_text, style="green")
+            self.console.print(json.dumps(policy, indent=2), style="white")
+
+            # Add separator between policies (but not after the last one)
+            if policy_count < total_policies:
+                self.console.print("\n" + "=" * 50, style="blue")
 
     def _generate_dq_policy(self, text: str, uids: list[str] = None) -> bool:
         """Generate data quality policy from text using LLM.
@@ -317,7 +309,7 @@ class TextToDQPolicyCommand(Command):
             llm_config = config_manager._config.llm
 
             # Validate LLM configuration
-            error_message = validate_llm_config(llm_config)
+            error_message = self._validate_llm_config(llm_config)
             if error_message:
                 self.console.print(error_message, style="red")
                 return True
@@ -370,7 +362,7 @@ class TextToDQPolicyCommand(Command):
         """
         try:
             # Parse policies using functional approach
-            policies = parse_json_response(response_content)
+            policies = self._parse_json_response(response_content)
 
             # Display policy count
             policy_count_text = (
@@ -380,7 +372,7 @@ class TextToDQPolicyCommand(Command):
             self.console.print(policy_count_text, style="blue")
 
             # Process policies with UIDs using functional approach
-            process_policies_with_uids(policies, uids, self.console)
+            self._process_policies_with_uids(policies, uids)
 
         except Exception as e:
             self.console.print(f"Error processing response with UIDs: {e}", style="red")
