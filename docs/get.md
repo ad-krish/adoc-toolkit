@@ -119,13 +119,40 @@ The command supports different response formats that can be configured:
 - **JSON** (default): Pretty-printed JSON output
 - **Table**: Rich formatted table display
 - **CSV**: Comma-separated values output
+- **Human**: AI-generated human-readable text (requires LLM configuration)
 
 Configure the response format using:
 ```bash
 set-config http.response.type json    # JSON format (default)
 set-config http.response.type table   # Table format
 set-config http.response.type csv     # CSV format
+set-config http.response.type human   # Human-readable format
 ```
+
+#### Human-Readable Format
+
+The "human" response type uses an LLM to convert JSON API responses into clear, human-readable text. This is useful for:
+
+- **Non-technical users**: Makes API responses accessible to users unfamiliar with JSON
+- **Quick summaries**: Provides concise overviews of complex data
+- **Better readability**: Converts technical data into natural language
+
+**Requirements:**
+- LLM vendor configured (`set-config llm.vendor <vendor>`)
+- LLM API key set (`set-config llm.apikey <your-api-key>`)
+
+**Example:**
+```bash
+# Set up LLM for human-readable responses
+ADOC > set-config llm.vendor gemini
+ADOC > set-config llm.apikey your-api-key-here
+ADOC > set-config http.response.type human
+
+# Get human-readable response
+ADOC > get /catalog-server/api/assets/search name=database
+```
+
+The LLM will convert the JSON response into a clear, structured text format that's easy to understand.
 
 ## Error Handling
 

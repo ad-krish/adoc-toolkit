@@ -1,0 +1,131 @@
+{
+  "http": {
+    "timeout": {
+      "value": 120,
+      "description": "HTTP request timeout in seconds",
+      "type": "integer",
+      "options": [30, 60, 120, 300],
+      "default": 120
+    },
+    "retries": {
+      "value": 3,
+      "description": "Number of retry attempts for failed requests",
+      "type": "integer",
+      "options": [0, 1, 3, 5],
+      "default": 3
+    },
+    "proxy": {
+      "value": null,
+      "description": "HTTP proxy URL for requests",
+      "type": "string",
+      "options": [
+        "https://proxy.example.com:8080",
+        "http://proxy.example.com:3128",
+        "none"
+      ],
+      "default": null
+    },
+    "response": {
+      "type": {
+        "value": "json",
+        "description": "Response format type",
+        "type": "string",
+        "options": ["json", "table", "csv"],
+        "default": "json"
+      }
+    }
+  },
+  "audit": {
+    "logfile": {
+      "value": null,
+      "description": "Path to audit log file",
+      "type": "string",
+      "options": ["audit/adoc-audit.log", "./audit.log", "none"],
+      "default": null
+    }
+  },
+  "log": {
+    "level": {
+      "value": "INFO",
+      "description": "Logging level for application logs",
+      "type": "string",
+      "options": ["TRACE", "DEBUG", "INFO", "ERROR"],
+      "default": "INFO"
+    },
+    "filepath": {
+      "value": null,
+      "description": "Path to log file",
+      "type": "string",
+      "options": ["logs/adoc-toolkit.log", "./adoc-toolkit.log", "none"],
+      "default": null
+    },
+    "rotate": {
+      "onsize": {
+        "value": "10MB",
+        "description": "Log rotation size limit",
+        "type": "string",
+        "options": ["10MB", "50MB", "100MB", "1GB"],
+        "default": "10MB"
+      },
+      "ontime": {
+        "value": 120,
+        "description": "Log rotation time interval in minutes",
+        "type": "integer",
+        "options": [60, 120, 240, 480],
+        "default": 120
+      }
+    }
+  },
+  "llm": {
+    "vendor": {
+      "value": "gemini",
+      "description": "LLM vendor to use for AI operations",
+      "type": "string",
+      "options": ["claude", "gemini", "grok", "chatgpt"],
+      "default": "gemini"
+    },
+    "apikey": {
+      "value": null,
+      "description": "API key for the selected LLM vendor",
+      "type": "string",
+      "options": ["your-api-key-here", "none"],
+      "default": null
+    },
+    "model": {
+      "value": "gemini-1.5-pro",
+      "description": "Model name for the selected LLM vendor",
+      "type": "string",
+      "options": ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"],
+      "default": "gemini-1.5-pro"
+    },
+    "model_options": {
+      "value": {
+        "claude": [
+          "claude-3-5-sonnet-20241022",
+          "claude-3-5-haiku-20241022",
+          "claude-3-opus-20240229",
+          "claude-3-sonnet-20240229"
+        ],
+        "gemini": [
+          "gemini-1.5-pro",
+          "gemini-1.5-flash",
+          "gemini-1.0-pro"
+        ],
+        "grok": [
+          "grok-beta",
+          "grok-2"
+        ],
+        "chatgpt": [
+          "gpt-4o",
+          "gpt-4o-mini",
+          "gpt-4-turbo",
+          "gpt-3.5-turbo"
+        ]
+      },
+      "description": "Available models for each vendor (configurable)",
+      "type": "object",
+      "options": ["custom", "default"],
+      "default": "default"
+    }
+  }
+} 
