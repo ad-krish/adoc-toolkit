@@ -34,5 +34,4 @@ if not exist ".venv" (
 )
 
 REM Start the ADOC toolkit
-echo Starting ADOC Toolkit...
 uv run adoc-toolkit %*
