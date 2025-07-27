@@ -836,56 +836,129 @@ def test_command_with_tracing(self):
 
 ## Example: Complete Command Implementation
 
-Here's a complete example of a simple command:
+Here's a complete example of a command with tracing (based on the find-asset command):
 
 ```python
-"""Example command implementation."""
+"""Find asset command with tracing."""
 
 from typing import Union
 from .base import Command  # [Command base class](adoc_toolkit/cli/commands/base.py)
 from ...models import CompletionItem  # [CompletionItem model](adoc_toolkit/models/__init__.py)
+from ...tracing.mixins import TraceableMixin  # [TraceableMixin](adoc_toolkit/tracing/mixins.py)
 
 
-class ExampleCommand(Command):
-    """Example command that demonstrates command development."""
+class FindAssetCommand(Command, TraceableMixin):
+    """Find assets by name with comprehensive tracing."""
     
+    def __init__(self, http_client):
+        self.http_client = http_client
+
+    @property
+    def trace_prefix(self) -> str:
+        """Get the trace prefix for this command."""
+        return "find_asset"
+
     @property
     def name(self) -> str:
-        return "example"
+        return "find-asset"
     
     @property
     def description(self) -> str:
-        return "Example command for demonstration"
+        return "Find assets by name"
     
     @property
     def aliases(self) -> list[str]:
-        return ["ex", "demo"]
+        return ["search", "search-asset", "asset-search"]
     
     def get_help(self) -> str:
-        """Get detailed help for example command."""
+        """Get detailed help for find-asset command."""
         help_text = f"{self.name}: {self.description}\n"
-        help_text += "Usage: example [message]\n\n"
-        help_text += "Displays a message or default greeting.\n\n"
-        help_text += "Arguments:\n"
-        help_text += "  message    Custom message to display (optional)\n\n"
-        help_text += "Examples:\n"
-        help_text += "  example                    # Show default greeting\n"
-        help_text += "  example 'Hello, World!'    # Show custom message\n"
+        help_text += "Usage: find-asset <asset-name>\n\n"
+        help_text += "Search for assets by name in the catalog.\n"
         return help_text
     
     def execute(self, args: list[str]) -> bool:
-        """Execute the example command."""
+        """Execute the find-asset command with tracing."""
+        self.trace_start("command_execution", args_count=len(args))
+        
+        # Handle --help flag
         if args and args[0] == "--help":
+            self.trace("help_requested")
             print(self.get_help())
+            self.trace_complete("command_execution", help_displayed=True)
             return True
+
+        # Check if asset name is provided
+        if not args:
+            self.trace_error("command_execution", Exception("Missing asset name"))
+            print("Error: Asset name is required")
+            print("Usage: find-asset <asset-name>")
+            return True
+
+        asset_name = args[0]
+        self.trace("asset_search_started", asset_name=asset_name)
         
-        if args:
-            message = " ".join(args)
-            print(f"Message: {message}")
-        else:
-            print("Hello from the example command!")
-        
+        try:
+            # Make API call to search for assets
+            self.trace("api_request_started", endpoint="/catalog-server/api/assets/search", params={"name": asset_name})
+            response = self.http_client.get(
+                "/catalog-server/api/assets/search",
+                params={"name": asset_name}
+            )
+            
+            self.trace("api_response_received", status_code=response.status_code, success=response.is_success)
+            
+            if response.is_success:
+                # Parse response using Pydantic model
+                self.trace("response_parsing_started")
+                response_data = response.json()
+                asset_search_response = AssetSearchResponse.model_validate(response_data)
+                self.trace("response_parsing_completed", assets_count=len(asset_search_response.assets))
+                
+                self._display_results(asset_search_response, asset_name)
+                self.trace_complete("command_execution", assets_found=len(asset_search_response.assets))
+            else:
+                self.trace_error("api_request", Exception(f"HTTP {response.status_code}"))
+                print(f"Error searching for assets: HTTP {response.status_code}")
+                
+        except Exception as e:
+            self.trace_error("command_execution", e)
+            print(f"Error executing search: {e}")
+            
         return True
+
+    def _display_results(self, asset_search_response: AssetSearchResponse, search_term: str) -> None:
+        """Display search results with tracing."""
+        self.trace_start("display_results", search_term=search_term, total_assets=len(asset_search_response.assets))
+        
+        assets = asset_search_response.assets
+        
+        if not assets:
+            self.trace("no_results_found", search_term=search_term)
+            print(f"\nNo assets found matching '{search_term}'")
+            self.trace_complete("display_results", results_count=0)
+            return
+        
+        print(f"\nFound {len(assets)} asset(s) matching '{search_term}':")
+        
+        # Print each asset with individual tracing
+        for i, asset in enumerate(assets):
+            asset_id = str(asset.id)
+            asset_name = asset.name
+            asset_type = asset.asset_type.name
+            asset_uid = asset.uid
+            
+            print(f"{asset_id:<15} {asset_name:<50} {asset_type:<20} {asset_uid:<50}")
+            
+            # Trace each asset display
+            self.trace("asset_displayed", 
+                      asset_index=i, 
+                      asset_id=asset_id, 
+                      asset_name=asset_name, 
+                      asset_type=asset_type, 
+                      asset_uid=asset_uid)
+        
+        self.trace_complete("display_results", results_count=len(assets))
     
     def get_completions(
         self, current_input: str, cursor_position: int
@@ -893,10 +966,36 @@ class ExampleCommand(Command):
         """Get auto-completion suggestions."""
         return [
             CompletionItem(text="--help", description="Show help message"),
-            CompletionItem(text="Hello", description="Greeting message"),
-            CompletionItem(text="World", description="World message")
+            CompletionItem(text="database", description="Search for database assets"),
+            CompletionItem(text="table", description="Search for table assets"),
+            CompletionItem(text="column", description="Search for column assets")
         ]
 ```
+
+### Key Tracing Features Demonstrated
+
+1. **TraceableMixin Integration**: Inherits from `TraceableMixin` to get tracing capabilities
+2. **Trace Prefix**: Sets `trace_prefix` property for organized trace messages
+3. **Start/Complete Tracing**: Uses `trace_start()` and `trace_complete()` for operation boundaries
+4. **Error Tracing**: Uses `trace_error()` to capture exceptions with details
+5. **Detailed Tracing**: Traces individual operations like API calls, response parsing, and asset display
+6. **Context Information**: Includes relevant data like asset names, counts, and status codes
+
+### Enabling Tracing
+
+To see the tracing output, enable TRACE level logging:
+
+```bash
+ADOC > set-config log.level TRACE
+ADOC > find-asset database
+```
+
+This will show detailed trace information including:
+- Command execution start/completion
+- Asset search parameters and results  
+- API request/response details
+- Response parsing and validation
+- Individual asset display operations
 
 ## Troubleshooting
 

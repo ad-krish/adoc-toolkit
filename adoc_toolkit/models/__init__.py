@@ -1,5 +1,6 @@
 """Pydantic models for ADOC toolkit data validation and serialization."""
 
+from .asset_models import Asset, AssetType, AssetSearchRequest, AssetSearchResponse
 from .command_execution import CommandExecution, ExecutionHistory
 from .command_response import CommandResponse, CompletionItem
 from .configuration_data import ConfigurationData, ConfigItem
@@ -29,6 +30,10 @@ from .execution_metrics_models import (
 )
 
 __all__ = [
+    "Asset",
+    "AssetType",
+    "AssetSearchRequest",
+    "AssetSearchResponse",
     "CommandExecution",
     "ExecutionHistory",
     "CommandResponse",

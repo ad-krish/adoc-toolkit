@@ -16,12 +16,13 @@ from rich.text import Text
 
 from ..http import ADOCHTTPClient
 from ..models import CompletionItem
-from .environment_validator import validate_environments_at_startup
+from .environment_validator import validate_environments_at_startup, load_default_environment
 from .commands import (
     Command,
     ExitCommand,
     ExportExecutionMetricsCommand,
     ExportMetricsCommand,
+    FindAssetCommand,
     GetCommand,
     HelpCommand,
     HistoryCommand,
@@ -133,7 +134,7 @@ def create_history_data(history: list[str], max_history: int) -> dict[str, Any]:
         Dictionary with history data
     """
     return {
-        "version": "1.0",
+        "version": "2.0",
         "history": history[:max_history],
     }
 
@@ -516,6 +517,9 @@ class InteractiveProcessor:
         # Validate environment configuration at startup
         self._validate_environment_config()
 
+        # Load default environment if specified
+        self._load_default_environment()
+
         self._setup_default_commands()
         self._load_history_file()
 
@@ -539,6 +543,19 @@ class InteractiveProcessor:
             )
             self.console.print()
 
+    def _load_default_environment(self) -> None:
+        """Load and set the default environment if specified in config."""
+        default_env_data = load_default_environment()
+        
+        if default_env_data:
+            env_name, env_config = default_env_data
+            self._on_environment_change(env_name, env_config)
+            self.console.print(
+                f"✅ Automatically loaded default environment: {env_name}",
+                style="green"
+            )
+            self.console.print()
+
     def _setup_default_commands(self) -> None:
         """Set up default commands (help, exit)."""
         help_cmd = HelpCommand(self.commands)
@@ -559,6 +576,7 @@ class InteractiveProcessor:
             environment_info_callback=self.get_current_environment_info
         )
         get_cmd = GetCommand(http_client=self.http_client)
+        find_asset_cmd = FindAssetCommand(http_client=self.http_client)
         text_to_dq_policy_cmd = TextToDQPolicyCommand()
 
         self.register_command(help_cmd)
@@ -570,6 +588,7 @@ class InteractiveProcessor:
         self.register_command(export_metrics_cmd)
         self.register_command(export_execution_metrics_cmd)
         self.register_command(get_cmd)
+        self.register_command(find_asset_cmd)
         self.register_command(text_to_dq_policy_cmd)
 
     def register_command(self, command: Command) -> None:

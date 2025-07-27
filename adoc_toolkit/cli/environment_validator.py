@@ -7,7 +7,6 @@ from urllib.parse import urlparse
 
 import yaml
 
-
 class EnvironmentValidationError(Exception):
     """Custom exception for environment validation errors."""
     
@@ -155,8 +154,8 @@ class EnvironmentValidator:
                 f"     your-env-name:\n"
                 f"       name: your-env-name\n"
                 f"       base_url: https://your-instance.acceldata.app\n"
-                f"       access_key: YOUR_ACCESS_KEY\n"
-                f"       secret_key: YOUR_SECRET_KEY\n"
+                f"       access_key: YOUR_ADOC_ACCESS_KEY\n"
+                f"       secret_key: YOUR_ADOC_SECRET_KEY\n"
                 f"   ```"
             )
             return errors
@@ -413,4 +412,36 @@ def validate_environments_at_startup() -> Tuple[bool, List[str]]:
     """
     config_path = Path("config/environments.yaml")
     validator = EnvironmentValidator(config_path)
-    return validator.validate_config() 
+    return validator.validate_config()
+
+
+def load_default_environment() -> Optional[Tuple[str, Dict[str, Any]]]:
+    """Load the default environment from environments.yaml.
+    
+    Returns:
+        Tuple of (environment_name, environment_config) or None if no default
+    """
+    config_path = Path("config/environments.yaml")
+    
+    if not config_path.exists():
+        return None
+    
+    try:
+        with open(config_path, 'r') as f:
+            config_data = yaml.safe_load(f)
+        
+        if not config_data or not isinstance(config_data, dict):
+            return None
+        
+        default_env = config_data.get("default_environment")
+        if not default_env:
+            return None
+        
+        environments = config_data.get("environments", {})
+        if default_env not in environments:
+            return None
+        
+        return default_env, environments[default_env]
+        
+    except Exception:
+        return None 

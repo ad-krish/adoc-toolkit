@@ -10,6 +10,7 @@ from .export_metrics_command import ExportMetricsCommand
 from .get_command import GetCommand
 from .help_command import HelpCommand
 from .history_command import HistoryCommand
+from .find_asset_command import FindAssetCommand
 from .set_config_command import SetConfigCommand
 from .show_env_command import ShowEnvCommand
 from .text_to_dq_policy_command import TextToDQPolicyCommand
@@ -20,6 +21,7 @@ __all__ = [
     "ExitCommand",
     "ExportExecutionMetricsCommand",
     "ExportMetricsCommand",
+    "FindAssetCommand",
     "GetCommand",
     "HelpCommand",
     "HistoryCommand",
