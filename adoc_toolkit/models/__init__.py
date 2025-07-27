@@ -1,5 +1,6 @@
 """Pydantic models for ADOC toolkit data validation and serialization."""
 
+from .command_execution import CommandExecution, ExecutionHistory
 from .command_response import CommandResponse, CompletionItem
 from .configuration_data import ConfigurationData, ConfigItem
 from .environment_info import EnvironmentInfo
@@ -28,6 +29,8 @@ from .execution_metrics_models import (
 )
 
 __all__ = [
+    "CommandExecution",
+    "ExecutionHistory",
     "CommandResponse",
     "CompletionItem",
     "ConfigurationData",

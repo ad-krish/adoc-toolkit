@@ -506,24 +506,27 @@ class ExecutionMetricsService(TraceableMixin):
 
     @trace_method("fetch_execution_metrics", "execution_metrics_service")
     def fetch_execution_metrics(
-        self, start_ts_marker: int, progress: Progress
+        self, start_ts_marker: int, progress: Progress, policy_types: list[str] = None
     ) -> list[ExecutionMetricsRecord]:
         """Fetch and process execution metrics data.
 
         Args:
             start_ts_marker: Timestamp marker for incremental processing
             progress: Progress tracker
+            policy_types: List of policy types to filter (default: DATA_QUALITY, EQUALITY)
 
         Returns:
             List of ExecutionMetricsRecord models
         """
+        if policy_types is None:
+            policy_types = ["DATA_QUALITY", "EQUALITY"]
         # Step 1: Fetch policy executions
         task1 = progress.add_task("Fetching policy executions...", total=None)
         self.trace("fetching_policy_executions", start_ts_marker=start_ts_marker)
 
         try:
             policy_executions = self._fetch_policy_executions(
-                start_ts_marker, progress, task1
+                start_ts_marker, progress, task1, policy_types
             )
             progress.update(
                 task1,
@@ -582,7 +585,7 @@ class ExecutionMetricsService(TraceableMixin):
 
     @trace_method("fetch_policy_executions_api", "execution_metrics_service")
     def _fetch_policy_executions(
-        self, start_ts_marker: int, progress: Progress, task_id
+        self, start_ts_marker: int, progress: Progress, task_id, policy_types: list[str]
     ) -> list[PolicyExecution]:
         """Fetch policy executions from API with pagination.
 
@@ -590,6 +593,7 @@ class ExecutionMetricsService(TraceableMixin):
             start_ts_marker: Timestamp marker for incremental processing
             progress: Progress tracker
             task_id: Progress task ID
+            policy_types: List of policy types to filter
 
         Returns:
             List of PolicyExecution models
@@ -604,11 +608,12 @@ class ExecutionMetricsService(TraceableMixin):
                 task_id, description=f"Fetching executions page {page + 1}..."
             )
 
+            rule_types_param = ",".join(policy_types)
             endpoint = (
                 f"/catalog-server/api/rules/executions"
                 f"?page={page}&size={exec_count}&sortBy=execution.startedAt:DESC"
                 "&executionStatus=SUCCESSFUL,ERRORED,ABORTED,WARNING"
-                "&ruleType=EQUALITY,DATA_QUALITY,DATA_DRIFT,PROFILE_ANOMALY,SCHEMA_DRIFT"
+                f"&ruleType={rule_types_param}"
             )
 
             try:

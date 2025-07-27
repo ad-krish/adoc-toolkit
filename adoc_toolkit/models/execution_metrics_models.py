@@ -222,6 +222,10 @@ class ExecutionMetricsArgs(BaseModel):
     backload: Optional[str] = Field(
         default=None, description="Backload option for first run (e.g., -30d, 2024-01-15)"
     )
+    policy_types: list[str] = Field(
+        default=["DATA_QUALITY", "EQUALITY"], 
+        description="Policy types to export (default: DATA_QUALITY, EQUALITY)"
+    )
     help: bool = Field(default=False, description="Show help")
 
     @field_validator("output_type")
@@ -232,3 +236,24 @@ class ExecutionMetricsArgs(BaseModel):
         if v.lower() not in valid_types:
             raise ValueError(f"Output type must be one of {valid_types}")
         return v.lower()
+
+    @field_validator("policy_types")
+    @classmethod
+    def validate_policy_types(cls, v: list[str]) -> list[str]:
+        """Validate policy types."""
+        valid_types = {
+            "DATA_QUALITY",
+            "EQUALITY", 
+            "DATA_DRIFT",
+            "PROFILE_ANOMALY",
+            "SCHEMA_DRIFT"
+        }
+        if not v:
+            raise ValueError("At least one policy type must be specified")
+        
+        invalid_types = [pt for pt in v if pt.upper() not in valid_types]
+        if invalid_types:
+            raise ValueError(f"Invalid policy types: {invalid_types}. Valid types: {sorted(valid_types)}")
+        
+        # Convert to uppercase for consistency
+        return [pt.upper() for pt in v]

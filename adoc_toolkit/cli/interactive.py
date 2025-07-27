@@ -2,6 +2,7 @@
 
 import json
 import shlex
+from datetime import datetime
 from functools import reduce
 from pathlib import Path
 from typing import Optional, Callable, Any, Iterator
@@ -14,7 +15,7 @@ from rich.console import Console
 from rich.text import Text
 
 from ..http import ADOCHTTPClient
-from ..models import CompletionItem
+from ..models import CompletionItem, ExecutionHistory
 from .commands import (
     Command,
     ExitCommand,
@@ -123,20 +124,27 @@ def update_history_list(
     return updated_history[:max_history]
 
 
-def create_history_data(history: list[str], max_history: int) -> dict[str, Any]:
+def create_history_data(history: list[str], max_history: int, execution_history: Optional[Any] = None) -> dict[str, Any]:
     """Create history data structure for serialization.
 
     Args:
         history: Current history list
         max_history: Maximum history size
+        execution_history: Optional execution history object
 
     Returns:
         Dictionary with history data
     """
-    return {
-        "version": "1.0",
+    data = {
+        "version": "2.0",
         "history": history[:max_history],
     }
+    
+    if execution_history:
+        # Convert execution history to dict format for serialization
+        data["execution_history"] = execution_history.model_dump()
+    
+    return data
 
 
 def validate_history_data(history_data: dict[str, Any]) -> Optional[list[str]]:
@@ -161,7 +169,34 @@ def validate_history_data(history_data: dict[str, Any]) -> Optional[list[str]]:
     return history_list
 
 
-def load_history_from_file(history_file: Path, max_history: int) -> list[str]:
+def load_execution_history_from_data(history_data: dict[str, Any]) -> Optional[Any]:
+    """Load execution history from file data.
+
+    Args:
+        history_data: Loaded history data
+
+    Returns:
+        ExecutionHistory object or None if not available
+    """
+    if not isinstance(history_data, dict):
+        return None
+    
+    if "execution_history" not in history_data:
+        return None
+    
+    execution_data = history_data["execution_history"]
+    if not isinstance(execution_data, dict):
+        return None
+    
+    try:
+        from ..models import ExecutionHistory
+        return ExecutionHistory.model_validate(execution_data)
+    except Exception:
+        # If validation fails, return empty history
+        return None
+
+
+def load_history_from_file(history_file: Path, max_history: int) -> tuple[list[str], Optional[Any]]:
     """Load command history from file using pure functions.
 
     Args:
@@ -169,29 +204,31 @@ def load_history_from_file(history_file: Path, max_history: int) -> list[str]:
         max_history: Maximum history size
 
     Returns:
-        List of history commands
+        Tuple of (history commands, execution history)
     """
     try:
         if not history_file.exists():
-            return []
+            return [], None
 
         with open(history_file, encoding="utf-8") as f:
             history_data = json.load(f)
 
         history_list = validate_history_data(history_data)
         if history_list is None:
-            return []
+            return [], None
+
+        execution_history = load_execution_history_from_data(history_data)
 
         # Load history with most recent first, limit to max_history
-        return history_list[:max_history]
+        return history_list[:max_history], execution_history
 
     except (json.JSONDecodeError, OSError, KeyError, TypeError):
         # If file is corrupted or unreadable, start with empty history
-        return []
+        return [], None
 
 
 def save_history_to_file(
-    history_file: Path, history: list[str], max_history: int
+    history_file: Path, history: list[str], max_history: int, execution_history: Optional[Any] = None
 ) -> bool:
     """Save command history to file using pure functions.
 
@@ -199,12 +236,13 @@ def save_history_to_file(
         history_file: Path to history file
         history: Current history list
         max_history: Maximum history size
+        execution_history: Optional execution history object
 
     Returns:
         True if save was successful, False otherwise
     """
     try:
-        history_data = create_history_data(history, max_history)
+        history_data = create_history_data(history, max_history, execution_history)
 
         # Ensure parent directory exists
         history_file.parent.mkdir(parents=True, exist_ok=True)
@@ -212,7 +250,7 @@ def save_history_to_file(
         # Write to temporary file first, then rename for atomic operation
         temp_file = history_file.with_suffix(".tmp")
         with open(temp_file, "w", encoding="utf-8") as f:
-            json.dump(history_data, f, indent=2, ensure_ascii=False)
+            json.dump(history_data, f, indent=2, ensure_ascii=False, default=str)
 
         # Atomic rename
         temp_file.replace(history_file)
@@ -517,6 +555,9 @@ class InteractiveProcessor:
         }
         self._pending_recall_command: Optional[str] = None
 
+        # Execution history tracking
+        self.execution_history = ExecutionHistory()
+
         # History file management
         self._history_file = Path.home() / ".adoc-toolkit-history"
 
@@ -540,6 +581,7 @@ class InteractiveProcessor:
         history_cmd = HistoryCommand(
             get_history_callback=self.get_command_history,
             recall_callback=self.recall_command,
+            get_executions_callback=self.get_command_executions,
         )
         set_config_cmd = SetConfigCommand()
         export_metrics_cmd = ExportMetricsCommand(
@@ -630,16 +672,27 @@ class InteractiveProcessor:
         """
         self._pending_recall_command = command_text
 
+    def get_command_executions(self) -> list:
+        """Get the current command execution history.
+
+        Returns:
+            List of command executions (most recent first)
+        """
+        return self.execution_history.execution_history
+
     def _load_history_file(self) -> None:
         """Load command history from file on startup using pure function."""
-        self.command_history = load_history_from_file(
+        history, execution_history = load_history_from_file(
             self._history_file, self._max_history
         )
+        self.command_history = history
+        if execution_history:
+            self.execution_history = execution_history
 
     def _save_history_file(self) -> None:
         """Save command history to file using pure function."""
         save_history_to_file(
-            self._history_file, self.command_history, self._max_history
+            self._history_file, self.command_history, self._max_history, self.execution_history
         )
 
     def _handle_http_response(self, response) -> None:
@@ -695,11 +748,39 @@ class InteractiveProcessor:
             self.console.print(self.commands[command_name].get_help())
             return True
 
+        # Track execution timing for non-excluded commands
+        should_track = should_add_to_history(
+            f"{command_name} {' '.join(args)}", self._excluded_commands
+        )
+        
+        start_time = datetime.now() if should_track else None
+        error_message = None
+        status = "success"
+
         try:
-            return self.commands[command_name].execute(args)
+            result = self.commands[command_name].execute(args)
+            return result
         except Exception as e:
+            status = "failure"
+            error_message = str(e)
             self.console.print(f"Error executing command: {e}", style="red")
             return True
+        finally:
+            if should_track and start_time:
+                end_time = datetime.now()
+                command_text = f"{command_name} {' '.join(args)}" if args else command_name
+                
+                # Add execution to history
+                self.execution_history.add_execution(
+                    command=command_text,
+                    status=status,
+                    start_time=start_time,
+                    end_time=end_time,
+                    error_message=error_message
+                )
+                
+                # Save to file after each execution
+                self._save_history_file()
 
     def show_banner(self) -> None:
         """Display welcome banner."""

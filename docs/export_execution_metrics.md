@@ -16,6 +16,7 @@ export-execution-metrics [OPTIONS]
 - `--output-dir DIR`: Output directory (default: ./output/execution-metrics/)
 - `--output-filename NAME`: Output filename template (default: execution-metrics-%d-%m-%y-%h-%M)
 - `--backload OPTION`: Backload option to override tracking file (e.g., -30d, -10d, 2024-01-15)
+- `--policy-types TYPES`: Comma-separated policy types to export (default: DATA_QUALITY,EQUALITY)
 - `--help`: Show help message
 
 ### Filename Template Variables
@@ -62,6 +63,29 @@ The `--backload` option provides flexible data retrieval from historical periods
 - **Historical analysis**: Get data from a particular date range
 - **Recovery scenarios**: Recover from processing gaps or errors
 - **Initial setup**: Configure the starting point for first-time runs
+
+### Policy Type Filtering
+
+The `--policy-types` option allows you to specify which types of policies to export:
+
+#### Available Policy Types
+- **DATA_QUALITY**: Data quality rules and checks
+- **EQUALITY**: Reconciliation and comparison policies  
+- **DATA_DRIFT**: Data drift detection policies
+- **PROFILE_ANOMALY**: Data profiling anomaly detection
+- **SCHEMA_DRIFT**: Schema change detection policies
+
+#### Policy Type Behavior
+- **Default types**: DATA_QUALITY and EQUALITY (most commonly used)
+- **Multiple types**: Specify comma-separated values (e.g., `DATA_QUALITY,DATA_DRIFT`)
+- **Case insensitive**: Input is automatically converted to uppercase
+- **Validation**: Only valid policy types are accepted
+
+#### Use Cases
+- **Focused analysis**: Export only specific policy types for targeted analysis
+- **Performance optimization**: Reduce data volume by filtering to relevant policies
+- **Compliance reporting**: Export only compliance-related policies (DATA_QUALITY, EQUALITY)
+- **Monitoring dashboards**: Create specialized dashboards for specific policy types
 
 ### Data Sources
 
@@ -160,12 +184,14 @@ The command supports intelligent auto-completion for all options and values:
 #### Option Completion
 - `--output-type` completes with: `csv`, `parquet`
 - `--backload` suggests: `-10d`, `-30d`, `-60d`, `2024-01-15`, `2024-01-15T10:30:00`
+- `--policy-types` completes with: `DATA_QUALITY`, `EQUALITY`, `DATA_DRIFT`, `PROFILE_ANOMALY`, `SCHEMA_DRIFT`
 - `--output-filename` provides template examples: `execution-metrics-%d-%m-%y-%h-%M`, `exec-metrics-%y%m%d`
 
 #### Smart Context Awareness
 - Only suggests unused options to avoid duplicates
 - Provides contextual help based on current input
 - Supports partial matching for faster typing
+- Policy types support comma-separated completion (e.g., typing `DATA_QUALITY,E` suggests `DATA_QUALITY,EQUALITY`)
 
 ## Examples
 
@@ -199,6 +225,23 @@ ADOC (prod) > export-execution-metrics --backload 01/15/2024  # US format
 ADOC (prod) > export-execution-metrics --backload 15/01/2024  # European format
 ```
 
+### Policy Type Examples
+
+Export only DATA_QUALITY policies:
+```
+ADOC (prod) > export-execution-metrics --policy-types DATA_QUALITY
+```
+
+Export multiple policy types:
+```
+ADOC (prod) > export-execution-metrics --policy-types DATA_QUALITY,DATA_DRIFT
+```
+
+Export all drift and anomaly detection policies:
+```
+ADOC (prod) > export-execution-metrics --policy-types DATA_DRIFT,PROFILE_ANOMALY,SCHEMA_DRIFT
+```
+
 ### Export Format Examples
 
 Export to Parquet format:
@@ -206,9 +249,14 @@ Export to Parquet format:
 ADOC (prod) > export-execution-metrics --output-type parquet
 ```
 
-Combine backload with Parquet export:
+Combine policy types with Parquet export:
 ```
-ADOC (prod) > export-execution-metrics --backload -30d --output-type parquet
+ADOC (prod) > export-execution-metrics --policy-types DATA_QUALITY --output-type parquet
+```
+
+Combine backload with policy types and Parquet export:
+```
+ADOC (prod) > export-execution-metrics --backload -30d --policy-types DATA_QUALITY,EQUALITY --output-type parquet
 ```
 
 ### Custom Output Directory
@@ -255,12 +303,15 @@ The tracking file (`.last_run_tracking.json`) stores incremental processing stat
 
 ### Environment Setup
 
-1. **Environment Configuration**: Use the `use <environment>` command to set the active environment
+1. **Environment Configuration**: **REQUIRED** - Use the `use <environment>` command to set the active environment before running this command
 2. **Credentials**: Ensure the environment has valid `accessKey` and `secretKey` configured
 3. **Permissions**: The API keys must have access to:
    - Rules execution endpoints
    - Data quality policy endpoints
    - Asset catalog endpoints
+
+### Important Note
+The `export-execution-metrics` command will not run unless an environment has been selected using the `use <environment>` command. If no environment is set, the command will display an error message prompting you to set an environment first.
 
 ### Dependencies
 
@@ -359,6 +410,22 @@ Error: Backload date cannot be in the future
 Error: Invalid backload format: xyz
 ```
 **Solution**: Use supported formats like `-30d`, `2024-01-15`, or `2024-01-15T10:30:00`.
+
+#### Policy Type Validation Errors
+```
+Error: Invalid policy types: ['INVALID_TYPE']. Valid types: ['DATA_DRIFT', 'DATA_QUALITY', 'EQUALITY', 'PROFILE_ANOMALY', 'SCHEMA_DRIFT']
+```
+**Solution**: Use only valid policy types from the supported list.
+
+```
+Error: At least one policy type must be specified
+```
+**Solution**: Provide at least one policy type in the comma-separated list.
+
+```
+Error: --policy-types requires a value
+```
+**Solution**: Specify policy types after the `--policy-types` option (e.g., `--policy-types DATA_QUALITY`).
 
 #### Missing Dependencies
 ```

@@ -190,6 +190,46 @@ class TestPureFunctions:
         assert "-30d" in suggestions
         assert "-60d" in suggestions
 
+    def test_get_execution_metrics_completion_suggestions_policy_types_single(self):
+        """Test completion suggestions for policy types."""
+        suggestions = get_execution_metrics_completion_suggestions(
+            "export-execution-metrics --policy-types D", 37
+        )
+
+        assert "DATA_QUALITY" in suggestions
+        assert "DATA_DRIFT" in suggestions
+        # Should not include types that don't start with D
+        assert "EQUALITY" not in suggestions
+
+    def test_get_execution_metrics_completion_suggestions_policy_types_comma_separated(self):
+        """Test completion suggestions for comma-separated policy types."""
+        suggestions = get_execution_metrics_completion_suggestions(
+            "export-execution-metrics --policy-types DATA_QUALITY,E", 50
+        )
+
+        # Should complete with prefix for comma-separated values
+        assert "DATA_QUALITY,EQUALITY" in suggestions
+        # Should not include types that don't start with E after comma
+        assert "DATA_QUALITY,DATA_DRIFT" not in suggestions
+
+    def test_get_execution_metrics_completion_suggestions_policy_types_all_options(self):
+        """Test completion suggestions include all policy types."""
+        suggestions = get_execution_metrics_completion_suggestions(
+            "export-execution-metrics --policy-types ", 38
+        )
+
+        expected_types = ["DATA_QUALITY", "EQUALITY", "DATA_DRIFT", "PROFILE_ANOMALY", "SCHEMA_DRIFT"]
+        for policy_type in expected_types:
+            assert policy_type in suggestions
+
+    def test_get_execution_metrics_completion_suggestions_includes_policy_types_option(self):
+        """Test completion suggestions include --policy-types option."""
+        suggestions = get_execution_metrics_completion_suggestions(
+            "export-execution-metrics --policy", 30
+        )
+
+        assert "--policy-types" in suggestions
+
     def test_parse_backload_option_relative_days_valid(self):
         """Test parsing relative day format."""
         result = parse_backload_option("-30d")
@@ -258,6 +298,57 @@ class TestPureFunctions:
         result = parse_execution_metrics_args(args)
 
         expected = {"backload": "-30d", "output_type": "csv"}
+        assert result == expected
+
+    def test_parse_execution_metrics_args_with_policy_types_single(self):
+        """Test parsing arguments with single policy type."""
+        args = ["--policy-types", "DATA_QUALITY"]
+        result = parse_execution_metrics_args(args)
+
+        expected = {"policy_types": ["DATA_QUALITY"]}
+        assert result == expected
+
+    def test_parse_execution_metrics_args_with_policy_types_multiple(self):
+        """Test parsing arguments with multiple policy types."""
+        args = ["--policy-types", "DATA_QUALITY,EQUALITY,DATA_DRIFT"]
+        result = parse_execution_metrics_args(args)
+
+        expected = {"policy_types": ["DATA_QUALITY", "EQUALITY", "DATA_DRIFT"]}
+        assert result == expected
+
+    def test_parse_execution_metrics_args_with_policy_types_whitespace(self):
+        """Test parsing arguments with policy types containing whitespace."""
+        args = ["--policy-types", " DATA_QUALITY , EQUALITY , DATA_DRIFT "]
+        result = parse_execution_metrics_args(args)
+
+        expected = {"policy_types": ["DATA_QUALITY", "EQUALITY", "DATA_DRIFT"]}
+        assert result == expected
+
+    def test_parse_execution_metrics_args_policy_types_empty_value(self):
+        """Test parsing arguments with empty policy types value."""
+        with pytest.raises(ValueError, match="requires at least one policy type"):
+            parse_execution_metrics_args(["--policy-types", ""])
+
+    def test_parse_execution_metrics_args_policy_types_empty_after_split(self):
+        """Test parsing arguments with policy types that become empty after splitting."""
+        with pytest.raises(ValueError, match="requires at least one policy type"):
+            parse_execution_metrics_args(["--policy-types", " , , "])
+
+    def test_parse_execution_metrics_args_policy_types_missing_value(self):
+        """Test parsing arguments with policy types missing value."""
+        with pytest.raises(ValueError, match="--policy-types requires a value"):
+            parse_execution_metrics_args(["--policy-types"])
+
+    def test_parse_execution_metrics_args_combined_with_policy_types(self):
+        """Test parsing arguments with policy types combined with other options."""
+        args = ["--policy-types", "DATA_QUALITY,DATA_DRIFT", "--output-type", "parquet", "--backload", "-7d"]
+        result = parse_execution_metrics_args(args)
+
+        expected = {
+            "policy_types": ["DATA_QUALITY", "DATA_DRIFT"],
+            "output_type": "parquet",
+            "backload": "-7d"
+        }
         assert result == expected
 
 
@@ -430,6 +521,40 @@ class TestPydanticModels:
         """Test ExecutionMetricsArgs with invalid output type."""
         with pytest.raises(ValidationError):
             ExecutionMetricsArgs(output_type="invalid")
+
+    def test_execution_metrics_args_valid_policy_types(self):
+        """Test ExecutionMetricsArgs with valid policy types."""
+        args = ExecutionMetricsArgs(policy_types=["DATA_QUALITY", "EQUALITY", "DATA_DRIFT"])
+        
+        assert args.policy_types == ["DATA_QUALITY", "EQUALITY", "DATA_DRIFT"]
+
+    def test_execution_metrics_args_policy_types_case_insensitive(self):
+        """Test ExecutionMetricsArgs with case insensitive policy types."""
+        args = ExecutionMetricsArgs(policy_types=["data_quality", "equality"])
+        
+        # Should be converted to uppercase
+        assert args.policy_types == ["DATA_QUALITY", "EQUALITY"]
+
+    def test_execution_metrics_args_policy_types_default(self):
+        """Test ExecutionMetricsArgs with default policy types."""
+        args = ExecutionMetricsArgs()
+        
+        assert args.policy_types == ["DATA_QUALITY", "EQUALITY"]
+
+    def test_execution_metrics_args_invalid_policy_type(self):
+        """Test ExecutionMetricsArgs with invalid policy type."""
+        with pytest.raises(ValidationError, match="Invalid policy types"):
+            ExecutionMetricsArgs(policy_types=["INVALID_TYPE"])
+
+    def test_execution_metrics_args_empty_policy_types(self):
+        """Test ExecutionMetricsArgs with empty policy types list."""
+        with pytest.raises(ValidationError, match="At least one policy type must be specified"):
+            ExecutionMetricsArgs(policy_types=[])
+
+    def test_execution_metrics_args_mixed_valid_invalid_policy_types(self):
+        """Test ExecutionMetricsArgs with mix of valid and invalid policy types."""
+        with pytest.raises(ValidationError, match="Invalid policy types"):
+            ExecutionMetricsArgs(policy_types=["DATA_QUALITY", "INVALID", "EQUALITY"])
 
     def test_last_run_info_valid(self):
         """Test LastRunInfo with valid data."""
@@ -841,6 +966,48 @@ class TestExportExecutionMetricsCommand:
         result = command._get_environment_info()
 
         assert result == {}
+
+    def test_execute_no_environment_set(self):
+        """Test command execution when no environment is set."""
+        # Mock environment callback to return empty environment
+        callback = Mock(return_value={})  # No environment set
+        command = ExportExecutionMetricsCommand(callback)
+
+        with patch(
+            "adoc_toolkit.cli.commands.export_execution_metrics_command.Console"
+        ) as mock_console:
+            result = command.execute([])
+
+            assert result is True  # Should return True to continue interactive session
+            
+            # Should print error message about no environment
+            mock_console.return_value.print.assert_called()
+            call_args = mock_console.return_value.print.call_args_list
+            error_printed = any(
+                "No environment selected" in str(call[0][0]) for call in call_args
+            )
+            assert error_printed, f"Expected environment error message in: {call_args}"
+
+    def test_execute_environment_without_name(self):
+        """Test command execution when environment info has no environment name."""
+        # Mock environment callback to return info without environment name
+        callback = Mock(return_value={"base_url": "https://test.com"})  # Missing environment
+        command = ExportExecutionMetricsCommand(callback)
+
+        with patch(
+            "adoc_toolkit.cli.commands.export_execution_metrics_command.Console"
+        ) as mock_console:
+            result = command.execute([])
+
+            assert result is True  # Should return True to continue interactive session
+            
+            # Should print error message about no environment
+            mock_console.return_value.print.assert_called()
+            call_args = mock_console.return_value.print.call_args_list
+            error_printed = any(
+                "No environment selected" in str(call[0][0]) for call in call_args
+            )
+            assert error_printed, f"Expected environment error message in: {call_args}"
 
 
 if __name__ == "__main__":

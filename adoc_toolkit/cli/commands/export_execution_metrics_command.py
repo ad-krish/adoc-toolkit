@@ -114,6 +114,16 @@ def parse_execution_metrics_args(args: list[str]) -> dict[str, Any]:
             key = arg.replace("--", "").replace("-", "_")
             parsed[key] = args[i + 1]
             i += 1
+        elif arg == "--policy-types":
+            if i + 1 >= len(args):
+                raise ValueError(f"{arg} requires a value")
+            # Handle multiple policy types (comma-separated)
+            policy_types_str = args[i + 1]
+            policy_types = [pt.strip() for pt in policy_types_str.split(",") if pt.strip()]
+            if not policy_types:
+                raise ValueError(f"{arg} requires at least one policy type")
+            parsed["policy_types"] = policy_types
+            i += 1
         else:
             raise ValueError(f"Unknown argument: {arg}")
         i += 1
@@ -274,7 +284,7 @@ def get_execution_metrics_completion_suggestions(
         return []
 
     # Available options
-    options = ["--help", "--output-type", "--output-dir", "--output-filename", "--backload"]
+    options = ["--help", "--output-type", "--output-dir", "--output-filename", "--backload", "--policy-types"]
 
     # If the previous word was an option that expects a value, provide completions
     if len(words) >= 2:
@@ -301,6 +311,16 @@ def get_execution_metrics_completion_suggestions(
         elif prev_word == "--backload":
             backload_options = ["-10d", "-30d", "-60d", "2024-01-15", "2024-01-15T10:30:00"]
             return [opt for opt in backload_options if opt.startswith(current_word)]
+        elif prev_word == "--policy-types":
+            policy_types = ["DATA_QUALITY", "EQUALITY", "DATA_DRIFT", "PROFILE_ANOMALY", "SCHEMA_DRIFT"]
+            # Handle comma-separated completion
+            if "," in current_word:
+                parts = current_word.split(",")
+                prefix = ",".join(parts[:-1]) + ","
+                last_part = parts[-1].strip()
+                return [prefix + pt for pt in policy_types if pt.startswith(last_part.upper())]
+            else:
+                return [pt for pt in policy_types if pt.startswith(current_word.upper())]
 
     # Filter options based on current word and already used options
     used_options = set(words[1:])  # Skip command name
@@ -357,11 +377,14 @@ Options:
   --backload OPTION       Backload option to override tracking file (e.g. -30d, -10d, 2024-01-15)
                          Supports: -Nd (1-60 days), date formats, datetime strings
                          Maximum: 60 days ago. Always overrides existing tracking file.
+  --policy-types TYPES    Comma-separated policy types to export 
+                         (default: DATA_QUALITY,EQUALITY)
+                         Available: DATA_QUALITY, EQUALITY, DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT
   --help                  Show this help message
 
 Description:
   Fetches execution metrics data from ADOC platform including:
-  - Policy executions for DATA_QUALITY and EQUALITY types
+  - Policy executions for specified policy types (default: DATA_QUALITY, EQUALITY)
   - Detailed rule-level performance for DQ policies
   - Asset information and threshold configurations
   
@@ -386,6 +409,9 @@ Examples:
   {self.name} --backload -10d                         # Override tracking file: backload from 10 days ago
   {self.name} --backload 2024-01-15                   # Override tracking file: start from specific date
   {self.name} --backload "2024-01-15T10:30:00"        # Override tracking file: start from specific datetime
+  {self.name} --policy-types DATA_QUALITY             # Export only DATA_QUALITY policies
+  {self.name} --policy-types DATA_QUALITY,DATA_DRIFT  # Export DATA_QUALITY and DATA_DRIFT policies
+  {self.name} --policy-types DATA_DRIFT,PROFILE_ANOMALY,SCHEMA_DRIFT  # Export drift and anomaly policies
   {self.name} --output-type parquet                   # Export to Parquet format
   {self.name} --output-dir ./reports                  # Save to reports directory
   {self.name} --output-filename "exec-metrics-%y%m%d" # Custom filename template
@@ -414,6 +440,7 @@ Examples:
                 output_dir=parsed_args.get("output_dir"),
                 output_filename=parsed_args.get("output_filename"),
                 backload=parsed_args.get("backload"),
+                policy_types=parsed_args.get("policy_types", ["DATA_QUALITY", "EQUALITY"]),
                 help=parsed_args.get("help", False),
             )
         except Exception as e:
@@ -426,6 +453,15 @@ Examples:
         )
         if not is_available:
             console.print(error_message, style="red")
+            return True
+
+        # Check if environment is set
+        environment_info = self._get_environment_info()
+        if not environment_info or not environment_info.get("environment"):
+            console.print(
+                "Error: No environment selected. Use 'use <environment>' command to set an environment first.",
+                style="red"
+            )
             return True
 
         try:
@@ -479,7 +515,7 @@ Examples:
                 # Fetch execution metrics data
                 self.trace("starting_execution_metrics_fetch")
                 execution_records = service.fetch_execution_metrics(
-                    start_ts_marker, progress
+                    start_ts_marker, progress, args_model.policy_types
                 )
 
                 if not execution_records:
