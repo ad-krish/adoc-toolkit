@@ -2,7 +2,26 @@
 
 ## Overview
 
-The `export-execution-metrics` command exports detailed execution metrics data from the ADOC platform, focusing on DATA_QUALITY and EQUALITY (reconciliation) policy types. It provides comprehensive rule-level performance metrics for data quality policies with incremental processing capabilities.
+The `export-execution-metrics` command exports comprehensive execution metrics data from the ADOC platform, providing detailed rule-level performance metrics for policies. This command is designed for operational monitoring, compliance reporting, and performance analysis of data quality policies.
+
+### Key Features
+
+- **Multi-Policy Support**: Exports DATA_QUALITY, EQUALITY, DATA_DRIFT, PROFILE_ANOMALY, and SCHEMA_DRIFT policy types
+- **Incremental Processing**: Efficient processing using tracking files to only export new data since the last run
+- **Flexible Backloading**: Support for historical data retrieval with multiple date formats and relative time periods
+- **Multiple Export Formats**: CSV (default) and Parquet formats with automatic data type handling
+- **Comprehensive Data**: Combines policy executions, detailed rule performance, and asset information
+- **Environment Integration**: Leverages the active environment configuration for API access
+- **Progress Tracking**: Real-time progress indicators with detailed status updates
+- **Data Validation**: Robust Pydantic-based validation with automatic type conversion and error handling
+
+### Primary Use Cases
+
+- **Operational Monitoring**: Track data quality policy performance over time
+- **Compliance Reporting**: Generate reports for regulatory and audit requirements
+- **Performance Analysis**: Analyze rule-level metrics and threshold effectiveness
+- **Data Pipeline Integration**: Feed metrics data into downstream analytics and monitoring systems
+- **Historical Analysis**: Retrieve and analyze historical policy execution data
 
 ## Usage
 
@@ -89,12 +108,15 @@ The `--policy-types` option allows you to specify which types of policies to exp
 
 ### Data Sources
 
-The command fetches and combines data from multiple ADOC API endpoints:
+The command fetches and combines data from multiple ADOC API endpoints using efficient parallel processing:
 
-1. **Policy Executions**: Overall execution status and metadata
-2. **Execution Details**: Detailed rule-level performance metrics for DQ policies
-3. **Policy Details**: Policy configuration and asset information
-4. **Asset Information**: Table asset names and metadata
+1. **Policy Executions API**: Retrieves overall execution status, metadata, and performance scores
+2. **Execution Details API**: Fetches detailed rule-level performance metrics for data quality policies
+3. **Policy Details API**: Retrieves policy configuration, threshold settings, and rule versions
+4. **Asset Catalog API**: Resolves table asset names and metadata from asset identifiers
+5. **Parallel Processing**: Uses concurrent API calls to optimize data retrieval performance
+
+The service intelligently merges data from these sources to create comprehensive execution metrics records with full context about policies, rules, assets, and performance outcomes.
 
 ### Export Formats
 
@@ -152,17 +174,20 @@ The command uses efficient parallel processing for:
 
 ### Data Validation and Type Safety
 
-The command includes comprehensive data validation using Pydantic models:
+The command includes comprehensive data validation using Pydantic models with automatic type conversion and robust error handling:
 
 #### Automatic Type Conversion
 - **Integer IDs to Strings**: Policy IDs, execution IDs, and item IDs are automatically converted from integers to strings for consistency
 - **Simple Values to Dictionaries**: API responses with simple numeric values are automatically wrapped in `{"value": <number>}` format
+- **Timestamp Conversion**: Millisecond timestamps are converted to datetime objects for better readability
 - **Data Type Validation**: All fields are validated according to their expected types with clear error messages
 
 #### Robust Error Handling
 - **API Data Inconsistencies**: Handles variations in API response formats gracefully
-- **Missing Fields**: Provides default values for optional fields
-- **Invalid Data**: Validates constraints like positive timestamps and valid enum values
+- **Missing Fields**: Provides default values for optional fields with proper null handling
+- **Invalid Data**: Validates constraints like positive timestamps, valid enum values, and date ranges
+- **Policy Type Validation**: Ensures only valid policy types are processed
+- **Backload Validation**: Prevents future dates and enforces 60-day maximum range
 
 #### Field Validation Examples
 ```json
@@ -175,6 +200,11 @@ The command includes comprehensive data validation using Pydantic models:
 "score": 100.0
 // Automatically converted to
 "score": {"value": 100.0}
+
+// API returns millisecond timestamp
+"end_ts": 1703505600000
+// Automatically converted to
+"execution_date": "2023-12-25T10:00:00"
 ```
 
 ### Command Auto-Completion
@@ -306,9 +336,10 @@ The tracking file (`.last_run_tracking.json`) stores incremental processing stat
 1. **Environment Configuration**: **REQUIRED** - Use the `use <environment>` command to set the active environment before running this command
 2. **Credentials**: Ensure the environment has valid `accessKey` and `secretKey` configured
 3. **Permissions**: The API keys must have access to:
-   - Rules execution endpoints
-   - Data quality policy endpoints
-   - Asset catalog endpoints
+   - Rules execution endpoints (`/api/v1/rules/executions`)
+   - Data quality policy endpoints (`/api/v1/rules/executions/{executionId}/details`)
+   - Policy details endpoints (`/api/v1/rules/{policyId}/details`)
+   - Asset catalog endpoints (`/api/v1/assets/{assetId}`)
 
 ### Important Note
 The `export-execution-metrics` command will not run unless an environment has been selected using the `use <environment>` command. If no environment is set, the command will display an error message prompting you to set an environment first.
