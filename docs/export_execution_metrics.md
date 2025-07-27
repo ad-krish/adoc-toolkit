@@ -15,14 +15,6 @@ The `export-execution-metrics` command exports comprehensive execution metrics d
 - **Progress Tracking**: Real-time progress indicators with detailed status updates
 - **Data Validation**: Robust Pydantic-based validation with automatic type conversion and error handling
 
-### Primary Use Cases
-
-- **Operational Monitoring**: Track data quality policy performance over time
-- **Compliance Reporting**: Generate reports for regulatory and audit requirements
-- **Performance Analysis**: Analyze rule-level metrics and threshold effectiveness
-- **Data Pipeline Integration**: Feed metrics data into downstream analytics and monitoring systems
-- **Historical Analysis**: Retrieve and analyze historical policy execution data
-
 ## Usage
 
 ```
@@ -142,7 +134,7 @@ The exported data includes the following columns:
 | exec_id | Execution identifier |
 | table_asset_name | Name of the table asset |
 | item_column_name | Column name being evaluated |
-| pde | PDE (Physical Data Element) identifier |
+| pde | ... |
 | item_measurement_type | Type of measurement |
 | rule_strategy | Threshold strategy |
 | rule_lower_threshold | Lower threshold value |
