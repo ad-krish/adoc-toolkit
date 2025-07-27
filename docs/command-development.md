@@ -8,8 +8,8 @@ This guide explains how to add new interactive commands to the ADOC Toolkit. The
 
 ### Core Components
 
-- **`Command` Base Class**: Abstract base class that all commands must inherit from
-- **`InteractiveProcessor`**: Manages command registration, parsing, and execution
+- **[`Command` Base Class](adoc_toolkit/cli/commands/base.py)**: Abstract base class that all commands must inherit from
+- **[`InteractiveProcessor`](adoc_toolkit/cli/interactive.py)**: Manages command registration, parsing, and execution
 - **Command Registry**: Dictionary that maps command names and aliases to command instances
 - **Auto-completion System**: Provides intelligent suggestions for commands and parameters
 
@@ -40,8 +40,8 @@ Create a new file in `adoc_toolkit/cli/commands/` named `<command_name>_command.
 """<Command description> command implementation."""
 
 from typing import Optional, Union
-from .base import Command
-from ...models import CompletionItem
+from .base import Command  # [Command base class](adoc_toolkit/cli/commands/base.py)
+from ...models import CompletionItem  # [CompletionItem model](adoc_toolkit/models/__init__.py)
 
 
 class YourCommandNameCommand(Command):
@@ -167,7 +167,7 @@ class YourCommandNameCommand(Command):
 
 ### Step 2: Add Command to Exports
 
-Update `adoc_toolkit/cli/commands/__init__.py` to include your new command:
+Update [`adoc_toolkit/cli/commands/__init__.py`](adoc_toolkit/cli/commands/__init__.py) to include your new command:
 
 ```python
 """Command system for ADOC toolkit interactive shell."""
@@ -206,7 +206,7 @@ __all__ = [
 
 ### Step 3: Register Command
 
-Update `adoc_toolkit/cli/interactive.py` in the `_setup_default_commands()` method:
+Update [`adoc_toolkit/cli/interactive.py`](adoc_toolkit/cli/interactive.py) in the `_setup_default_commands()` method:
 
 ```python
 def _setup_default_commands(self) -> None:
@@ -227,7 +227,7 @@ def _setup_default_commands(self) -> None:
 
 ### Required Methods
 
-Every command must implement these abstract methods:
+Every command must implement these abstract methods from the [`Command` base class](adoc_toolkit/cli/commands/base.py):
 
 #### `name` Property
 ```python
@@ -261,6 +261,8 @@ def execute(self, args: list[str]) -> bool:
 ```
 
 ### Optional Methods
+
+These methods can be overridden to provide additional functionality:
 
 #### `aliases` Property
 ```python
@@ -327,10 +329,10 @@ def get_completions(
 
 ### Structured Completions
 
-Return `CompletionItem` objects with descriptions:
+Return [`CompletionItem`](adoc_toolkit/models/__init__.py) objects with descriptions:
 
 ```python
-from ...models import CompletionItem
+from ...models import CompletionItem  # [CompletionItem model](adoc_toolkit/models/__init__.py)
 
 def get_completions(
     self, current_input: str, cursor_position: int
@@ -371,14 +373,14 @@ def get_completions(
 
 ### Step 1: Create Test File
 
-Create `tests/test_your_command.py`:
+Create [`tests/test_your_command.py`](tests/) (follow the pattern of existing test files):
 
 ```python
 """Tests for your-command-name command."""
 
 import pytest
 from unittest.mock import Mock, patch
-from adoc_toolkit.cli.commands.your_command import YourCommandNameCommand
+from adoc_toolkit.cli.commands.your_command import YourCommandNameCommand  # [Your command implementation](adoc_toolkit/cli/commands/your_command.py)
 
 
 class TestYourCommandNameCommand:
@@ -452,7 +454,7 @@ make test-coverage
 
 ### Step 1: Create Command Documentation
 
-Create `docs/your_command.md`:
+Create [`docs/your_command.md`](docs/) (follow the pattern of existing documentation):
 
 ```markdown
 # Your Command Name
@@ -558,8 +560,8 @@ Here's a complete example of a simple command:
 """Example command implementation."""
 
 from typing import Union
-from .base import Command
-from ...models import CompletionItem
+from .base import Command  # [Command base class](adoc_toolkit/cli/commands/base.py)
+from ...models import CompletionItem  # [CompletionItem model](adoc_toolkit/models/__init__.py)
 
 
 class ExampleCommand(Command):
@@ -618,17 +620,17 @@ class ExampleCommand(Command):
 
 ### Common Issues
 
-1. **Command Not Found**: Ensure command is properly registered in `_setup_default_commands()`
-2. **Import Errors**: Check that command is exported in `__init__.py`
+1. **Command Not Found**: Ensure command is properly registered in [`_setup_default_commands()`](adoc_toolkit/cli/interactive.py)
+2. **Import Errors**: Check that command is exported in [`__init__.py`](adoc_toolkit/cli/commands/__init__.py)
 3. **Help Not Working**: Verify both help patterns are implemented
-4. **Auto-completion Issues**: Check `get_completions()` method implementation
+4. **Auto-completion Issues**: Check [`get_completions()`](adoc_toolkit/cli/commands/base.py) method implementation
 5. **Test Failures**: Ensure tests match the actual command implementation
 
 ### Debugging Tips
 
 1. **Add Logging**: Use print statements or logging for debugging
 2. **Test Incrementally**: Test each method individually
-3. **Check Existing Commands**: Use existing commands as reference
+3. **Check Existing Commands**: Use existing commands as reference (see [`adoc_toolkit/cli/commands/`](adoc_toolkit/cli/commands/) directory)
 4. **Validate Input**: Test with various input combinations
 
 ## Next Steps
