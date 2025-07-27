@@ -15,6 +15,7 @@ export-execution-metrics [OPTIONS]
 - `--output-type TYPE`: Output format: csv, parquet (default: csv)
 - `--output-dir DIR`: Output directory (default: ./output/execution-metrics/)
 - `--output-filename NAME`: Output filename template (default: execution-metrics-%d-%m-%y-%h-%M)
+- `--backload OPTION`: Backload option to override tracking file (e.g., -30d, -10d, 2024-01-15)
 - `--help`: Show help message
 
 ### Filename Template Variables
@@ -38,6 +39,29 @@ The command supports incremental processing by maintaining a tracking file (`.la
 - Total records processed in the last run
 
 On subsequent runs, only new execution data since the last run is processed, making the command efficient for regular scheduled exports.
+
+### Backload Functionality
+
+The `--backload` option provides flexible data retrieval from historical periods:
+
+#### Supported Formats
+- **Relative days**: `-10d`, `-30d`, `-60d` (1-60 days ago)
+- **ISO dates**: `2024-01-15`
+- **ISO datetime**: `2024-01-15T10:30:00`
+- **US format**: `01/15/2024`
+- **European format**: `15/01/2024`
+
+#### Backload Behavior
+- **With `--backload`**: Always overrides existing tracking file and starts from the specified time
+- **Without `--backload`**: Uses existing tracking file for incremental processing, or defaults to 30 days ago for first run
+- **Maximum range**: 60 days ago (configurable limit for performance)
+- **Future dates**: Not allowed (validation prevents future date specification)
+
+#### Use Cases
+- **Data reprocessing**: Re-export data from a specific point in time
+- **Historical analysis**: Get data from a particular date range
+- **Recovery scenarios**: Recover from processing gaps or errors
+- **Initial setup**: Configure the starting point for first-time runs
 
 ### Data Sources
 
@@ -102,20 +126,89 @@ The command uses efficient parallel processing for:
 - Concurrent fetching of policy and asset details
 - Optimized data processing pipelines
 
+### Data Validation and Type Safety
+
+The command includes comprehensive data validation using Pydantic models:
+
+#### Automatic Type Conversion
+- **Integer IDs to Strings**: Policy IDs, execution IDs, and item IDs are automatically converted from integers to strings for consistency
+- **Simple Values to Dictionaries**: API responses with simple numeric values are automatically wrapped in `{"value": <number>}` format
+- **Data Type Validation**: All fields are validated according to their expected types with clear error messages
+
+#### Robust Error Handling
+- **API Data Inconsistencies**: Handles variations in API response formats gracefully
+- **Missing Fields**: Provides default values for optional fields
+- **Invalid Data**: Validates constraints like positive timestamps and valid enum values
+
+#### Field Validation Examples
+```json
+// API returns integer ID
+"policy_id": 70381
+// Automatically converted to
+"policy_id": "70381"
+
+// API returns simple numeric value
+"score": 100.0
+// Automatically converted to
+"score": {"value": 100.0}
+```
+
+### Command Auto-Completion
+
+The command supports intelligent auto-completion for all options and values:
+
+#### Option Completion
+- `--output-type` completes with: `csv`, `parquet`
+- `--backload` suggests: `-10d`, `-30d`, `-60d`, `2024-01-15`, `2024-01-15T10:30:00`
+- `--output-filename` provides template examples: `execution-metrics-%d-%m-%y-%h-%M`, `exec-metrics-%y%m%d`
+
+#### Smart Context Awareness
+- Only suggests unused options to avoid duplicates
+- Provides contextual help based on current input
+- Supports partial matching for faster typing
+
 ## Examples
 
 ### Basic Usage
 
-Export to CSV with default settings:
+Export to CSV with default settings (uses tracking file or defaults to 30 days ago):
 ```
 ADOC (prod) > export-execution-metrics
 ```
 
-### Export to Parquet
+### Backload Examples
+
+Override tracking file and backload from 10 days ago:
+```
+ADOC (prod) > export-execution-metrics --backload -10d
+```
+
+Start from a specific date (overrides tracking file):
+```
+ADOC (prod) > export-execution-metrics --backload 2024-01-15
+```
+
+Start from a specific datetime (overrides tracking file):
+```
+ADOC (prod) > export-execution-metrics --backload "2024-01-15T10:30:00"
+```
+
+Backload with different date formats:
+```
+ADOC (prod) > export-execution-metrics --backload 01/15/2024  # US format
+ADOC (prod) > export-execution-metrics --backload 15/01/2024  # European format
+```
+
+### Export Format Examples
 
 Export to Parquet format:
 ```
 ADOC (prod) > export-execution-metrics --output-type parquet
+```
+
+Combine backload with Parquet export:
+```
+ADOC (prod) > export-execution-metrics --backload -30d --output-type parquet
 ```
 
 ### Custom Output Directory
@@ -136,7 +229,7 @@ ADOC (prod) > export-execution-metrics --output-filename "exec-metrics-%y%m%d"
 
 Export with all custom options:
 ```
-ADOC (prod) > export-execution-metrics --output-type parquet --output-dir ./reports --output-filename "detailed-metrics-%y-%m-%d"
+ADOC (prod) > export-execution-metrics --backload -15d --output-type parquet --output-dir ./reports --output-filename "detailed-metrics-%y-%m-%d"
 ```
 
 ## Output Files
@@ -246,7 +339,26 @@ Comprehensive logging includes:
 ```
 Warning: No new execution metrics data found since last run.
 ```
-**Solution**: Check if there are new policy executions since the last run, or delete the tracking file to force a full export.
+**Solutions**: 
+- Check if there are new policy executions since the last run
+- Use `--backload` option to specify a different time range (e.g., `--backload -7d`)
+- Delete the tracking file (`.last_run_tracking.json`) to reset incremental processing
+
+#### Backload Validation Errors
+```
+Error: Backload cannot be more than 60 days (-60d)
+```
+**Solution**: Use a backload period within the 60-day limit.
+
+```
+Error: Backload date cannot be in the future
+```
+**Solution**: Ensure the specified date/time is in the past.
+
+```
+Error: Invalid backload format: xyz
+```
+**Solution**: Use supported formats like `-30d`, `2024-01-15`, or `2024-01-15T10:30:00`.
 
 #### Missing Dependencies
 ```
