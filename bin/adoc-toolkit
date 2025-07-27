@@ -26,13 +26,6 @@ print_info() {
     echo -e "${YELLOW}$1${NC}"
 }
 
-# Check if uv is available
-if ! command -v uv &> /dev/null; then
-    print_error "uv is not installed or not in PATH"
-    echo "Please install uv: https://docs.astral.sh/uv/getting-started/installation/"
-    exit 1
-fi
-
 # Check if we're in the right directory (look for pyproject.toml)
 if [[ ! -f "pyproject.toml" ]]; then
     print_error "pyproject.toml not found"
@@ -40,16 +33,59 @@ if [[ ! -f "pyproject.toml" ]]; then
     exit 1
 fi
 
-# Install dependencies if needed
-if [[ ! -d ".venv" ]]; then
-    print_info "Installing dependencies..."
-    if ! uv sync; then
-        print_error "Failed to install dependencies"
+# Function to run with uv
+run_with_uv() {
+    print_info "Using uv to run ADOC Toolkit..."
+    uv run adoc-toolkit "$@"
+}
+
+# Function to run without uv (fallback)
+run_without_uv() {
+    print_info "uv not found, trying to run without uv..."
+    
+    # Check if Python is available
+    if ! command -v python3 &> /dev/null && ! command -v python &> /dev/null; then
+        print_error "Neither uv nor Python found"
+        echo "Please install either uv (recommended) or Python"
+        echo "uv: https://docs.astral.sh/uv/getting-started/installation/"
         exit 1
     fi
-    print_success "Dependencies installed successfully"
-fi
+    
+    # Determine Python command
+    PYTHON_CMD=""
+    if command -v python3 &> /dev/null; then
+        PYTHON_CMD="python3"
+    elif command -v python &> /dev/null; then
+        PYTHON_CMD="python"
+    fi
+    
+    print_info "Using $PYTHON_CMD to run ADOC Toolkit..."
+    
+    # Try to run directly from the module
+    if [[ -d "adoc_toolkit" ]]; then
+        $PYTHON_CMD -m adoc_toolkit "$@"
+    else
+        print_error "adoc_toolkit module not found"
+        echo "Please ensure the project is properly installed or use uv"
+        exit 1
+    fi
+}
 
-# Start the ADOC toolkit
-print_info "Starting ADOC Toolkit..."
-uv run adoc-toolkit "$@"
+# Check if uv is available
+if command -v uv &> /dev/null; then
+    # Install dependencies if needed
+    if [[ ! -d ".venv" ]]; then
+        print_info "Installing dependencies with uv..."
+        if ! uv sync; then
+            print_error "Failed to install dependencies with uv"
+            print_info "Falling back to direct Python execution..."
+            run_without_uv "$@"
+            exit $?
+        fi
+        print_success "Dependencies installed successfully"
+    fi
+    run_with_uv "$@"
+else
+    print_info "uv not found, using fallback method..."
+    run_without_uv "$@"
+fi

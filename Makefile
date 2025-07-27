@@ -34,7 +34,7 @@ help:
 	@echo "  clean-output  Clean up output directory"
 	@echo "  clean-all     Clean everything (temp files, logs, output)"
 	@echo "  build         Build the package"
-	@echo "  run           Run the interactive toolkit"
+	@echo "  run           Run the interactive toolkit (with uv fallback)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make test                    # Run all tests"
@@ -135,7 +135,23 @@ build:
 
 run:
 	@echo "🚀 Starting ADOC Toolkit interactive shell..."
-	uv run adoc-toolkit
+	@if command -v uv >/dev/null 2>&1; then \
+		echo "Using uv to run ADOC Toolkit..."; \
+		uv run adoc-toolkit; \
+	else \
+		echo "uv not found, trying to run without uv..."; \
+		if command -v python3 >/dev/null 2>&1; then \
+			echo "Using python3 to run ADOC Toolkit..."; \
+			python3 -m adoc_toolkit; \
+		elif command -v python >/dev/null 2>&1; then \
+			echo "Using python to run ADOC Toolkit..."; \
+			python -m adoc_toolkit; \
+		else \
+			echo "Error: Neither uv nor Python found"; \
+			echo "Please install either uv (recommended) or Python"; \
+			exit 1; \
+		fi; \
+	fi
 
 # Quick test combinations for common workflows
 test-core: test-http test-audit test-logs

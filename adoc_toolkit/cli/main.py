@@ -1,11 +1,49 @@
 """Main CLI entry point using Click."""
 
-from typing import Optional
+from typing import Optional, Callable
+from functools import partial
 
 import click
 from rich.console import Console
 
 from .interactive import InteractiveProcessor
+
+
+def display_version() -> None:
+    """Display version information - pure function."""
+    from adoc_toolkit import __version__
+    console = Console()
+    console.print(f"ADOC Toolkit version {__version__}")
+
+
+def create_processor(config: Optional[str]) -> InteractiveProcessor:
+    """Create an InteractiveProcessor instance - pure function."""
+    return InteractiveProcessor(config_file=config)
+
+
+def run_processor(config: Optional[str]) -> None:
+    """Run the interactive processor - pure function."""
+    create_processor(config).run()
+
+
+def execute_help_command(command: str, config: Optional[str]) -> None:
+    """Execute help command for specific command - pure function."""
+    processor = create_processor(config)
+    processor.execute_command("help", [command] if command else [])
+
+
+def display_general_help() -> None:
+    """Display general help - pure function."""
+    ctx = click.get_current_context()
+    click.echo(ctx.get_help())
+
+
+def handle_help_command(command: Optional[str], config: Optional[str]) -> None:
+    """Handle help command logic - pure function."""
+    if command:
+        execute_help_command(command, config)
+    else:
+        display_general_help()
 
 
 @click.group(invoke_without_command=True)
@@ -16,38 +54,24 @@ from .interactive import InteractiveProcessor
 def cli(
     ctx: click.Context, interactive: bool, version: bool, config: Optional[str]
 ) -> None:
-    """ADOC Toolkit - AccelData Observability Cloud toolkit.
+    """ADOC Toolkit - Acceldata Observability Cloud toolkit.
 
-    A command-line toolkit for working with AccelData Observability Cloud.
+    A command-line toolkit for working with Acceldata Observability Cloud.
     """
-    console = Console()
-
     if version:
-        from adoc_toolkit import __version__
-
-        console.print(f"ADOC Toolkit version {__version__}")
+        display_version()
         return
 
     if ctx.invoked_subcommand is None:
-        if interactive:
-            processor = InteractiveProcessor(config_file=config)
-            processor.run()
-        else:
-            # Default behavior - show help and enter interactive mode
-            console.print("ADOC Toolkit - AccelData Observability Cloud toolkit")
-            console.print(
-                "Starting interactive mode... (use --help for more options)\n"
-            )
-            processor = InteractiveProcessor(config_file=config)
-            processor.run()
+        # Both interactive and default behavior are identical
+        run_processor(config)
 
 
 @cli.command()
 @click.option("--config", "-c", type=click.Path(), help="Path to configuration file")
 def interactive(config: Optional[str]) -> None:
     """Start interactive mode."""
-    processor = InteractiveProcessor(config_file=config)
-    processor.run()
+    run_processor(config)
 
 
 @cli.command()
@@ -55,14 +79,7 @@ def interactive(config: Optional[str]) -> None:
 @click.option("--config", "-c", type=click.Path(), help="Path to configuration file")
 def help(command: Optional[str] = None, config: Optional[str] = None) -> None:
     """Show help for commands."""
-    if command:
-        # Show help for specific command
-        processor = InteractiveProcessor(config_file=config)
-        processor.execute_command("help", [command] if command else [])
-    else:
-        # Show general help
-        ctx = click.get_current_context()
-        click.echo(ctx.get_help())
+    handle_help_command(command, config)
 
 
 def main() -> None:
