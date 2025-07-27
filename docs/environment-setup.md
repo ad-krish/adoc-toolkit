@@ -49,20 +49,20 @@ environments:
   cs-india:
     name: "cs-india"
     base_url: "https://cs-india.acceldata.app"
-    access_key: "YH9WUQ8DJ809D4B"
-    secret_key: "X9BAJL01GH9DUHBXXYM4IDAQWIZLUY"
+    access_key: "YH*********4B"
+    secret_key: "X*********Y"
   
   training:
     name: "training" 
     base_url: "https://training.acceldata.app"
-    access_key: "VL6PQHAQTFAU5GV"
-    secret_key: "AH404JQYDYQWTZQD7BN0688617WLZZ"
+    access_key: "VL******GV"
+    secret_key: "A**Z"
   
   se-demo:
     name: "se-demo"
     base_url: "https://se-demo.acceldata.app"
-    access_key: "GV1PJ3XYFJZEBV0"
-    secret_key: "HWNMVIVGIAG6XQ83Y12F6OK2LTBVRR"
+    access_key: "G********0"
+    secret_key: "H***********R"
 
 # Default environment to use if none specified
 default_environment: "se-demo"
