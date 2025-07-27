@@ -1,111 +1,142 @@
+# ADOC Toolkit - AccelData Observability Cloud Toolkit
+# This file configures the Python project build system, dependencies, and development tools
+# using modern Python packaging standards (PEP 517/518)
+
 [build-system]
+# Specifies the build backend and requirements for building the package
+# Uses hatchling for modern, fast Python packaging
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
+# Core project metadata and configuration
 name = "adoc-toolkit"
 version = "0.1.0"
-description = "AccelData Observability Cloud toolkit"
+description = "Acceldata Observability Cloud toolkit"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [
-    {name = "User", email = "user@example.com"},
+    {name = "Root Joltie", email = "joltie@niranta.life"},
 ]
+
+# Python version compatibility classifiers
+# These help package indexes and tools understand supported Python versions
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
+    "Development Status :: 3 - Alpha",  # Project is in alpha development stage
+    "Intended Audience :: Developers",  # Primary audience is developers
+    "License :: OSI Approved :: Apache Software License",  # Apache 2.0 license
+    "Programming Language :: Python :: 3",  # General Python 3 support
+    "Programming Language :: Python :: 3.9",  # Specific version support
+    "Programming Language :: Python :: 3.10",  # Primary target version
+    "Programming Language :: Python :: 3.11",  # Latest stable version
+    "Programming Language :: Python :: 3.12",  # Latest Python version
 ]
+
+# Minimum Python version required (must be >=3.10 for modern features)
 requires-python = ">=3.10"
+
+# Core runtime dependencies
+# These packages are required for the toolkit to function
 dependencies = [
-    "anthropic>=0.59.0",
-    "click>=8.0.0",
-    "google-generativeai>=0.8.5",
-    "httpx>=0.28.1",
-    "pandas>=2.3.1",
-    "prompt-toolkit>=3.0.0",
-    "pydantic>=2.11.7",
-    "pyyaml>=6.0.2",
-    "rich>=13.0.0",
-    "xai-sdk>=1.0.0",
+    "anthropic>=0.59.0",           # Anthropic Claude API client
+    "click>=8.0.0",                # CLI framework for command-line interface
+    "google-generativeai>=0.8.5",  # Google Gemini API client
+    "httpx>=0.28.1",               # Modern HTTP client for API calls
+    "pandas>=2.3.1",               # Data manipulation and analysis
+    "prompt-toolkit>=3.0.0",       # Interactive command-line interface
+    "pydantic>=2.11.7",            # Data validation and settings management
+    "pyyaml>=6.0.2",               # YAML configuration file support
+    "rich>=13.0.0",                # Rich terminal output and formatting
+    "xai-sdk>=1.0.0",              # AccelData XAI SDK for platform integration
 ]
 
 [project.optional-dependencies]
+# Optional dependency groups for different use cases
+
+# Development dependencies - installed with: uv sync --group dev
 dev = [
-    "pytest>=7.0.0",
-    "mypy>=1.0.0",
-    "ruff>=0.1.0",
-    "black>=23.0.0",
+    "pytest>=7.0.0",    # Testing framework
+    "mypy>=1.0.0",      # Static type checking
+    "ruff>=0.1.0",      # Fast Python linter and formatter
+    "black>=23.0.0",    # Code formatter (alternative to ruff format)
 ]
+
+# Export functionality dependencies - installed with: uv sync --group export
 export = [
-    "pyarrow>=14.0.0",  # For Parquet export format
-    "fastavro>=1.8.0",  # For Avro export format
+    "pyarrow>=14.0.0",  # For Parquet export format support
+    "fastavro>=1.8.0",  # For Avro export format support
 ]
 
 [project.scripts]
+# Entry point for the command-line tool
+# This makes 'adoc-toolkit' available as a system command
 adoc-toolkit = "adoc_toolkit.cli:main"
 
+# Code Quality and Development Tools Configuration
+
 [tool.ruff]
-line-length = 88
-target-version = "py310"
+# Ruff configuration for linting and formatting
+# Ruff is a fast Python linter written in Rust
+line-length = 88                    # Maximum line length (Black-compatible)
+target-version = "py310"            # Target Python version for compatibility
 
 [tool.ruff.lint]
+# Linting rules and checks to enable
 select = [
-    "E",  # pycodestyle errors
-    "W",  # pycodestyle warnings
-    "F",  # pyflakes
-    "I",  # isort
-    "B",  # flake8-bugbear
-    "C4", # flake8-comprehensions
-    "UP", # pyupgrade
+    "E",  # pycodestyle errors (PEP 8 violations)
+    "W",  # pycodestyle warnings (style issues)
+    "F",  # pyflakes (logical errors and unused imports)
+    "I",  # isort (import sorting)
+    "B",  # flake8-bugbear (bug-prone patterns)
+    "C4", # flake8-comprehensions (comprehension improvements)
+    "UP", # pyupgrade (Python version compatibility)
 ]
 
 [tool.mypy]
-python_version = "3.10"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-check_untyped_defs = true
-disallow_untyped_decorators = true
-no_implicit_optional = true
-warn_redundant_casts = true
-warn_unused_ignores = true
-warn_no_return = true
-warn_unreachable = true
-strict_equality = true
+# MyPy configuration for static type checking
+# Ensures type safety and catches type-related errors
+python_version = "3.10"             # Target Python version
+warn_return_any = true              # Warn about functions returning Any
+warn_unused_configs = true          # Warn about unused configuration
+disallow_untyped_defs = true        # Require type annotations on all functions
+disallow_incomplete_defs = true     # Require complete type annotations
+check_untyped_defs = true           # Check untyped function definitions
+disallow_untyped_decorators = true  # Require typed decorators
+no_implicit_optional = true         # Require explicit Optional types
+warn_redundant_casts = true         # Warn about unnecessary type casts
+warn_unused_ignores = true          # Warn about unused type ignore comments
+warn_no_return = true               # Warn about functions that don't return
+warn_unreachable = true             # Warn about unreachable code
+strict_equality = true              # Strict equality checking
 
-# Ignore some complex type issues for now
+# Module-specific MyPy overrides
+# These allow exceptions to strict typing for specific modules
+
 [[tool.mypy.overrides]]
 module = "tests.*"
-# Allow some flexibility in test files
+# Allow some flexibility in test files for easier testing
 warn_return_any = false
 disallow_untyped_defs = false
 disable_error_code = ["arg-type", "index", "assignment", "return-value"]
 
 [[tool.mypy.overrides]]
 module = "adoc_toolkit.models.configuration_data"
-# Complex pydantic + dict hybrid behavior
+# Complex pydantic + dict hybrid behavior requires exceptions
 disable_error_code = ["index", "operator"]
 
 [[tool.mypy.overrides]]
 module = "adoc_toolkit.audit.mixins"
-# Complex decorator return types
+# Complex decorator return types need exceptions
 disable_error_code = ["return-value"]
 
 [[tool.mypy.overrides]]
 module = "adoc_toolkit.audit.audit_entry"
-# Complex pydantic field assignments
+# Complex pydantic field assignments need exceptions
 disable_error_code = ["assignment"]
 
 [[tool.mypy.overrides]]
 module = "adoc_toolkit.audit.service"
-# Complex return type issues
+# Complex return type issues in audit service
 disable_error_code = ["no-any-return"]
 
 [[tool.mypy.overrides]]
@@ -129,15 +160,18 @@ module = "adoc_toolkit.cli.interactive"
 disable_error_code = ["no-untyped-def"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py", "*_test.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = "-v --tb=short"
+# Pytest configuration for testing
+testpaths = ["tests"]               # Directory containing tests
+python_files = ["test_*.py", "*_test.py"]  # Test file patterns
+python_classes = ["Test*"]          # Test class patterns
+python_functions = ["test_*"]       # Test function patterns
+addopts = "-v --tb=short"           # Default pytest options (verbose, short traceback)
 
 [dependency-groups]
+# UV-specific dependency groups for development
+# These are used by uv for dependency management
 dev = [
-    "mypy>=1.17.0",
-    "pytest>=8.4.1",
-    "types-pyyaml>=6.0.12.20250516",
+    "mypy>=1.17.0",                    # Static type checker
+    "pytest>=8.4.1",                   # Testing framework
+    "types-pyyaml>=6.0.12.20250516",   # Type stubs for PyYAML
 ]
