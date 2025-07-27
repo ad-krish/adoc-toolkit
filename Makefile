@@ -119,11 +119,13 @@ clean:
 clean-logs:
 	@echo "🧹 Cleaning logs directory..."
 	rm -rf logs/* 2>/dev/null || true
+	rm -r logs/ 2>/dev/null || true
 	@echo "✅ Logs cleanup complete!"
 
 clean-output:
 	@echo "🧹 Cleaning output directory..."
 	rm -rf output/* 2>/dev/null || true
+	rm -r output/ 2>/dev/null || true
 	@echo "✅ Output cleanup complete!"
 
 clean-all: clean clean-logs clean-output
