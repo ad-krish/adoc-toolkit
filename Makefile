@@ -1,7 +1,7 @@
 # Makefile for ADOC Toolkit
 # Use this file to run common development tasks
 
-.PHONY: help install test test-verbose test-watch test-coverage lint format type-check clean build dev-setup all-checks
+.PHONY: help install test test-verbose test-watch test-coverage lint format type-check clean clean-logs clean-output clean-all build dev-setup all-checks
 
 # Default target - show help
 help:
@@ -30,6 +30,9 @@ help:
 	@echo ""
 	@echo "Development:"
 	@echo "  clean         Clean up temporary files and caches"
+	@echo "  clean-logs    Clean up logs directory"
+	@echo "  clean-output  Clean up output directory"
+	@echo "  clean-all     Clean everything (temp files, logs, output)"
 	@echo "  build         Build the package"
 	@echo "  run           Run the interactive toolkit"
 	@echo ""
@@ -38,6 +41,8 @@ help:
 	@echo "  make test-export             # Test export-metrics only"
 	@echo "  make format lint             # Format code and run linting"
 	@echo "  make all-checks              # Run all quality checks"
+	@echo "  make clean-logs              # Clean logs directory only"
+	@echo "  make clean-all               # Clean everything"
 
 # Setup commands
 install:
@@ -110,6 +115,19 @@ clean:
 	rm -rf dist/ 2>/dev/null || true
 	rm -rf build/ 2>/dev/null || true
 	@echo "✅ Cleanup complete!"
+
+clean-logs:
+	@echo "🧹 Cleaning logs directory..."
+	rm -rf logs/* 2>/dev/null || true
+	@echo "✅ Logs cleanup complete!"
+
+clean-output:
+	@echo "🧹 Cleaning output directory..."
+	rm -rf output/* 2>/dev/null || true
+	@echo "✅ Output cleanup complete!"
+
+clean-all: clean clean-logs clean-output
+	@echo "✅ Complete cleanup finished!"
 
 build:
 	@echo "📦 Building package..."
