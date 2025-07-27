@@ -8,7 +8,7 @@ This guide explains how to add new interactive commands to the ADOC Toolkit. The
 
 ### Core Components
 
-- **[`Command` Base Class](adoc_toolkit/cli/commands/base.py)**: Abstract base class that all commands must inherit from
+- **[`Command Base Class`](adoc_toolkit/cli/commands/base.py)**: Abstract base class that all commands must inherit from
 - **[`InteractiveProcessor`](adoc_toolkit/cli/interactive.py)**: Manages command registration, parsing, and execution
 - **Command Registry**: Dictionary that maps command names and aliases to command instances
 - **Auto-completion System**: Provides intelligent suggestions for commands and parameters
@@ -40,8 +40,8 @@ Create a new file in `adoc_toolkit/cli/commands/` named `<command_name>_command.
 """<Command description> command implementation."""
 
 from typing import Optional, Union
-from .base import Command  # [Command base class](adoc_toolkit/cli/commands/base.py)
-from ...models import CompletionItem  # [CompletionItem model](adoc_toolkit/models/__init__.py)
+from .base import Command 
+from ...models import CompletionItem 
 
 
 class YourCommandNameCommand(Command):
@@ -332,7 +332,7 @@ def get_completions(
 Return [`CompletionItem`](adoc_toolkit/models/__init__.py) objects with descriptions:
 
 ```python
-from ...models import CompletionItem  # [CompletionItem model](adoc_toolkit/models/__init__.py)
+from ...models import CompletionItem
 
 def get_completions(
     self, current_input: str, cursor_position: int
