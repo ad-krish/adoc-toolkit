@@ -519,7 +519,7 @@ The command handles various error conditions:
 
 - [`other-command`](other_command.md): Related functionality
 - [`help`](help.md): Get help for commands
-```
+
 
 ### Step 2: Update Main Documentation
 
