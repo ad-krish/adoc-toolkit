@@ -527,6 +527,288 @@ The command handles various error conditions:
 
 Add your command to the main README.md in the appropriate section.
 
+## Enabling Tracing with Commands
+
+The ADOC Toolkit provides a powerful tracing system that allows commands to emit detailed nested trace information when the log level is set to TRACE. This is extremely valuable for debugging complex operations and understanding execution flow.
+
+### Quick Start: Adding Tracing to Your Command
+
+#### Step 1: Import Tracing Components
+
+```python
+"""Your command implementation with tracing."""
+
+from typing import Optional, Union
+from .base import Command
+from ...models import CompletionItem
+from ...tracing import TraceableMixin, trace_method  # [TraceableMixin](../adoc_toolkit/tracing/mixins.py), [trace_method decorator](../adoc_toolkit/tracing/decorators.py)
+```
+
+#### Step 2: Inherit from TraceableMixin
+
+```python
+class YourCommandNameCommand(Command, TraceableMixin):  # Add TraceableMixin
+    """Your command with tracing capabilities."""
+    
+    @property
+    def trace_prefix(self) -> Optional[str]:
+        """Get the trace prefix for this command."""
+        return "your_command"  # This will prefix all trace messages
+    
+    # ... rest of your command implementation
+```
+
+#### Step 3: Add Tracing to Methods
+
+```python
+@trace_method("execute_command", "your_command")  # Add decorator
+def execute(self, args: list[str]) -> bool:
+    """Execute the command with tracing."""
+    # Trace the start of execution
+    self.trace("execution_started", args_count=len(args))
+    
+    try:
+        # Handle --help flag
+        if args and args[0] == "--help":
+            print(self.get_help())
+            self.trace("help_displayed")
+            return True
+        
+        # Your command logic here
+        result = self._process_arguments(args)
+        
+        # Trace successful completion
+        self.trace("execution_completed", success=True, result=result)
+        return True
+        
+    except Exception as e:
+        # Trace errors
+        self.trace_error("execution", e, args_count=len(args))
+        print(f"Error executing command: {e}")
+        return True
+
+@trace_method("process_arguments", "your_command")  # Add decorator
+def _process_arguments(self, args: list[str]) -> str:
+    """Process command arguments with tracing."""
+    self.trace("argument_processing_started", args=args)
+    
+    # Your argument processing logic
+    result = f"Processed {len(args)} arguments: {', '.join(args)}"
+    
+    self.trace("argument_processing_completed", result=result)
+    return result
+```
+
+### Enabling Tracing
+
+#### Method 1: Set Log Level to TRACE
+
+```bash
+# In the ADOC toolkit interactive shell
+ADOC > set-config log.level TRACE
+ADOC > your-command-name arg1 arg2
+```
+
+#### Method 2: Environment Variable
+
+```bash
+# Set environment variable before running
+export ADOC_LOG_LEVEL=TRACE
+uv run adoc-toolkit
+```
+
+### Example Tracing Output
+
+When tracing is enabled, you'll see detailed nested output:
+
+```
+→ your_command.execute_command
+  → your_command.execution_started
+    → your_command.process_arguments
+      → your_command.argument_processing_started
+      → your_command.argument_processing_completed
+    → your_command.process_arguments_completed
+  → your_command.execution_completed
+→ your_command.execute_command_completed
+```
+
+### Tracing Methods Available
+
+The [`TraceableMixin`](../adoc_toolkit/tracing/mixins.py) provides several convenient methods:
+
+#### Basic Tracing
+
+```python
+# Simple operation tracing
+self.trace("operation_name", detail1="value1", detail2="value2")
+
+# Example usage
+self.trace("data_loaded", records_count=100, file_size="1.2MB")
+self.trace("validation_completed", errors_found=0, warnings=2)
+```
+
+#### Convenience Methods
+
+```python
+# Start tracing (adds "_started" suffix)
+self.trace_start("processing", records_count=100)
+
+# Complete tracing (adds "_completed" suffix)
+self.trace_complete("processing", success=True, records_processed=100)
+
+# Error tracing (adds "_failed" suffix with error details)
+try:
+    result = self._risky_operation()
+except Exception as e:
+    self.trace_error("risky_operation", e, context="data_processing")
+```
+
+#### Reset Trace Depth (Rarely Needed)
+
+```python
+# Reset trace depth if needed
+self.reset_trace()
+```
+
+### [`@trace_method`](../adoc_toolkit/tracing/decorators.py) Decorator
+
+The decorator automatically traces method entry, success, and failure:
+
+#### Basic Usage
+
+```python
+@trace_method()  # Uses method name as operation name
+def simple_method(self):
+    pass
+
+@trace_method("custom_operation")  # Custom operation name
+def another_method(self):
+    pass
+
+@trace_method("fetch_data", "your_command")  # Custom operation and prefix
+def fetch_data(self):
+    pass
+```
+
+#### Decorator with Error Handling
+
+```python
+@trace_method("process_file", "your_command")
+def process_file(self, filename: str) -> bool:
+    """Process a file with automatic tracing."""
+    # The decorator automatically traces:
+    # - Method entry with arguments
+    # - Successful completion
+    # - Any exceptions that occur
+    
+    with open(filename, 'r') as f:
+        data = f.read()
+    
+    # Process the data...
+    return True
+```
+
+### Advanced Tracing Patterns
+
+#### Conditional Tracing
+
+```python
+def execute(self, args: list[str]) -> bool:
+    """Execute with conditional tracing."""
+    self.trace("execution_started", args_count=len(args))
+    
+    # Only trace if verbose mode is enabled
+    if self.verbose_mode:
+        self.trace("verbose_mode_enabled")
+    
+    # Trace different paths
+    if args:
+        self.trace("processing_with_arguments", args=args)
+        result = self._process_with_args(args)
+    else:
+        self.trace("processing_without_arguments")
+        result = self._process_default()
+    
+    self.trace("execution_completed", result=result)
+    return result
+```
+
+#### Performance Tracing
+
+```python
+import time
+
+@trace_method("performance_test", "your_command")
+def performance_test(self) -> None:
+    """Test with performance tracing."""
+    start_time = time.time()
+    
+    # Your operation here
+    time.sleep(1)  # Simulate work
+    
+    duration = time.time() - start_time
+    self.trace("performance_completed", duration_seconds=duration)
+```
+
+#### Batch Processing Tracing
+
+```python
+def process_batch(self, items: list[str]) -> None:
+    """Process items with batch tracing."""
+    self.trace("batch_processing_started", total_items=len(items))
+    
+    for i, item in enumerate(items):
+        self.trace("processing_item", item_index=i, item=item)
+        
+        try:
+            result = self._process_single_item(item)
+            self.trace("item_processed", item_index=i, success=True)
+        except Exception as e:
+            self.trace_error("item_processing", e, item_index=i, item=item)
+    
+    self.trace("batch_processing_completed", items_processed=len(items))
+```
+
+### Testing with Tracing
+
+Tracing is automatically disabled in test environments to avoid interfering with tests:
+
+```python
+def test_command_with_tracing(self):
+    """Test that command works with tracing disabled."""
+    command = YourCommandNameCommand()
+    
+    # Tracing is automatically disabled in tests
+    result = command.execute(["arg1", "arg2"])
+    
+    # Command works normally, but no trace output
+    assert result is True
+```
+
+### Best Practices for Tracing
+
+1. **Use Descriptive Operation Names**: Choose clear, descriptive names for trace operations
+2. **Include Relevant Context**: Add useful details like counts, sizes, or status information
+3. **Trace at Logical Boundaries**: Trace at the start and end of major operations
+4. **Handle Errors Gracefully**: Use `trace_error()` for exception handling
+5. **Keep Performance in Mind**: Tracing has minimal overhead but should be used judiciously
+6. **Use Consistent Prefixes**: Use the same prefix pattern across related commands
+
+### Troubleshooting Tracing
+
+#### Tracing Not Appearing
+
+1. **Check Log Level**: Ensure log level is set to TRACE
+2. **Verify Mixin**: Make sure your command inherits from [`TraceableMixin`](../adoc_toolkit/tracing/mixins.py)
+3. **Check Prefix**: Ensure `trace_prefix` property returns a string
+4. **Test Environment**: Tracing is disabled in pytest environments
+
+#### Performance Issues
+
+1. **Reduce Trace Frequency**: Don't trace in tight loops
+2. **Limit Trace Details**: Avoid tracing large objects or data structures
+3. **Use Conditional Tracing**: Only trace when needed
+
 ## Best Practices
 
 ### Command Design
