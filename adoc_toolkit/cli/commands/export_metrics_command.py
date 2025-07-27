@@ -4,7 +4,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 from rich.console import Console
@@ -15,6 +15,614 @@ from ...http import ADOCHTTPClient, HTTPError
 from ...logs import log_error, log_info
 from ...tracing import TraceableMixin, trace_method
 from .base import Command
+
+
+# Pure functional utilities
+def parse_command_args(args: list[str]) -> dict[str, Any]:
+    """Parse command line arguments into a dictionary.
+
+    Args:
+        args: List of command line arguments
+
+    Returns:
+        Dictionary of parsed arguments
+
+    Raises:
+        ValueError: If argument parsing fails
+    """
+    parsed = {}
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--help":
+            parsed["help"] = True
+        elif arg in ["--output-type", "--output-dir", "--output-filename"]:
+            if i + 1 >= len(args):
+                raise ValueError(f"{arg} requires a value")
+            # Convert --output-type to output_type, --output-dir to output_dir, etc.
+            key = arg.replace("--", "").replace("-", "_")
+            parsed[key] = args[i + 1]
+            i += 1
+        else:
+            raise ValueError(f"Unknown argument: {arg}")
+        i += 1
+    return parsed
+
+
+def generate_filename_from_template(
+    template: str, output_type: str, env_name: str | None = None
+) -> str:
+    """Generate filename from template with date/time variables and env suffix.
+
+    Args:
+        template: Filename template with date/time variables
+        output_type: Output file type (csv, parquet, avro)
+        env_name: Optional environment name to append
+
+    Returns:
+        Generated filename with extension
+    """
+    now = datetime.now()
+    filename = (
+        template.replace("%y", now.strftime("%Y"))
+        .replace("%m", now.strftime("%m"))
+        .replace("%d", now.strftime("%d"))
+        .replace("%h", now.strftime("%H"))
+        .replace("%M", now.strftime("%M"))
+    )
+
+    if env_name:
+        filename += f"_{env_name}"
+
+    extensions = {"csv": ".csv", "parquet": ".parquet", "avro": ".avro"}
+    return filename + extensions[output_type]
+
+
+def check_output_dependencies(output_type: str) -> tuple[bool, str | None]:
+    """Check if required dependencies are available for the output format.
+
+    Args:
+        output_type: Output format to check
+
+    Returns:
+        Tuple of (is_available, error_message)
+    """
+    if output_type == "parquet":
+        try:
+            import pyarrow  # noqa: F401
+
+            return True, None
+        except ImportError:
+            return False, (
+                "Error: pyarrow is required for Parquet format. Install "
+                "with: uv sync --extra export or uv add pyarrow"
+            )
+    elif output_type == "avro":
+        try:
+            import fastavro  # noqa: F401
+
+            return True, None
+        except ImportError:
+            return False, (
+                "Error: fastavro is required for Avro format. Install "
+                "with: uv sync --extra export or uv add fastavro"
+            )
+    return True, None
+
+
+def preprocess_dataframe_for_format(df: pd.DataFrame, output_type: str) -> pd.DataFrame:
+    """Preprocess DataFrame for export, handling data types and null values.
+
+    Args:
+        df: Input DataFrame
+        output_type: Output format (csv, parquet, avro)
+
+    Returns:
+        Preprocessed DataFrame
+    """
+    processed_df = df.replace("N/A", pd.NA).copy()
+
+    numeric_columns = [
+        "Quality Score",
+        "Records Processed",
+        "Execution Duration (s)",
+        "Open Alerts",
+        "Asset Quality Score",
+        "Open Alert Count",
+        "Alert Total Count",
+    ]
+
+    # Apply numeric conversion
+    for col in numeric_columns:
+        if col in processed_df.columns:
+            processed_df[col] = pd.to_numeric(processed_df[col], errors="coerce")
+
+    datetime_columns = ["Execution Date", "Alert Created At", "Alert Updated At"]
+
+    # Apply datetime conversion
+    for col in datetime_columns:
+        if col in processed_df.columns:
+            processed_df[col] = pd.to_datetime(processed_df[col], errors="coerce")
+            if output_type == "avro":
+                processed_df[col] = processed_df[col].apply(
+                    lambda x: x.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+                    if pd.notna(x)
+                    else None
+                )
+
+    string_list_columns = ["Tags", "Open Alert ID", "Open Alert States"]
+
+    # Apply string conversion
+    for col in string_list_columns:
+        if col in processed_df.columns:
+            processed_df[col] = processed_df[col].astype(str).replace("nan", None)
+
+    if output_type == "avro":
+        processed_df = processed_df.where(pd.notna(processed_df), None)
+
+    return processed_df
+
+
+def create_asset_lookup(catalog_json: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Create asset lookup dictionary from catalog data.
+
+    Args:
+        catalog_json: Catalog JSON data
+
+    Returns:
+        Dictionary mapping asset IDs to asset data
+    """
+    return {asset["assetId"]: asset for asset in catalog_json.get("assets", [])}
+
+
+def create_alert_lookup(alert_json: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Create alert lookup dictionary from alert data.
+
+    Args:
+        alert_json: Alert JSON data
+
+    Returns:
+        Dictionary mapping asset IDs to alert data
+    """
+    return {
+        asset["assetId"]: incident
+        for incident in alert_json.get("incidents", [])
+        for asset in incident.get("assets", [])
+    }
+
+
+def extract_rule_data(
+    rule: dict[str, Any],
+    catalog_assets: dict[str, dict[str, Any]],
+    alert_assets: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Extract and format rule data into a record.
+
+    Args:
+        rule: Rule data from API
+        catalog_assets: Asset lookup dictionary
+        alert_assets: Alert lookup dictionary
+
+    Returns:
+        Formatted rule record
+    """
+    rule_info = rule.get("rule", {})
+    execution = rule.get("execution", {}) or {}
+    metrics = rule.get("executionMetrics", {}) or {}
+
+    asset_id = rule_info.get("backingAssets", [{}])[0].get("tableAssetId", "N/A")
+    tags = {tag["name"] for tag in rule_info.get("tags", [])} or "N/A"
+
+    record = {
+        "Rule Name": rule_info.get("name", "N/A"),
+        "Rule ID": rule_info.get("id", "N/A"),
+        "Rule Type": rule_info.get("type", "N/A"),
+        "Asset ID": asset_id,
+        "Execution Status": execution.get("executionStatus", "NOT EXECUTED"),
+        "Execution Date": execution.get("finishedAt", "N/A"),
+        "Quality Score": metrics.get("qualityScore", "N/A"),
+        "Records Processed": metrics.get("totalRecordsProcessed", "N/A"),
+        "Execution Duration (s)": metrics.get("lastExecutionDuration", "N/A"),
+        "Open Alerts": metrics.get("openAlertsCount", "N/A"),
+        "Tags": str(tags) if tags != "N/A" else "N/A",
+    }
+
+    # Add asset information if available
+    if asset := catalog_assets.get(asset_id):
+        record.update(
+            {
+                "Asset Name": asset.get("name", "N/A"),
+                "Asset UID": asset.get("assetUid", "N/A"),
+                "Source Type": asset.get("sourceType", "N/A"),
+                "Asset Type": asset.get("assetType", "N/A"),
+                "Asset Quality Score": asset.get("qualityScore", "N/A"),
+                "Open Alert Count": asset.get("openAlertCount", "N/A"),
+                "Open Alert ID": str(asset.get("openAlertIds", "N/A")),
+                "Open Alert States": str(asset.get("openAlertStates", "N/A")),
+            }
+        )
+
+    # Add alert information if available
+    if alert := alert_assets.get(asset_id):
+        record.update(
+            {
+                "Alert ID": alert.get("id", "N/A"),
+                "Alert Total Count": alert.get("totalCount", "N/A"),
+                "Alert Created At": alert.get("createdAt", "N/A"),
+                "Alert Updated At": alert.get("updatedAt", "N/A"),
+                "Alert Status": alert.get("status", "N/A"),
+                "Alert Assignee": alert.get("assignee", "N/A"),
+                "Alert Updated By": alert.get("updatedBy", "N/A"),
+                "Alert Severity": alert.get("severity", "N/A"),
+            }
+        )
+
+    return record
+
+
+def process_metrics_data(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Process and combine the fetched data into report records.
+
+    Args:
+        data: Raw data from API endpoints
+
+    Returns:
+        List of processed report records
+    """
+    catalog_json = data.get("catalog", {})
+    dq_policies_json = data.get("dq_policies", {})
+    alert_json = data.get("alerts", {})
+
+    # Create lookup dictionaries
+    catalog_assets = create_asset_lookup(catalog_json)
+    alert_assets = create_alert_lookup(alert_json)
+
+    # Process each rule
+    report_data = [
+        extract_rule_data(rule, catalog_assets, alert_assets)
+        for rule in dq_policies_json.get("rules", [])
+    ]
+
+    return report_data
+
+
+def calculate_quality_statistics(df: pd.DataFrame) -> dict[str, Any]:
+    """Calculate quality score statistics from DataFrame.
+
+    Args:
+        df: DataFrame with quality data
+
+    Returns:
+        Dictionary of quality statistics
+    """
+    quality_scores_numeric = pd.to_numeric(
+        df["Quality Score"], errors="coerce"
+    ).dropna()
+
+    if quality_scores_numeric.empty:
+        return {}
+
+    return {
+        "avg_quality_score": quality_scores_numeric.mean(),
+        "min_quality_score": quality_scores_numeric.min(),
+        "max_quality_score": quality_scores_numeric.max(),
+        "high_quality_count": len(quality_scores_numeric[quality_scores_numeric >= 90]),
+        "low_quality_count": len(quality_scores_numeric[quality_scores_numeric < 70]),
+        "total_quality_records": len(quality_scores_numeric),
+    }
+
+
+def calculate_alert_statistics(df: pd.DataFrame) -> dict[str, Any]:
+    """Calculate alert statistics from DataFrame.
+
+    Args:
+        df: DataFrame with alert data
+
+    Returns:
+        Dictionary of alert statistics
+    """
+    open_alerts_numeric = pd.to_numeric(df["Open Alerts"], errors="coerce").dropna()
+
+    if open_alerts_numeric.empty:
+        return {}
+
+    return {
+        "total_open_alerts": open_alerts_numeric.sum(),
+        "avg_alerts_per_rule": open_alerts_numeric.mean(),
+        "high_alert_count": len(open_alerts_numeric[open_alerts_numeric > 5]),
+        "total_alert_records": len(open_alerts_numeric),
+    }
+
+
+def create_summary_table(
+    df: pd.DataFrame, quality_stats: dict[str, Any], alert_stats: dict[str, Any]
+) -> Table:
+    """Create summary statistics table.
+
+    Args:
+        df: DataFrame with export data
+        quality_stats: Quality score statistics
+        alert_stats: Alert statistics
+
+    Returns:
+        Rich Table with summary statistics
+    """
+    summary_table = Table(
+        title="Export Summary", show_header=True, header_style="bold magenta"
+    )
+    summary_table.add_column("Metric", style="cyan")
+    summary_table.add_column("Value", style="white")
+
+    summary_table.add_row("Total Records", f"{len(df):,}")
+    summary_table.add_row("Total Columns", f"{len(df.columns)}")
+
+    if quality_stats:
+        summary_table.add_row(
+            "Avg Quality Score", f"{quality_stats['avg_quality_score']:.1f}"
+        )
+        summary_table.add_row(
+            "Min Quality Score", f"{quality_stats['min_quality_score']:.1f}"
+        )
+        summary_table.add_row(
+            "Max Quality Score", f"{quality_stats['max_quality_score']:.1f}"
+        )
+
+    if alert_stats:
+        summary_table.add_row(
+            "Total Open Alerts", f"{alert_stats['total_open_alerts']:.0f}"
+        )
+        summary_table.add_row(
+            "Avg Alerts per Rule", f"{alert_stats['avg_alerts_per_rule']:.1f}"
+        )
+
+    return summary_table
+
+
+def create_distribution_table(
+    df: pd.DataFrame, column: str, title: str
+) -> Table | None:
+    """Create distribution table for a specific column.
+
+    Args:
+        df: DataFrame with data
+        column: Column name to analyze
+        title: Table title
+
+    Returns:
+        Rich Table with distribution data or None if column doesn't exist
+    """
+    if column not in df.columns:
+        return None
+
+    dist = df[column].value_counts()
+    table = Table(title=title, show_header=True, header_style="bold blue")
+    table.add_column(column, style="cyan")
+    table.add_column("Count", style="white")
+
+    for value, count in dist.items():
+        table.add_row(str(value), str(count))
+
+    return table
+
+
+def create_quality_distribution_table(df: pd.DataFrame) -> Table | None:
+    """Create quality score distribution table.
+
+    Args:
+        df: DataFrame with quality data
+
+    Returns:
+        Rich Table with quality distribution or None if no quality data
+    """
+    quality_scores_numeric = pd.to_numeric(
+        df["Quality Score"], errors="coerce"
+    ).dropna()
+
+    if quality_scores_numeric.empty:
+        return None
+
+    quality_table = Table(
+        title="Quality Score Distribution", show_header=True, header_style="bold yellow"
+    )
+    quality_table.add_column("Range", style="cyan")
+    quality_table.add_column("Count", style="white")
+
+    # Define quality score ranges
+    ranges = [
+        (0, 50, "0-50"),
+        (50, 70, "50-70"),
+        (70, 85, "70-85"),
+        (85, 95, "85-95"),
+        (95, 101, "95-100"),
+    ]
+
+    for min_score, max_score, range_label in ranges:
+        count = len(
+            quality_scores_numeric[
+                (quality_scores_numeric >= min_score)
+                & (quality_scores_numeric < max_score)
+            ]
+        )
+        quality_table.add_row(range_label, str(count))
+
+    return quality_table
+
+
+def create_insights_table(
+    quality_stats: dict[str, Any], alert_stats: dict[str, Any]
+) -> Table:
+    """Create data quality insights table.
+
+    Args:
+        quality_stats: Quality score statistics
+        alert_stats: Alert statistics
+
+    Returns:
+        Rich Table with insights
+    """
+    insights_table = Table(
+        title="Data Quality Insights", show_header=True, header_style="bold red"
+    )
+    insights_table.add_column("Insight", style="cyan")
+    insights_table.add_column("Value", style="white")
+
+    if quality_stats:
+        high_quality_pct = (
+            quality_stats["high_quality_count"] / quality_stats["total_quality_records"]
+        ) * 100
+        insights_table.add_row("High Quality Rules (≥90%)", f"{high_quality_pct:.1f}%")
+
+        low_quality_pct = (
+            quality_stats["low_quality_count"] / quality_stats["total_quality_records"]
+        ) * 100
+        insights_table.add_row("Low Quality Rules (<70%)", f"{low_quality_pct:.1f}%")
+
+    if alert_stats:
+        high_alert_pct = (
+            alert_stats["high_alert_count"] / alert_stats["total_alert_records"]
+        ) * 100
+        insights_table.add_row("Rules with High Alerts (>5)", f"{high_alert_pct:.1f}%")
+
+    return insights_table
+
+
+def export_dataframe_to_format(
+    df: pd.DataFrame, output_path: Path, output_type: str
+) -> None:
+    """Export DataFrame to specified format.
+
+    Args:
+        df: DataFrame to export
+        output_path: Output file path
+        output_type: Output format (csv, parquet, avro)
+    """
+    processed_df = preprocess_dataframe_for_format(df, output_type)
+
+    if output_type == "csv":
+        processed_df.to_csv(output_path, index=False)
+    elif output_type == "parquet":
+        processed_df.to_parquet(output_path, index=False, compression="snappy")
+    elif output_type == "avro":
+        export_dataframe_to_avro(processed_df, output_path)
+
+
+def export_dataframe_to_avro(df: pd.DataFrame, output_path: Path) -> None:
+    """Export DataFrame to Avro format.
+
+    Args:
+        df: DataFrame to export
+        output_path: Output file path
+    """
+    import fastavro
+
+    records = df.to_dict("records")
+    schema = {"type": "record", "name": "MetricsRecord", "fields": []}
+
+    for column, dtype in zip(df.columns, df.dtypes, strict=True):
+        field_name = column.replace(" ", "_").replace("(", "").replace(")", "").lower()
+        if pd.api.types.is_integer_dtype(dtype):
+            field_type = ["null", "long"]
+        elif pd.api.types.is_float_dtype(dtype):
+            field_type = ["null", "double"]
+        else:
+            field_type = ["null", "string"]
+        schema["fields"].append(
+            {"name": field_name, "type": field_type, "default": None}
+        )
+
+    converted_records = [
+        {
+            col.replace(" ", "_").replace("(", "").replace(")", "").lower(): (
+                None if pd.isna(val) else val
+            )
+            for col, val in record.items()
+        }
+        for record in records
+    ]
+
+    # Try to use snappy codec, fall back to null if not available
+    try:
+        with open(output_path, "wb") as f:
+            fastavro.writer(f, schema, converted_records, codec="snappy")
+    except ValueError as e:
+        if "snappy codec" in str(e):
+            # Fall back to null codec if snappy is not available
+            with open(output_path, "wb") as f:
+                fastavro.writer(f, schema, converted_records, codec="null")
+        else:
+            raise
+
+
+def cleanup_debug_files(debug_files: list[Path]) -> None:
+    """Clean up temporary debug files.
+
+    Args:
+        debug_files: List of debug file paths to clean up
+    """
+    for debug_file in debug_files:
+        try:
+            if debug_file.exists():
+                debug_file.unlink()
+                log_info(f"Cleaned up debug file: {debug_file}")
+        except Exception as e:
+            log_error(f"Failed to clean up debug file {debug_file}", error=str(e))
+
+
+def get_completion_suggestions(current_input: str, cursor_position: int) -> list[str]:
+    """Get auto-completion suggestions for export-metrics command.
+
+    Args:
+        current_input: Current input text
+        cursor_position: Current cursor position
+
+    Returns:
+        List of completion suggestions
+    """
+    words = current_input.split()
+
+    # If we're typing a new word (input ends with space) or continuing a word
+    if current_input.endswith(" "):
+        current_word = ""
+        word_index = len(words)
+    else:
+        current_word = words[-1] if words else ""
+        word_index = len(words) - 1 if words else 0
+
+    # Skip the command name itself
+    if word_index == 0:
+        return []
+
+    # Available options
+    options = ["--help", "--output-type", "--output-dir", "--output-filename"]
+
+    # If the previous word was an option that expects a value, provide completions
+    if len(words) >= 2:
+        prev_word = (
+            words[-1]
+            if current_input.endswith(" ")
+            else words[-2]
+            if len(words) >= 2
+            else ""
+        )
+        if prev_word == "--output-type":
+            output_types = ["csv", "parquet", "avro"]
+            return [ot for ot in output_types if ot.startswith(current_word.lower())]
+        elif prev_word == "--output-dir":
+            return []
+        elif prev_word == "--output-filename":
+            templates = [
+                "ad-metrics-%d-%m-%y-%h-%M",
+                "metrics-%y%m%d",
+                "export-%d%m%y-%h%M",
+                "data-%y-%m-%d",
+            ]
+            return [t for t in templates if t.startswith(current_word)]
+
+    # Filter options based on current word and already used options
+    used_options = set(words[1:])  # Skip command name
+    available_options = [opt for opt in options if opt not in used_options]
+
+    return [opt for opt in available_options if opt.startswith(current_word)]
 
 
 class ExportMetricsCommand(Command, TraceableMixin):
@@ -29,7 +637,7 @@ class ExportMetricsCommand(Command, TraceableMixin):
         self.environment_info_callback = environment_info_callback
 
     @property
-    def trace_prefix(self) -> Optional[str]:
+    def trace_prefix(self) -> str | None:
         """Get the trace prefix for this command."""
         return "export_metrics"
 
@@ -85,9 +693,9 @@ Examples:
         """Execute the export-metrics command."""
         console = Console()
 
-        # Parse arguments
+        # Parse arguments using functional approach
         try:
-            parsed_args = self._parse_args(args)
+            parsed_args = parse_command_args(args)
         except ValueError as e:
             console.print(f"Error: {e}", style="red")
             return True
@@ -104,8 +712,10 @@ Examples:
             )
             return True
 
-        # Check required dependencies for output formats
-        if not self._check_dependencies(output_type, console):
+        # Check required dependencies using functional approach
+        is_available, error_message = check_output_dependencies(output_type)
+        if not is_available:
+            console.print(error_message, style="red")
             return True
 
         data = None  # Ensure data is defined for finally block
@@ -142,10 +752,10 @@ Examples:
                 self.trace("starting_data_fetch", endpoints_count=3)
                 data = self._fetch_all_data(http_client, progress, task)
 
-                # Process data
+                # Process data using functional approach
                 progress.update(task, description="Processing and combining data...")
                 self.trace("starting_data_processing", raw_data_keys=list(data.keys()))
-                report_data = self._process_data(data)
+                report_data = process_metrics_data(data)
 
                 # Create DataFrame
                 progress.update(task, description="Creating DataFrame...")
@@ -160,7 +770,7 @@ Examples:
                     )
                     return True
 
-                # Generate output filename
+                # Generate output filename using functional approach
                 self.trace(
                     "generating_filename",
                     template=parsed_args.get(
@@ -168,9 +778,12 @@ Examples:
                     ),
                     output_type=output_type,
                 )
-                output_filename = self._generate_filename(
+                env_info = self._get_environment_info()
+                env_name = env_info.get("name") if env_info else None
+                output_filename = generate_filename_from_template(
                     parsed_args.get("output_filename", "ad-metrics-%d-%m-%y-%h-%M"),
                     output_type,
+                    env_name,
                 )
 
                 # Create output path
@@ -186,7 +799,7 @@ Examples:
                     filename=output_filename,
                 )
 
-                # Export data
+                # Export data using functional approach
                 progress.update(
                     task, description=f"Exporting to {output_type.upper()}..."
                 )
@@ -197,7 +810,7 @@ Examples:
                     columns_count=len(df.columns),
                     output_path=str(output_path),
                 )
-                self._export_data(df, output_path, output_type)
+                export_dataframe_to_format(df, output_path, output_type)
 
                 progress.update(task, description="Export completed!", completed=True)
 
@@ -248,160 +861,17 @@ Examples:
             console.print(f"Error: {error_msg}", style="red")
             log_error("Export metrics failed", error=error_msg)
         finally:
-            # Clean up temporary debug files
+            # Clean up temporary debug files using functional approach
             if data:
                 debug_files = data.get("_debug_files", [])
                 self.trace("starting_cleanup", debug_files_count=len(debug_files))
-                self._cleanup_debug_files(debug_files)
+                cleanup_debug_files(debug_files)
 
         return True
 
     def get_completions(self, current_input: str, cursor_position: int) -> list[str]:
-        """Get auto-completion suggestions for export-metrics command.
-
-        Args:
-            current_input: Current input text
-            cursor_position: Current cursor position
-
-        Returns:
-            List of completion suggestions
-        """
-        words = current_input.split()
-
-        # If we're typing a new word (input ends with space) or continuing a word
-        if current_input.endswith(" "):
-            current_word = ""
-            word_index = len(words)
-        else:
-            current_word = words[-1] if words else ""
-            word_index = len(words) - 1 if words else 0
-
-        # Skip the command name itself
-        if word_index == 0:
-            return []
-
-        # Available options
-        options = ["--help", "--output-type", "--output-dir", "--output-filename"]
-
-        # If the previous word was an option that expects a value, provide completions
-        if len(words) >= 2:
-            prev_word = (
-                words[-1]
-                if current_input.endswith(" ")
-                else words[-2]
-                if len(words) >= 2
-                else ""
-            )
-            if prev_word == "--output-type":
-                output_types = ["csv", "parquet", "avro"]
-                return [
-                    ot for ot in output_types if ot.startswith(current_word.lower())
-                ]
-            elif prev_word == "--output-dir":
-                return []
-            elif prev_word == "--output-filename":
-                templates = [
-                    "ad-metrics-%d-%m-%y-%h-%M",
-                    "metrics-%y%m%d",
-                    "export-%d%m%y-%h%M",
-                    "data-%y-%m-%d",
-                ]
-                return [t for t in templates if t.startswith(current_word)]
-
-        # Filter options based on current word and already used options
-        used_options = set(words[1:])  # Skip command name
-        available_options = [opt for opt in options if opt not in used_options]
-
-        return [opt for opt in available_options if opt.startswith(current_word)]
-
-    @trace_method("parse_arguments", "export_metrics")
-    def _parse_args(self, args: list[str]) -> dict[str, Any]:
-        """Parse command line arguments."""
-        parsed = {}
-        i = 0
-        while i < len(args):
-            arg = args[i]
-            if arg == "--help":
-                parsed["help"] = True
-            elif arg in ["--output-type", "--output-dir", "--output-filename"]:
-                if i + 1 >= len(args):
-                    raise ValueError(f"{arg} requires a value")
-                # Convert --output-type to output_type, --output-dir to output_dir, etc.
-                key = arg.replace("--", "").replace("-", "_")
-                parsed[key] = args[i + 1]
-                i += 1
-            else:
-                raise ValueError(f"Unknown argument: {arg}")
-            i += 1
-        return parsed
-
-    @trace_method("preprocess_for_parquet", "export_metrics")
-    def _preprocess_for_parquet(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Preprocess DataFrame for Parquet export."""
-        # Convert N/A strings to NaN
-        df = df.replace("N/A", pd.NA)
-        
-        # Convert numeric columns
-        numeric_columns = ["Quality Score", "Records Processed"]
-        for col in numeric_columns:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-        
-        # Convert datetime columns
-        datetime_columns = ["Execution Date"]
-        for col in datetime_columns:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
-        
-        return df
-
-    @trace_method("preprocess_for_avro", "export_metrics")
-    def _preprocess_for_avro(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Preprocess DataFrame for Avro export."""
-        # Convert N/A strings to None
-        df = df.replace("N/A", None)
-        
-        # Convert numeric columns
-        numeric_columns = ["Quality Score", "Records Processed"]
-        for col in numeric_columns:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-        
-        # Convert datetime columns to strings for Avro compatibility
-        datetime_columns = ["Execution Date"]
-        for col in datetime_columns:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce').dt.strftime('%Y-%m-%dT%H:%M:%SZ')
-        
-        # Convert NaN values to None for Avro compatibility
-        df = df.where(pd.notna(df), None)
-        
-        return df
-
-    @trace_method("check_dependencies", "export_metrics")
-    def _check_dependencies(self, output_type: str, console: Console) -> bool:
-        """Check if required dependencies are available for the output format."""
-        if output_type == "parquet":
-            try:
-                import pyarrow  # noqa: F401
-            except ImportError:
-                console.print(
-                    "Error: pyarrow is required for Parquet format. Install "
-                    "with: uv sync --extra export or uv add pyarrow",
-                    style="red",
-                )
-                return False
-        elif output_type == "avro":
-            try:
-                import fastavro  # noqa: F401
-            except ImportError:
-                console.print(
-                    "Error: fastavro is required for Avro format. Install "
-                    "with: uv sync --extra export or uv add fastavro",
-                    style="red",
-                )
-                return False
-        return True
+        """Get auto-completion suggestions for export-metrics command."""
+        return get_completion_suggestions(current_input, cursor_position)
 
     @trace_method("get_environment_info", "export_metrics")
     def _get_environment_info(self) -> dict[str, Any]:
@@ -477,302 +947,36 @@ Examples:
 
         return data
 
-    @trace_method("process_data", "export_metrics")
-    def _process_data(self, data: dict[str, Any]) -> list[dict[str, Any]]:
-        """Process and combine the fetched data."""
-        catalog_json = data.get("catalog", {})
-        dq_policies_json = data.get("dq_policies", {})
-        alert_json = data.get("alerts", {})
-
-        # Quick lookups
-        catalog_assets = {
-            asset["assetId"]: asset for asset in catalog_json.get("assets", [])
-        }
-        alert_assets = {
-            asset["assetId"]: incident
-            for incident in alert_json.get("incidents", [])
-            for asset in incident.get("assets", [])
-        }
-
-        report_data = []
-        for rule in dq_policies_json.get("rules", []):
-            rule_info = rule.get("rule", {})
-            execution = rule.get("execution", {}) or {}
-            metrics = rule.get("executionMetrics", {}) or {}
-
-            asset_id = rule_info.get("backingAssets", [{}])[0].get(
-                "tableAssetId", "N/A"
-            )
-            tags = {tag["name"] for tag in rule_info.get("tags", [])} or "N/A"
-
-            record = {
-                "Rule Name": rule_info.get("name", "N/A"),
-                "Rule ID": rule_info.get("id", "N/A"),
-                "Rule Type": rule_info.get("type", "N/A"),
-                "Asset ID": asset_id,
-                "Execution Status": execution.get("executionStatus", "NOT EXECUTED"),
-                "Execution Date": execution.get("finishedAt", "N/A"),
-                "Quality Score": metrics.get("qualityScore", "N/A"),
-                "Records Processed": metrics.get("totalRecordsProcessed", "N/A"),
-                "Execution Duration (s)": metrics.get("lastExecutionDuration", "N/A"),
-                "Open Alerts": metrics.get("openAlertsCount", "N/A"),
-                "Tags": str(tags) if tags != "N/A" else "N/A",
-            }
-
-            if asset := catalog_assets.get(asset_id):
-                record.update(
-                    {
-                        "Asset Name": asset.get("name", "N/A"),
-                        "Asset UID": asset.get("assetUid", "N/A"),
-                        "Source Type": asset.get("sourceType", "N/A"),
-                        "Asset Type": asset.get("assetType", "N/A"),
-                        "Asset Quality Score": asset.get("qualityScore", "N/A"),
-                        "Open Alert Count": asset.get("openAlertCount", "N/A"),
-                        "Open Alert ID": str(asset.get("openAlertIds", "N/A")),
-                        "Open Alert States": str(asset.get("openAlertStates", "N/A")),
-                    }
-                )
-
-            if alert := alert_assets.get(asset_id):
-                record.update(
-                    {
-                        "Alert ID": alert.get("id", "N/A"),
-                        "Alert Total Count": alert.get("totalCount", "N/A"),
-                        "Alert Created At": alert.get("createdAt", "N/A"),
-                        "Alert Updated At": alert.get("updatedAt", "N/A"),
-                        "Alert Status": alert.get("status", "N/A"),
-                        "Alert Assignee": alert.get("assignee", "N/A"),
-                        "Alert Updated By": alert.get("updatedBy", "N/A"),
-                        "Alert Severity": alert.get("severity", "N/A"),
-                    }
-                )
-
-            report_data.append(record)
-
-        log_info("Data processing completed", rules_processed=len(report_data))
-        return report_data
-
-    @trace_method("generate_filename", "export_metrics")
-    def _generate_filename(self, template: str, output_type: str) -> str:
-        """Generate filename from template with date/time variables and env suffix."""
-        now = datetime.now()
-        filename = (
-            template.replace("%y", now.strftime("%Y"))
-            .replace("%m", now.strftime("%m"))
-            .replace("%d", now.strftime("%d"))
-            .replace("%h", now.strftime("%H"))
-            .replace("%M", now.strftime("%M"))
-        )
-
-        env_info = self._get_environment_info()
-        if env_name := env_info.get("name"):
-            filename += f"_{env_name}"
-
-        extensions = {"csv": ".csv", "parquet": ".parquet", "avro": ".avro"}
-        return filename + extensions[output_type]
-
-    @trace_method("export_data", "export_metrics")
-    def _export_data(
-        self, df: pd.DataFrame, output_path: Path, output_type: str
-    ) -> None:
-        """Export DataFrame to specified format."""
-        processed_df = self._preprocess_dataframe(df, output_type)
-        if output_type == "csv":
-            processed_df.to_csv(output_path, index=False)
-        elif output_type == "parquet":
-            processed_df.to_parquet(output_path, index=False, compression="snappy")
-        elif output_type == "avro":
-            self._export_avro(processed_df, output_path)
-        log_info(f"Data exported to {output_type}", file_path=str(output_path))
-
-    @trace_method("preprocess_dataframe", "export_metrics")
-    def _preprocess_dataframe(self, df: pd.DataFrame, output_type: str) -> pd.DataFrame:
-        """Preprocess DataFrame for export, handling data types and null values."""
-        processed_df = df.replace("N/A", pd.NA).copy()
-
-        numeric_columns = [
-            "Quality Score",
-            "Records Processed",
-            "Execution Duration (s)",
-            "Open Alerts",
-            "Asset Quality Score",
-            "Open Alert Count",
-            "Alert Total Count",
-        ]
-        for col in numeric_columns:
-            if col in processed_df.columns:
-                processed_df[col] = pd.to_numeric(processed_df[col], errors="coerce")
-
-        datetime_columns = ["Execution Date", "Alert Created At", "Alert Updated At"]
-        for col in datetime_columns:
-            if col in processed_df.columns:
-                processed_df[col] = pd.to_datetime(processed_df[col], errors="coerce")
-                if output_type == "avro":
-                    processed_df[col] = processed_df[col].apply(
-                        lambda x: x.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-                        if pd.notna(x)
-                        else None
-                    )
-
-        string_list_columns = ["Tags", "Open Alert ID", "Open Alert States"]
-        for col in string_list_columns:
-            if col in processed_df.columns:
-                processed_df[col] = processed_df[col].astype(str).replace("nan", None)
-
-        if output_type == "avro":
-            processed_df = processed_df.where(pd.notna(processed_df), None)
-
-        return processed_df
-
-    @trace_method("export_avro", "export_metrics")
-    def _export_avro(self, df: pd.DataFrame, output_path: Path) -> None:
-        """Export DataFrame to Avro format."""
-        import fastavro
-
-        records = df.to_dict("records")
-        schema = {"type": "record", "name": "MetricsRecord", "fields": []}
-
-        for column, dtype in zip(df.columns, df.dtypes):
-            field_name = (
-                column.replace(" ", "_").replace("(", "").replace(")", "").lower()
-            )
-            if pd.api.types.is_integer_dtype(dtype):
-                field_type = ["null", "long"]
-            elif pd.api.types.is_float_dtype(dtype):
-                field_type = ["null", "double"]
-            else:
-                field_type = ["null", "string"]
-            schema["fields"].append(
-                {"name": field_name, "type": field_type, "default": None}
-            )
-
-        converted_records = [
-            {
-                col.replace(" ", "_").replace("(", "").replace(")", "").lower(): (
-                    None if pd.isna(val) else val
-                )
-                for col, val in record.items()
-            }
-            for record in records
-        ]
-
-        # Try to use snappy codec, fall back to null if not available
-        try:
-            with open(output_path, "wb") as f:
-                fastavro.writer(f, schema, converted_records, codec="snappy")
-        except ValueError as e:
-            if "snappy codec" in str(e):
-                # Fall back to null codec if snappy is not available
-                with open(output_path, "wb") as f:
-                    fastavro.writer(f, schema, converted_records, codec="null")
-            else:
-                raise
-
-    @trace_method("cleanup_debug_files", "export_metrics")
-    def _cleanup_debug_files(self, debug_files: list[Path]) -> None:
-        """Clean up temporary debug files."""
-        for debug_file in debug_files:
-            try:
-                if debug_file.exists():
-                    debug_file.unlink()
-                    log_info(f"Cleaned up debug file: {debug_file}")
-            except Exception as e:
-                log_error(f"Failed to clean up debug file {debug_file}", error=str(e))
-
     @trace_method("display_statistics", "export_metrics")
     def _display_statistics(self, df: pd.DataFrame, console: Console) -> None:
         """Display comprehensive statistics about the exported data."""
-        total_records = len(df)
-        total_columns = len(df.columns)
+        # Calculate statistics using functional approach
+        quality_stats = calculate_quality_statistics(df)
+        alert_stats = calculate_alert_statistics(df)
 
-        # Calculate statistics for numeric columns
-        quality_scores_numeric = pd.to_numeric(
-            df["Quality Score"], errors="coerce"
-        ).dropna()
-        open_alerts_numeric = pd.to_numeric(df["Open Alerts"], errors="coerce").dropna()
-
-        # Summary Table
-        summary_table = Table(title="Export Summary", show_header=True, header_style="bold magenta")
-        summary_table.add_column("Metric", style="cyan")
-        summary_table.add_column("Value", style="white")
-        summary_table.add_row("Total Records", f"{total_records:,}")
-        summary_table.add_row("Total Columns", f"{total_columns}")
-        if not quality_scores_numeric.empty:
-            summary_table.add_row(
-                "Avg Quality Score", f"{quality_scores_numeric.mean():.1f}"
-            )
-            summary_table.add_row(
-                "Min Quality Score", f"{quality_scores_numeric.min():.1f}"
-            )
-            summary_table.add_row(
-                "Max Quality Score", f"{quality_scores_numeric.max():.1f}"
-            )
-        if not open_alerts_numeric.empty:
-            summary_table.add_row(
-                "Total Open Alerts", f"{open_alerts_numeric.sum():.0f}"
-            )
-            summary_table.add_row(
-                "Avg Alerts per Rule", f"{open_alerts_numeric.mean():.1f}"
-            )
+        # Create tables using functional approach
+        summary_table = create_summary_table(df, quality_stats, alert_stats)
         console.print(summary_table)
 
         # Rule Type Distribution
-        if "Rule Type" in df.columns:
-            rule_type_dist = df["Rule Type"].value_counts()
-            rule_type_table = Table(title="Rule Type Distribution", show_header=True, header_style="bold blue")
-            rule_type_table.add_column("Rule Type", style="cyan")
-            rule_type_table.add_column("Count", style="white")
-            for rule_type, count in rule_type_dist.items():
-                rule_type_table.add_row(str(rule_type), str(count))
+        rule_type_table = create_distribution_table(
+            df, "Rule Type", "Rule Type Distribution"
+        )
+        if rule_type_table:
             console.print(rule_type_table)
 
         # Execution Status Distribution
-        if "Execution Status" in df.columns:
-            status_dist = df["Execution Status"].value_counts()
-            status_table = Table(title="Execution Status Distribution", show_header=True, header_style="bold green")
-            status_table.add_column("Status", style="cyan")
-            status_table.add_column("Count", style="white")
-            for status, count in status_dist.items():
-                status_table.add_row(str(status), str(count))
+        status_table = create_distribution_table(
+            df, "Execution Status", "Execution Status Distribution"
+        )
+        if status_table:
             console.print(status_table)
 
         # Quality Score Distribution
-        if not quality_scores_numeric.empty:
-            quality_table = Table(title="Quality Score Distribution", show_header=True, header_style="bold yellow")
-            quality_table.add_column("Range", style="cyan")
-            quality_table.add_column("Count", style="white")
-            
-            # Define quality score ranges
-            ranges = [
-                (0, 50, "0-50"),
-                (50, 70, "50-70"),
-                (70, 85, "70-85"),
-                (85, 95, "85-95"),
-                (95, 101, "95-100")
-            ]
-            
-            for min_score, max_score, range_label in ranges:
-                count = len(quality_scores_numeric[(quality_scores_numeric >= min_score) & (quality_scores_numeric < max_score)])
-                quality_table.add_row(range_label, str(count))
+        quality_table = create_quality_distribution_table(df)
+        if quality_table:
             console.print(quality_table)
 
         # Data Quality Insights
-        insights_table = Table(title="Data Quality Insights", show_header=True, header_style="bold red")
-        insights_table.add_column("Insight", style="cyan")
-        insights_table.add_column("Value", style="white")
-        
-        if not quality_scores_numeric.empty:
-            high_quality_count = len(quality_scores_numeric[quality_scores_numeric >= 90])
-            high_quality_pct = (high_quality_count / len(quality_scores_numeric)) * 100
-            insights_table.add_row("High Quality Rules (≥90%)", f"{high_quality_pct:.1f}%")
-            
-            low_quality_count = len(quality_scores_numeric[quality_scores_numeric < 70])
-            low_quality_pct = (low_quality_count / len(quality_scores_numeric)) * 100
-            insights_table.add_row("Low Quality Rules (<70%)", f"{low_quality_pct:.1f}%")
-        
-        if not open_alerts_numeric.empty:
-            high_alert_count = len(open_alerts_numeric[open_alerts_numeric > 5])
-            high_alert_pct = (high_alert_count / len(open_alerts_numeric)) * 100
-            insights_table.add_row("Rules with High Alerts (>5)", f"{high_alert_pct:.1f}%")
-        
+        insights_table = create_insights_table(quality_stats, alert_stats)
         console.print(insights_table)

@@ -7,7 +7,16 @@ from unittest.mock import Mock, patch
 import pandas as pd
 import pytest
 
-from adoc_toolkit.cli.commands.export_metrics_command import ExportMetricsCommand
+from adoc_toolkit.cli.commands.export_metrics_command import (
+    ExportMetricsCommand,
+    parse_command_args,
+    check_output_dependencies,
+    generate_filename_from_template,
+    preprocess_dataframe_for_format,
+    process_metrics_data,
+    export_dataframe_to_format,
+    get_completion_suggestions,
+)
 from adoc_toolkit.http import HTTPError, HTTPResponse
 
 
@@ -50,27 +59,27 @@ class TestExportMetricsCommand:
 
     def test_parse_args_help(self):
         """Test parsing help flag."""
-        result = self.command._parse_args(["--help"])
+        result = parse_command_args(["--help"])
         assert result["help"] is True
 
     def test_parse_args_output_type(self):
         """Test parsing output type argument."""
-        result = self.command._parse_args(["--output-type", "parquet"])
+        result = parse_command_args(["--output-type", "parquet"])
         assert result["output_type"] == "parquet"
 
     def test_parse_args_output_dir(self):
         """Test parsing output directory argument."""
-        result = self.command._parse_args(["--output-dir", "/tmp/reports"])
+        result = parse_command_args(["--output-dir", "/tmp/reports"])
         assert result["output_dir"] == "/tmp/reports"
 
     def test_parse_args_output_filename(self):
         """Test parsing output filename argument."""
-        result = self.command._parse_args(["--output-filename", "custom-%y-%m-%d"])
+        result = parse_command_args(["--output-filename", "custom-%y-%m-%d"])
         assert result["output_filename"] == "custom-%y-%m-%d"
 
     def test_parse_args_multiple(self):
         """Test parsing multiple arguments."""
-        result = self.command._parse_args(
+        result = parse_command_args(
             [
                 "--output-type",
                 "csv",
@@ -87,21 +96,18 @@ class TestExportMetricsCommand:
     def test_parse_args_missing_value(self):
         """Test error when argument value is missing."""
         with pytest.raises(ValueError, match="--output-type requires a value"):
-            self.command._parse_args(["--output-type"])
+            parse_command_args(["--output-type"])
 
     def test_parse_args_unknown_argument(self):
         """Test error for unknown arguments."""
         with pytest.raises(ValueError, match="Unknown argument"):
-            self.command._parse_args(["--unknown-arg"])
+            parse_command_args(["--unknown-arg"])
 
     def test_check_dependencies_csv(self):
         """Test dependency check for CSV format."""
-        from rich.console import Console
-
-        console = Console()
-
-        result = self.command._check_dependencies("csv", console)
-        assert result is True
+        is_available, error_message = check_output_dependencies("csv")
+        assert is_available is True
+        assert error_message is None
 
     def test_check_dependencies_parquet_missing(self):
         """Test dependency check for Parquet when pyarrow is missing."""
@@ -113,19 +119,9 @@ class TestExportMetricsCommand:
         except ImportError:
             pass
 
-        from rich.console import Console
-
-        with patch("rich.console.Console.print") as mock_print:
-            console = Console()
-            result = self.command._check_dependencies("parquet", console)
-            assert result is False
-            mock_print.assert_called_with(
-                (
-                    "Error: pyarrow is required for Parquet format. "
-                    "Install with: uv sync --extra export or uv add pyarrow"
-                ),
-                style="red",
-            )
+        is_available, error_message = check_output_dependencies("parquet")
+        assert is_available is False
+        assert "pyarrow is required" in error_message
 
     def test_check_dependencies_avro_missing(self):
         """Test dependency check for Avro when fastavro is missing."""
@@ -137,23 +133,13 @@ class TestExportMetricsCommand:
         except ImportError:
             pass
 
-        from rich.console import Console
-
-        with patch("rich.console.Console.print") as mock_print:
-            console = Console()
-            result = self.command._check_dependencies("avro", console)
-            assert result is False
-            mock_print.assert_called_with(
-                (
-                    "Error: fastavro is required for Avro format. "
-                    "Install with: uv sync --extra export or uv add fastavro"
-                ),
-                style="red",
-            )
+        is_available, error_message = check_output_dependencies("avro")
+        assert is_available is False
+        assert "fastavro is required" in error_message
 
     def test_generate_filename_default(self):
         """Test filename generation with default template."""
-        filename = self.command._generate_filename("ad-metrics-%d-%m-%y-%h-%M", "csv")
+        filename = generate_filename_from_template("ad-metrics-%d-%m-%y-%h-%M", "csv")
 
         assert filename.endswith(".csv")
         assert "ad-metrics-" in filename
@@ -162,7 +148,7 @@ class TestExportMetricsCommand:
 
     def test_generate_filename_custom(self):
         """Test filename generation with custom template."""
-        filename = self.command._generate_filename("data-%y%m%d", "parquet")
+        filename = generate_filename_from_template("data-%y%m%d", "parquet")
 
         assert filename.endswith(".parquet")
         assert "data-" in filename
@@ -170,9 +156,9 @@ class TestExportMetricsCommand:
 
     def test_generate_filename_extensions(self):
         """Test correct extensions for different output types."""
-        csv_file = self.command._generate_filename("test", "csv")
-        parquet_file = self.command._generate_filename("test", "parquet")
-        avro_file = self.command._generate_filename("test", "avro")
+        csv_file = generate_filename_from_template("test", "csv")
+        parquet_file = generate_filename_from_template("test", "parquet")
+        avro_file = generate_filename_from_template("test", "avro")
 
         assert csv_file.endswith(".csv")
         assert parquet_file.endswith(".parquet")
@@ -180,24 +166,14 @@ class TestExportMetricsCommand:
 
     def test_generate_filename_with_environment(self):
         """Test filename generation includes environment name suffix."""
-
-        # Mock environment info callback to return environment name
-        def mock_env_callback():
-            return {"name": "production", "base_url": "https://prod.example.com"}
-
-        command_with_env = ExportMetricsCommand(
-            environment_info_callback=mock_env_callback
-        )
-        filename = command_with_env._generate_filename("metrics-%y%m%d", "csv")
+        filename = generate_filename_from_template("metrics-%y%m%d", "csv", "production")
 
         assert filename.endswith("_production.csv")
         assert "metrics-" in filename
 
     def test_generate_filename_no_environment(self):
         """Test filename generation without environment name."""
-        # Command without environment callback
-        command_no_env = ExportMetricsCommand()
-        filename = command_no_env._generate_filename("metrics-%y%m%d", "csv")
+        filename = generate_filename_from_template("metrics-%y%m%d", "csv")
 
         assert filename.endswith(".csv")
         assert "_" not in filename.split(".")[0]  # No environment suffix
@@ -216,7 +192,7 @@ class TestExportMetricsCommand:
         df = pd.DataFrame(test_data)
 
         # Preprocess the DataFrame
-        processed_df = self.command._preprocess_for_parquet(df)
+        processed_df = preprocess_dataframe_for_format(df, "parquet")
 
         # Check that N/A values are converted to proper nulls
         assert pd.isna(processed_df.loc[1, "Quality Score"])
@@ -248,7 +224,7 @@ class TestExportMetricsCommand:
         df = pd.DataFrame(test_data)
 
         # Preprocess the DataFrame
-        processed_df = self.command._preprocess_for_avro(df)
+        processed_df = preprocess_dataframe_for_format(df, "avro")
 
         # Check that N/A values are converted to None or NaN
         qs_val = processed_df.loc[1, "Quality Score"]
@@ -333,17 +309,17 @@ class TestExportMetricsCommand:
     def test_get_completions_options(self):
         """Test auto-completion for command options."""
         # Test completion for partial option
-        completions = self.command.get_completions("export-metrics --out", 0)
+        completions = get_completion_suggestions("export-metrics --out", 0)
         assert "--output-type" in completions
         assert "--output-dir" in completions
         assert "--output-filename" in completions
 
         # Test completion for specific option prefix
-        completions = self.command.get_completions("export-metrics --output-t", 0)
+        completions = get_completion_suggestions("export-metrics --output-t", 0)
         assert completions == ["--output-type"]
 
         # Test completion after space
-        completions = self.command.get_completions("export-metrics ", 0)
+        completions = get_completion_suggestions("export-metrics ", 0)
         expected_options = [
             "--help",
             "--output-type",
@@ -355,33 +331,33 @@ class TestExportMetricsCommand:
     def test_get_completions_output_types(self):
         """Test auto-completion for output type values."""
         # Test completion for output types
-        completions = self.command.get_completions("export-metrics --output-type ", 0)
+        completions = get_completion_suggestions("export-metrics --output-type ", 0)
         assert "csv" in completions
         assert "parquet" in completions
         assert "avro" in completions
 
         # Test partial completion
-        completions = self.command.get_completions("export-metrics --output-type p", 0)
+        completions = get_completion_suggestions("export-metrics --output-type p", 0)
         assert completions == ["parquet"]
 
     def test_get_completions_templates(self):
         """Test auto-completion for filename templates."""
         # Test completion for filename templates
-        completions = self.command.get_completions(
+        completions = get_completion_suggestions(
             "export-metrics --output-filename ", 0
         )
         assert "ad-metrics-%d-%m-%y-%h-%M" in completions
         assert "metrics-%y%m%d" in completions
 
         # Test partial completion
-        completions = self.command.get_completions(
+        completions = get_completion_suggestions(
             "export-metrics --output-filename me", 0
         )
         assert "metrics-%y%m%d" in completions
 
     def test_get_completions_used_options(self):
         """Test that used options are not suggested again."""
-        completions = self.command.get_completions(
+        completions = get_completion_suggestions(
             "export-metrics --output-type csv --out", 0
         )
         assert "--output-type" not in completions  # Already used
@@ -391,7 +367,7 @@ class TestExportMetricsCommand:
     def test_process_data_empty(self):
         """Test data processing with empty data."""
         data = {"catalog": {}, "dq_policies": {}, "alerts": {}}
-        result = self.command._process_data(data)
+        result = process_metrics_data(data)
         assert result == []
 
     def test_process_data_basic(self):
@@ -426,7 +402,7 @@ class TestExportMetricsCommand:
             "alerts": {"incidents": []},
         }
 
-        result = self.command._process_data(data)
+        result = process_metrics_data(data)
 
         assert len(result) == 1
         record = result[0]
@@ -446,7 +422,7 @@ class TestExportMetricsCommand:
             )
             output_path = Path(temp_dir) / "test.csv"
 
-            self.command._export_data(df, output_path, "csv")
+            export_dataframe_to_format(df, output_path, "csv")
 
             assert output_path.exists()
 
@@ -472,7 +448,7 @@ class TestExportMetricsCommand:
             )
             output_path = Path(temp_dir) / "test.parquet"
 
-            self.command._export_data(df, output_path, "parquet")
+            export_dataframe_to_format(df, output_path, "parquet")
 
             assert output_path.exists()
 
@@ -510,7 +486,7 @@ class TestExportMetricsCommand:
             output_path = Path(temp_dir) / "test_na.parquet"
 
             # This should not raise an error with the preprocessing
-            self.command._export_data(df, output_path, "parquet")
+            export_dataframe_to_format(df, output_path, "parquet")
 
             assert output_path.exists()
 
@@ -556,7 +532,7 @@ class TestExportMetricsCommand:
             output_path = Path(temp_dir) / "test_na.avro"
 
             # This should not raise an error with the preprocessing
-            self.command._export_data(df, output_path, "avro")
+            export_dataframe_to_format(df, output_path, "avro")
 
             assert output_path.exists()
 
@@ -593,7 +569,7 @@ class TestExportMetricsCommand:
             )
             output_path = Path(temp_dir) / "test.avro"
 
-            self.command._export_data(df, output_path, "avro")
+            export_dataframe_to_format(df, output_path, "avro")
 
             assert output_path.exists()
             # Note: We don't verify reading back Avro as it requires more complex setup
@@ -707,9 +683,9 @@ class TestExportMetricsCommand:
 
             # Mock command methods
             with patch.object(self.command, "_fetch_all_data") as mock_fetch:
-                with patch.object(self.command, "_process_data") as mock_process:
-                    with patch.object(self.command, "_export_data") as mock_export:
-                        with patch.object(self.command, "_generate_filename") as mock_generate_filename:
+                with patch("adoc_toolkit.cli.commands.export_metrics_command.process_metrics_data") as mock_process:
+                    with patch("adoc_toolkit.cli.commands.export_metrics_command.export_dataframe_to_format") as mock_export:
+                        with patch("adoc_toolkit.cli.commands.export_metrics_command.generate_filename_from_template") as mock_generate_filename:
                             with patch("pathlib.Path.stat") as mock_stat:
                                 with patch("pathlib.Path.exists") as mock_exists:
                                     with patch("pathlib.Path.mkdir") as mock_mkdir:
@@ -782,7 +758,7 @@ class TestExportMetricsCommand:
         """Test execution when no data is retrieved."""
         with patch("adoc_toolkit.cli.commands.export_metrics_command.ADOCHTTPClient"):
             with patch.object(self.command, "_fetch_all_data") as mock_fetch:
-                with patch.object(self.command, "_process_data") as mock_process:
+                with patch("adoc_toolkit.cli.commands.export_metrics_command.process_metrics_data") as mock_process:
                     with patch(
                         "adoc_toolkit.cli.commands.export_metrics_command.pd.DataFrame"
                     ) as mock_df_class:
