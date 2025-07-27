@@ -47,20 +47,20 @@ default_environment: "environment-name"
 
 environments:
   cs-india:
-    name: "cs-india"
-    base_url: "https://cs-india.acceldata.app"
+    name: "dev"
+    base_url: "https://dev.acceldata.app"
     access_key: "YH*********4B"
     secret_key: "X*********Y"
   
   training:
-    name: "training" 
-    base_url: "https://training.acceldata.app"
+    name: "uat" 
+    base_url: "https://uat.acceldata.app"
     access_key: "VL******GV"
     secret_key: "A**Z"
   
   se-demo:
-    name: "se-demo"
-    base_url: "https://se-demo.acceldata.app"
+    name: "prod"
+    base_url: "https://prod.acceldata.app"
     access_key: "G********0"
     secret_key: "H***********R"
 
