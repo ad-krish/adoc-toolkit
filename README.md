@@ -1,6 +1,6 @@
 # ADOC Toolkit
 
-AccelData Observability Cloud ("ADOC") toolkit for managing and interacting with ADOC SaaS platform. This interactive command-line tool provides easy access to ADOC APIs, data export capabilities, and AI-powered data quality policy generation.
+Acceldata Observability Cloud ("ADOC") toolkit for managing and interacting with ADOC SaaS platform. This interactive command-line tool provides easy access to ADOC APIs, data export capabilities, and AI-powered data quality policy generation.
 
 ## 🚀 Quick Start
 
