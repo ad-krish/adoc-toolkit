@@ -62,10 +62,10 @@ def test_execute_with_valid_environment() -> None:
     config_content = """
 environments:
   test-env:
-    name: "Test Environment"
+    name: "test-env"
     base_url: "https://test.example.com"
-    access_key: "test-access-key"
-    secret_key: "test-secret-key"
+    access_key: "TEST123456789"
+    secret_key: "TESTSECRET123456789"
 """
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -91,7 +91,7 @@ environments:
             assert callback_called
             assert callback_args is not None
             assert callback_args[0] == "test-env"
-            assert callback_args[1]["name"] == "Test Environment"
+            assert callback_args[1]["name"] == "test-env"
 
 
 def test_execute_with_invalid_environment() -> None:
@@ -99,10 +99,10 @@ def test_execute_with_invalid_environment() -> None:
     config_content = """
 environments:
   valid-env:
-    name: "Valid Environment"
+    name: "valid-env"
     base_url: "https://valid.example.com"
-    access_key: "valid-access-key"
-    secret_key: "valid-secret-key"
+    access_key: "VALID123456789"
+    secret_key: "VALIDSECRET123456789"
 """
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -139,11 +139,20 @@ def test_completions_with_environments() -> None:
     config_content = """
 environments:
   dev:
-    name: "Development"
+    name: "dev"
+    base_url: "https://dev.example.com"
+    access_key: "DEV123456789"
+    secret_key: "DEVSECRET123456789"
   staging:
-    name: "Staging"
+    name: "staging"
+    base_url: "https://staging.example.com"
+    access_key: "STAGING123456789"
+    secret_key: "STAGINGSECRET123456789"
   production:
-    name: "Production"
+    name: "production"
+    base_url: "https://production.example.com"
+    access_key: "PROD123456789"
+    secret_key: "PRODSECRET123456789"
 """
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -173,7 +182,10 @@ def test_config_caching() -> None:
     config_content = """
 environments:
   test-env:
-    name: "Test Environment"
+    name: "test-env"
+    base_url: "https://test.example.com"
+    access_key: "TEST123456789"
+    secret_key: "TESTSECRET123456789"
 """
 
     with tempfile.TemporaryDirectory() as temp_dir:

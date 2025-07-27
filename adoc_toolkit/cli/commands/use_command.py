@@ -56,6 +56,8 @@ class UseCommand(Command):
 
         return help_text
 
+
+
     def _load_config(self) -> Optional[dict[str, Any]]:
         """Load environment configuration from YAML file."""
         if self._config_cache is not None:
@@ -72,7 +74,6 @@ class UseCommand(Command):
                 self._config_cache = config_data
                 return self._config_cache
         except Exception as e:
-            print(f"Error loading config: {e}")
             return None
 
     def execute(self, args: list[str]) -> bool:

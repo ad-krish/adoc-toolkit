@@ -182,6 +182,48 @@ Available environments:
   se-demo: se-demo
 ```
 
+## Validation
+
+The ADOC Toolkit automatically validates your `environments.yaml` file when loading configurations. The validation ensures:
+
+### Required Structure
+- **Top-level `environments` section**: Must be present and contain at least one environment
+- **Environment objects**: Each environment must be a YAML object (dictionary)
+- **Required fields**: Each environment must have `name`, `base_url`, `access_key`, and `secret_key`
+
+### Field Validation
+- **Environment names**: Must contain only letters, numbers, hyphens, and underscores
+- **Base URLs**: Must be valid HTTP/HTTPS URLs with a domain
+- **Access keys**: Must be uppercase letters and numbers, minimum 8 characters
+- **Secret keys**: Must be uppercase letters and numbers, minimum 8 characters
+- **Name consistency**: The `name` field must match the environment key
+
+### Default Environment
+- **Optional field**: `default_environment` is optional
+- **Must exist**: If specified, must reference an existing environment
+
+### Example Validation Errors
+
+```bash
+# Missing environments section
+Error: Missing required 'environments' section in configuration
+
+# Invalid environment name
+Error: Environment name 'dev@env' contains invalid characters. Use only letters, numbers, hyphens, and underscores
+
+# Invalid base URL
+Error: Environment 'dev' base_url must start with 'http://' or 'https://'
+
+# Missing required field
+Error: Environment 'dev' is missing required field: access_key
+
+# Invalid key format
+Error: Environment 'dev' access_key should contain only uppercase letters and numbers
+
+# Short key
+Error: Environment 'dev' access_key is too short (minimum 8 characters)
+```
+
 ## Troubleshooting
 
 ### Common Issues
