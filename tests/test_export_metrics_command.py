@@ -320,8 +320,8 @@ class TestExportMetricsCommand:
         assert "Export Summary" in output
         assert "Total Records" in output
         assert "Rule Type Distribution" in output
-        assert "Execution Status Distribution" in output
-        assert "Quality Score Distribution" in output
+        assert "Execution Status" in output  # Account for Rich table wrapping
+        assert "Quality Score" in output  # Account for Rich table wrapping
         assert "Data Quality Insights" in output
 
         # Check specific values
@@ -709,48 +709,56 @@ class TestExportMetricsCommand:
             with patch.object(self.command, "_fetch_all_data") as mock_fetch:
                 with patch.object(self.command, "_process_data") as mock_process:
                     with patch.object(self.command, "_export_data") as mock_export:
-                        with patch("pathlib.Path.stat") as mock_stat:
-                            with patch("pathlib.Path.exists") as mock_exists:
-                                # Configure mocks
-                                mock_fetch.return_value = {
-                                    "data": "test",
-                                    "_debug_files": [],
-                                }
-                                mock_process.return_value = [{"test": "data"}]
+                        with patch.object(self.command, "_generate_filename") as mock_generate_filename:
+                            with patch("pathlib.Path.stat") as mock_stat:
+                                with patch("pathlib.Path.exists") as mock_exists:
+                                    with patch("pathlib.Path.mkdir") as mock_mkdir:
+                                        # Configure mocks
+                                        mock_fetch.return_value = {
+                                            "data": "test",
+                                            "_debug_files": [],
+                                        }
+                                        mock_process.return_value = [{"test": "data"}]
 
-                                # Mock DataFrame
-                                mock_df = Mock()
-                                mock_df.empty = False
-                                mock_df.__len__ = Mock(return_value=1)
-                                mock_df.columns = [
-                                    "test_column_1",
-                                    "test_column_2",
-                                ]  # Mock columns
-                                mock_df.head.return_value.to_string.return_value = (
-                                    "test data"
-                                )
-                                mock_dataframe.return_value = mock_df
+                                        # Mock DataFrame properly
+                                        mock_df = Mock()
+                                        mock_df.empty = False
+                                        mock_df.__len__ = Mock(return_value=1)
+                                        mock_df.columns = ["test_column_1", "test_column_2"]
+                                        mock_df.head.return_value.to_string.return_value = "test data"
+                                        # Ensure the DataFrame constructor returns our mock
+                                        mock_dataframe.return_value = mock_df
 
-                                # Mock file stats for tracing
-                                mock_stat.return_value.st_size = 1024
-                                mock_exists.return_value = True
+                                        # Mock filename generation
+                                        mock_generate_filename.return_value = "test-metrics.csv"
 
-                                # Execute command
-                                result = self.command.execute(
-                                    [
-                                        "--output-type",
-                                        "csv",
-                                        "--output-dir",
-                                        temp_dir,
-                                        "--output-filename",
-                                        "test-metrics",
-                                    ]
-                                )
+                                        # Mock file stats for tracing
+                                        mock_stat.return_value.st_size = 1024
+                                        mock_exists.return_value = True
 
-                                assert result is True
-                                mock_fetch.assert_called_once()
-                                mock_process.assert_called_once()
-                                mock_export.assert_called_once()
+                                        # Mock Progress to avoid console issues
+                                        with patch("adoc_toolkit.cli.commands.export_metrics_command.Progress") as mock_progress:
+                                            mock_progress_instance = Mock()
+                                            mock_progress.return_value.__enter__.return_value = mock_progress_instance
+                                            mock_progress_instance.add_task.return_value = "task_id"
+                                            mock_progress_instance.update = Mock()
+
+                                            # Execute command
+                                            result = self.command.execute(
+                                                [
+                                                    "--output-type",
+                                                    "csv",
+                                                    "--output-dir",
+                                                    temp_dir,
+                                                    "--output-filename",
+                                                    "test-metrics",
+                                                ]
+                                            )
+
+                                            assert result is True
+                                            mock_fetch.assert_called_once()
+                                            mock_process.assert_called_once()
+                                            mock_export.assert_called_once()
 
     @patch("adoc_toolkit.cli.commands.export_metrics_command.ADOCHTTPClient")
     def test_execute_http_error(self, mock_http_client_class):

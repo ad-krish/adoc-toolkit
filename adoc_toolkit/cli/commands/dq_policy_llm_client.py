@@ -51,6 +51,9 @@ class DQPolicyLLMClient:
             # Create response processor
             response_processor = self._create_response_processor(uids)
             
+            # Set the response processor on the LLM client
+            self.llm_client.response_processor = response_processor
+            
             # Create LLM request
             request = LLMRequest(
                 system_prompt=self.get_system_prompt(),

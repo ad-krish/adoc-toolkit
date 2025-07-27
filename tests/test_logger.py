@@ -272,21 +272,23 @@ def test_logger_reconfiguration() -> None:
         log_file2 = Path(temp_dir) / "test2.log"
 
         reset_config_manager(config_file)
-        logger = TracerLogger()
-
-        # Set first log file
+        
+        # Set first log file and force logger reconfiguration
         get_config_manager().set("log.filepath", str(log_file1))
         get_config_manager().set("log.level", "INFO")
-
+        
+        # Reset logger to pick up new configuration
+        from adoc_toolkit.logs.service import reset_logger
+        reset_logger()
+        
+        logger = TracerLogger()
         logger.info("Message 1")
 
-        # Change to second log file
+        # Change to second log file and force reconfiguration
         get_config_manager().set("log.filepath", str(log_file2))
         get_config_manager().set("log.level", "DEBUG")
 
         # Force logger reconfiguration by resetting and getting new instance
-        from adoc_toolkit.logs.service import reset_logger
-
         reset_logger()
         logger = TracerLogger()
 

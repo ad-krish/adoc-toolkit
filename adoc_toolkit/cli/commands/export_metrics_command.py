@@ -326,12 +326,57 @@ Examples:
             elif arg in ["--output-type", "--output-dir", "--output-filename"]:
                 if i + 1 >= len(args):
                     raise ValueError(f"{arg} requires a value")
-                parsed[arg.replace("--", "")] = args[i + 1]
+                # Convert --output-type to output_type, --output-dir to output_dir, etc.
+                key = arg.replace("--", "").replace("-", "_")
+                parsed[key] = args[i + 1]
                 i += 1
             else:
                 raise ValueError(f"Unknown argument: {arg}")
             i += 1
         return parsed
+
+    @trace_method("preprocess_for_parquet", "export_metrics")
+    def _preprocess_for_parquet(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Preprocess DataFrame for Parquet export."""
+        # Convert N/A strings to NaN
+        df = df.replace("N/A", pd.NA)
+        
+        # Convert numeric columns
+        numeric_columns = ["Quality Score", "Records Processed"]
+        for col in numeric_columns:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # Convert datetime columns
+        datetime_columns = ["Execution Date"]
+        for col in datetime_columns:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+        
+        return df
+
+    @trace_method("preprocess_for_avro", "export_metrics")
+    def _preprocess_for_avro(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Preprocess DataFrame for Avro export."""
+        # Convert N/A strings to None
+        df = df.replace("N/A", None)
+        
+        # Convert numeric columns
+        numeric_columns = ["Quality Score", "Records Processed"]
+        for col in numeric_columns:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # Convert datetime columns to strings for Avro compatibility
+        datetime_columns = ["Execution Date"]
+        for col in datetime_columns:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce').dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+        
+        # Convert NaN values to None for Avro compatibility
+        df = df.where(pd.notna(df), None)
+        
+        return df
 
     @trace_method("check_dependencies", "export_metrics")
     def _check_dependencies(self, output_type: str, console: Console) -> bool:
@@ -611,8 +656,17 @@ Examples:
             for record in records
         ]
 
-        with open(output_path, "wb") as f:
-            fastavro.writer(f, schema, converted_records, codec="snappy")
+        # Try to use snappy codec, fall back to null if not available
+        try:
+            with open(output_path, "wb") as f:
+                fastavro.writer(f, schema, converted_records, codec="snappy")
+        except ValueError as e:
+            if "snappy codec" in str(e):
+                # Fall back to null codec if snappy is not available
+                with open(output_path, "wb") as f:
+                    fastavro.writer(f, schema, converted_records, codec="null")
+            else:
+                raise
 
     @trace_method("cleanup_debug_files", "export_metrics")
     def _cleanup_debug_files(self, debug_files: list[Path]) -> None:
@@ -638,7 +692,7 @@ Examples:
         open_alerts_numeric = pd.to_numeric(df["Open Alerts"], errors="coerce").dropna()
 
         # Summary Table
-        summary_table = Table(title="", show_header=True, header_style="bold magenta")
+        summary_table = Table(title="Export Summary", show_header=True, header_style="bold magenta")
         summary_table.add_column("Metric", style="cyan")
         summary_table.add_column("Value", style="white")
         summary_table.add_row("Total Records", f"{total_records:,}")
@@ -661,3 +715,64 @@ Examples:
                 "Avg Alerts per Rule", f"{open_alerts_numeric.mean():.1f}"
             )
         console.print(summary_table)
+
+        # Rule Type Distribution
+        if "Rule Type" in df.columns:
+            rule_type_dist = df["Rule Type"].value_counts()
+            rule_type_table = Table(title="Rule Type Distribution", show_header=True, header_style="bold blue")
+            rule_type_table.add_column("Rule Type", style="cyan")
+            rule_type_table.add_column("Count", style="white")
+            for rule_type, count in rule_type_dist.items():
+                rule_type_table.add_row(str(rule_type), str(count))
+            console.print(rule_type_table)
+
+        # Execution Status Distribution
+        if "Execution Status" in df.columns:
+            status_dist = df["Execution Status"].value_counts()
+            status_table = Table(title="Execution Status Distribution", show_header=True, header_style="bold green")
+            status_table.add_column("Status", style="cyan")
+            status_table.add_column("Count", style="white")
+            for status, count in status_dist.items():
+                status_table.add_row(str(status), str(count))
+            console.print(status_table)
+
+        # Quality Score Distribution
+        if not quality_scores_numeric.empty:
+            quality_table = Table(title="Quality Score Distribution", show_header=True, header_style="bold yellow")
+            quality_table.add_column("Range", style="cyan")
+            quality_table.add_column("Count", style="white")
+            
+            # Define quality score ranges
+            ranges = [
+                (0, 50, "0-50"),
+                (50, 70, "50-70"),
+                (70, 85, "70-85"),
+                (85, 95, "85-95"),
+                (95, 101, "95-100")
+            ]
+            
+            for min_score, max_score, range_label in ranges:
+                count = len(quality_scores_numeric[(quality_scores_numeric >= min_score) & (quality_scores_numeric < max_score)])
+                quality_table.add_row(range_label, str(count))
+            console.print(quality_table)
+
+        # Data Quality Insights
+        insights_table = Table(title="Data Quality Insights", show_header=True, header_style="bold red")
+        insights_table.add_column("Insight", style="cyan")
+        insights_table.add_column("Value", style="white")
+        
+        if not quality_scores_numeric.empty:
+            high_quality_count = len(quality_scores_numeric[quality_scores_numeric >= 90])
+            high_quality_pct = (high_quality_count / len(quality_scores_numeric)) * 100
+            insights_table.add_row("High Quality Rules (≥90%)", f"{high_quality_pct:.1f}%")
+            
+            low_quality_count = len(quality_scores_numeric[quality_scores_numeric < 70])
+            low_quality_pct = (low_quality_count / len(quality_scores_numeric)) * 100
+            insights_table.add_row("Low Quality Rules (<70%)", f"{low_quality_pct:.1f}%")
+        
+        if not open_alerts_numeric.empty:
+            high_alert_count = len(open_alerts_numeric[open_alerts_numeric > 5])
+            high_alert_pct = (high_alert_count / len(open_alerts_numeric)) * 100
+            insights_table.add_row("Rules with High Alerts (>5)", f"{high_alert_pct:.1f}%")
+        
+        console.print(insights_table)

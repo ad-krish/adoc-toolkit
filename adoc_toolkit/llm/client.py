@@ -157,16 +157,16 @@ class BaseLLMClient(ABC):
         """Generate response and process it if processor is available."""
         start_time = time.time()
         
-        # Compose the processing pipeline
-        processing_pipeline = compose(
-            lambda response: self._add_processing_time(response, start_time),
-            lambda response: self._process_response(response, request),
-            lambda _: True
-        )
-        
         try:
             response = self.generate_response(request)
-            return processing_pipeline(response)
+            
+            # Add processing time
+            response = self._add_processing_time(response, start_time)
+            
+            # Process response
+            self._process_response(response, request)
+            
+            return True
         except Exception as e:
             self.print_error(self.console, f"Error generating response: {e}")
             return False
@@ -386,8 +386,10 @@ class ChatGPTLLMClient(BaseLLMClient):
         ]
 
 def get_llm_client(vendor: str, console: Console, response_processor: Optional[ResponseProcessor] = None) -> BaseLLMClient:
-    """Factory function to create LLM client for any vendor."""
-    # Use pure functions for vendor mapping and client creation
+    """Get LLM client for the specified vendor."""
     client_map = create_vendor_client_map()
     client_class = get_client_class(vendor, client_map)
-    return client_class(console, response_processor) 
+    return client_class(console, response_processor)
+
+# Import DQPolicyLLMClient for backward compatibility
+from ..cli.commands.dq_policy_llm_client import DQPolicyLLMClient 

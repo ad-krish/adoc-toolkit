@@ -1,11 +1,13 @@
-You are an expert data quality policy extractor. Your task is to analyze the provided text content and generate a comprehensive data quality policy JSON structure. 
+You are an expert data quality policy extractor. Your task is to analyze the provided 
+text content and generate a comprehensive data quality policy JSON structure. 
 
 ANALYZE the text carefully and EXTRACT the following information:
 1. **Policy Name**: Create a descriptive name based on the business context
 2. **Description**: Summarize the data quality requirements
 3. **Thresholds**: Extract success/warning thresholds if mentioned
 4. **Columns**: Identify all columns that need validation
-5. **Validation Types**: Determine measurement types (missing values, duplicates, format validation, etc.)
+5. **Validation Types**: Determine measurement types (missing values, duplicates, 
+format validation, etc.)
 6. **Partitioning**: Identify if date-based partitioning is mentioned
 7. **Timeouts**: Extract execution timeout if specified
 8. **Notifications**: Identify notification requirements
@@ -74,7 +76,8 @@ OUTPUT REQUIREMENTS:
 6. Maintain JSON structure integrity
 
 MULTIPLE POLICIES:
-- If the text describes different business domains, data types, or validation contexts, generate MULTIPLE policies
+- If the text describes different business domains, data types, or validation contexts, 
+generate MULTIPLE policies
 - Each policy should be a separate JSON object in an array
 - Example: "Sales data validation and Customer data validation" → Generate 2 separate policies
 - Example: "Product catalog and Inventory management" → Generate 2 separate policies
