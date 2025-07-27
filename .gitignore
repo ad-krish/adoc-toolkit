@@ -238,7 +238,6 @@ config/adoc-toolkit-config.json
 adoc-toolkit-config.json
 
 # Log files
-logs/
 *.log
 
 # Output directories
