@@ -75,24 +75,41 @@ The `--backload` option provides flexible data retrieval from historical periods
 - **Recovery scenarios**: Recover from processing gaps or errors
 - **Initial setup**: Configure the starting point for first-time runs
 
-### Policy Type Filtering
+### Policy Type Support
+
+The command supports multiple policy types with comprehensive data processing for each type:
+
+#### Supported Policy Types
+- **DATA_QUALITY**: Data quality rules and checks with detailed rule-level metrics
+- **EQUALITY**: Reconciliation and comparison policies with threshold analysis
+- **DATA_DRIFT**: Data drift detection policies with statistical analysis
+- **PROFILE_ANOMALY**: Data profiling anomaly detection with pattern analysis
+- **SCHEMA_DRIFT**: Schema change detection policies with structural analysis
+
+#### Policy Type Processing
+- **Multi-Type Support**: Each policy type is processed using its specific API endpoints
+- **Unified Output**: All policy types are exported with consistent schema and format
+- **Type-Specific Details**: Each policy type includes relevant metrics and configuration data
+- **Cross-Type Analysis**: Enables comparison and analysis across different policy types
+
+#### Policy Type Filtering
 
 The `--policy-types` option allows you to specify which types of policies to export:
 
-#### Available Policy Types
+##### Available Policy Types
 - **DATA_QUALITY**: Data quality rules and checks
 - **EQUALITY**: Reconciliation and comparison policies  
 - **DATA_DRIFT**: Data drift detection policies
 - **PROFILE_ANOMALY**: Data profiling anomaly detection
 - **SCHEMA_DRIFT**: Schema change detection policies
 
-#### Policy Type Behavior
+##### Policy Type Behavior
 - **Default types**: DATA_QUALITY and EQUALITY (most commonly used)
 - **Multiple types**: Specify comma-separated values (e.g., `DATA_QUALITY,DATA_DRIFT`)
 - **Case insensitive**: Input is automatically converted to uppercase
 - **Validation**: Only valid policy types are accepted
 
-#### Use Cases
+##### Use Cases
 - **Focused analysis**: Export only specific policy types for targeted analysis
 - **Performance optimization**: Reduce data volume by filtering to relevant policies
 - **Compliance reporting**: Export only compliance-related policies (DATA_QUALITY, EQUALITY)
@@ -106,7 +123,6 @@ The command fetches and combines data from multiple ADOC API endpoints using eff
 2. **Execution Details API**: Fetches detailed rule-level performance metrics for data quality policies
 3. **Policy Details API**: Retrieves policy configuration, threshold settings, and rule versions
 4. **Asset Catalog API**: Resolves table asset names and metadata from asset identifiers
-5. **Parallel Processing**: Uses concurrent API calls to optimize data retrieval performance
 
 The service intelligently merges data from these sources to create comprehensive execution metrics records with full context about policies, rules, assets, and performance outcomes.
 
@@ -134,7 +150,7 @@ The exported data includes the following columns:
 | exec_id | Execution identifier |
 | table_asset_name | Name of the table asset |
 | item_column_name | Column name being evaluated |
-| pde | ... |
+| pde | PDE (Physical Data Element) identifier |
 | item_measurement_type | Type of measurement |
 | rule_strategy | Threshold strategy |
 | rule_lower_threshold | Lower threshold value |

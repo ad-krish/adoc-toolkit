@@ -2,14 +2,16 @@
 
 import json
 import decimal
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Optional
+from queue import Queue
 
 import pandas as pd
-from rich.progress import Progress
+from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from ...http import ADOCHTTPClient, HTTPError
 from ...logs import log_error, log_info
@@ -75,18 +77,319 @@ def calculate_failed_rows(rows_scanned: Optional[int], result: Optional[str]) ->
         return 0
 
 
+class ThreadSafeDataCollector:
+    """Thread-safe data collector for parallel processing."""
+    
+    def __init__(self):
+        """Initialize the thread-safe data collector."""
+        self._lock = threading.Lock()
+        self._data = []
+    
+    def add(self, item):
+        """Add an item to the collection in a thread-safe manner."""
+        with self._lock:
+            self._data.append(item)
+    
+    def extend(self, items):
+        """Add multiple items to the collection in a thread-safe manner."""
+        with self._lock:
+            self._data.extend(items)
+    
+    def get_all(self):
+        """Get all collected data."""
+        with self._lock:
+            return self._data.copy()
+    
+    def clear(self):
+        """Clear all collected data."""
+        with self._lock:
+            self._data.clear()
+
+
+def fetch_execution_page(
+    page: int,
+    exec_count: int,
+    policy_types: list[str],
+    http_client: ADOCHTTPClient,
+    progress: Progress,
+    task_id: str,
+) -> tuple[int, list[PolicyExecution], bool]:
+    """Fetch a single page of policy executions.
+    
+    Args:
+        page: Page number to fetch
+        exec_count: Number of executions per page
+        policy_types: List of policy types to filter
+        http_client: HTTP client for API calls
+        progress: Progress tracker
+        task_id: Progress task ID for this thread
+        
+    Returns:
+        Tuple of (page_number, list_of_executions, should_stop)
+    """
+    try:
+        progress.update(
+            task_id, 
+            description=f"Fetching page {page + 1}...",
+            advance=0
+        )
+        
+        rule_types_param = ",".join(policy_types)
+        endpoint = (
+            f"/catalog-server/api/rules/executions"
+            f"?page={page}&size={exec_count}&sortBy=execution.startedAt:DESC"
+            "&executionStatus=SUCCESSFUL,ERRORED,ABORTED,WARNING"
+            f"&ruleType={rule_types_param}"
+        )
+        
+        response = http_client.get(endpoint)
+        if not response.is_success:
+            log_error(f"Failed to fetch executions page {page}: HTTP {response.status_code}")
+            return page, [], False
+            
+        exec_data = response.json()
+        executions = safe_get(exec_data, "executions", [])
+        
+        if not executions:
+            return page, [], True  # No more data, stop
+        
+        # Process the executions (we'll filter by timestamp later)
+        page_executions = process_policy_executions(exec_data, 0, policy_types)
+        
+        progress.update(
+            task_id,
+            description=f"Page {page + 1}: {len(page_executions)} executions",
+            advance=1
+        )
+        
+        return page, page_executions, False
+        
+    except Exception as e:
+        log_error(f"Error fetching executions page {page}: {e}")
+        return page, [], False
+
+
+def process_execution_details_parallel(
+    execution: PolicyExecution,
+    http_client: ADOCHTTPClient,
+    progress: Progress,
+    task_id: str,
+) -> list[ExecutionDetail]:
+    """Process execution details for a single execution in parallel.
+    
+    Args:
+        execution: Policy execution to process
+        http_client: HTTP client for API calls
+        progress: Progress tracker
+        task_id: Progress task ID for this thread
+        
+    Returns:
+        List of ExecutionDetail models
+    """
+    execution_details = []
+    
+    if execution.execution_status != "SUCCESSFUL":
+        return execution_details
+        
+    try:
+        progress.update(
+            task_id,
+            description=f"Processing {execution.policy_type} execution {execution.execution_id}...",
+            advance=0
+        )
+
+        # Build endpoint based on policy type
+        if execution.policy_type == "DATA_QUALITY":
+            endpoint = f"/catalog-server/api/rules/data-quality/executions/{execution.execution_id}"
+        elif execution.policy_type == "EQUALITY":
+            endpoint = f"/catalog-server/api/rules/equality/executions/{execution.execution_id}"
+        elif execution.policy_type == "DATA_DRIFT":
+            endpoint = f"/catalog-server/api/rules/data-drift/executions/{execution.execution_id}"
+        elif execution.policy_type == "PROFILE_ANOMALY":
+            endpoint = f"/catalog-server/api/rules/profile-anomaly/executions/{execution.execution_id}"
+        elif execution.policy_type == "SCHEMA_DRIFT":
+            endpoint = f"/catalog-server/api/rules/schema-drift/executions/{execution.execution_id}"
+        else:
+            log_error(f"Unsupported policy type: {execution.policy_type}")
+            return execution_details
+
+        response = http_client.get(endpoint)
+
+        if not response.is_success:
+            log_error(f"Failed to fetch execution details for {execution.execution_id}")
+            return execution_details
+
+        exec_result_data = response.json()
+
+        for item in safe_get(exec_result_data, "items", []):
+            labels = safe_get(item, "labels", [])
+            pde_value = next(
+                (
+                    safe_get(label, "value")
+                    for label in labels
+                    if safe_get(label, "key") == "PDE"
+                ),
+                None,
+            )
+
+            item_data = safe_get(item, "item", {})
+            item_labels = safe_get(item_data, "labels", [])
+            pde_label = next(
+                (
+                    safe_get(label, "value")
+                    for label in item_labels
+                    if safe_get(label, "key") == "PDE"
+                ),
+                None,
+            )
+
+            rows_scanned = safe_get(item, "rowsScanned")
+            rule_result = safe_get(item, "result")
+
+            threshold_config = safe_get(item, "thresholdConfig", {})
+
+            execution_detail = ExecutionDetail(
+                item_id=safe_get(item_data, "id", ""),
+                item_column_name=safe_get(item_data, "columnName"),
+                item_ver=safe_get(item_data, "ruleVersion", 1),
+                pde_name=pde_value,
+                pde=pde_label,
+                item_measurement_type=safe_get(item_data, "measurementType"),
+                rule_item_id=safe_get(item, "ruleItemId"),
+                rule_strategy=safe_get(threshold_config, "strategy"),
+                rule_lower_threshold=safe_get(threshold_config, "lower"),
+                rule_upper_threshold=safe_get(threshold_config, "upper"),
+                result=rule_result,
+                rows_scanned=rows_scanned,
+                rows_failed=calculate_failed_rows(rows_scanned, rule_result),
+                exec_id=execution.execution_id,
+                end_ts=execution.end_ts,
+            )
+            execution_details.append(execution_detail)
+
+        progress.update(
+            task_id,
+            description=f"Processed {execution.policy_type} execution: {len(execution_details)} details",
+            advance=1
+        )
+
+    except Exception as e:
+        log_error(f"Error processing execution {execution.execution_id}: {e}")
+
+    return execution_details
+
+
+def process_policy_details_parallel(
+    execution: PolicyExecution,
+    http_client: ADOCHTTPClient,
+    progress: Progress,
+    task_id: str,
+) -> list[PolicyDetail]:
+    """Process policy details for a single execution in parallel.
+    
+    Args:
+        execution: Policy execution to process
+        http_client: HTTP client for API calls
+        progress: Progress tracker
+        task_id: Progress task ID for this thread
+        
+    Returns:
+        List of PolicyDetail models
+    """
+    policy_details = []
+    
+    try:
+        progress.update(
+            task_id,
+            description=f"Processing {execution.policy_type} policy details {execution.policy_id}...",
+            advance=0
+        )
+
+        # Build endpoint based on policy type
+        if execution.policy_type == "DATA_QUALITY":
+            endpoint = f"/catalog-server/api/rules/data-quality/{execution.policy_id}?version={execution.policy_version}"
+        elif execution.policy_type == "EQUALITY":
+            endpoint = f"/catalog-server/api/rules/equality/{execution.policy_id}?version={execution.policy_version}"
+        elif execution.policy_type == "DATA_DRIFT":
+            endpoint = f"/catalog-server/api/rules/data-drift/{execution.policy_id}?version={execution.policy_version}"
+        elif execution.policy_type == "PROFILE_ANOMALY":
+            endpoint = f"/catalog-server/api/rules/profile-anomaly/{execution.policy_id}?version={execution.policy_version}"
+        elif execution.policy_type == "SCHEMA_DRIFT":
+            endpoint = f"/catalog-server/api/rules/schema-drift/{execution.policy_id}?version={execution.policy_version}"
+        else:
+            log_error(f"Unsupported policy type: {execution.policy_type}")
+            return policy_details
+
+        response = http_client.get(endpoint)
+
+        if not response.is_success:
+            log_error(f"Failed to fetch policy details for {execution.policy_id}")
+            return policy_details
+
+        policy_detail_data = response.json()
+        rule_data = safe_get(policy_detail_data, "rule", {})
+        backing_asset = safe_get(rule_data, "backingAsset", {})
+        table_asset_id = safe_get(backing_asset, "tableAssetId")
+
+        # Fetch table asset name
+        table_asset_name = (
+            fetch_asset_name(table_asset_id, http_client)
+            if table_asset_id
+            else None
+        )
+
+        details_data = safe_get(policy_detail_data, "details", {})
+        for item in safe_get(details_data, "items", []):
+            pde_value = next(
+                (
+                    safe_get(label, "value")
+                    for label in safe_get(item, "labels", [])
+                    if safe_get(label, "key") == "PDE"
+                ),
+                None,
+            )
+
+            policy_detail = PolicyDetail(
+                policy_name=execution.policy_name,
+                policy_id=execution.policy_id,
+                policy_type=execution.policy_type,
+                id=safe_get(item, "id", ""),
+                rule_version=safe_get(item, "ruleVersion", 1),
+                column_name=safe_get(item, "columnName"),
+                pde_value=pde_value,
+                table_asset_id=table_asset_id,
+                table_asset_name=table_asset_name,
+            )
+            policy_details.append(policy_detail)
+
+        progress.update(
+            task_id,
+            description=f"Processed {execution.policy_type} policy: {len(policy_details)} details",
+            advance=1
+        )
+
+    except Exception as e:
+        log_error(f"Error processing policy details for {execution.policy_id}: {e}")
+
+    return policy_details
+
+
 def process_policy_executions(
-    executions_data: dict[str, Any], start_ts_marker: int
+    executions_data: dict[str, Any], start_ts_marker: int, policy_types: list[str] = None
 ) -> list[PolicyExecution]:
     """Process policy executions data into PolicyExecution models.
 
     Args:
         executions_data: Raw execution data from API
         start_ts_marker: Timestamp marker for incremental processing
+        policy_types: List of policy types to filter (default: all supported types)
 
     Returns:
         List of PolicyExecution models
     """
+    if policy_types is None:
+        policy_types = ["DATA_QUALITY", "EQUALITY", "DATA_DRIFT", "PROFILE_ANOMALY", "SCHEMA_DRIFT"]
+    
     policy_executions = []
 
     for execution in safe_get(executions_data, "executions", []):
@@ -98,7 +401,7 @@ def process_policy_executions(
             continue
 
         policy_type = safe_get(ex, "ruleType")
-        if policy_type in ("DATA_QUALITY", "EQUALITY"):
+        if policy_type in policy_types:
             result = safe_get(execution, "result") or {}
 
             policy_execution = PolicyExecution(
@@ -130,7 +433,7 @@ def process_execution_details(
     progress: Progress,
     task_id,
 ) -> list[ExecutionDetail]:
-    """Process execution details for DQ policies.
+    """Process execution details for policies.
 
     Args:
         policy_executions: List of policy executions
@@ -145,17 +448,28 @@ def process_execution_details(
     processed_count = 0
 
     for execution in policy_executions:
-        if (
-            execution.execution_status == "SUCCESSFUL"
-            and execution.policy_type == "DATA_QUALITY"
-        ):
+        if execution.execution_status == "SUCCESSFUL":
             try:
                 progress.update(
                     task_id,
-                    description=f"Processing DQ execution {processed_count + 1}...",
+                    description=f"Processing {execution.policy_type} execution {processed_count + 1}...",
                 )
 
-                endpoint = f"/catalog-server/api/rules/data-quality/executions/{execution.execution_id}"
+                # Build endpoint based on policy type
+                if execution.policy_type == "DATA_QUALITY":
+                    endpoint = f"/catalog-server/api/rules/data-quality/executions/{execution.execution_id}"
+                elif execution.policy_type == "EQUALITY":
+                    endpoint = f"/catalog-server/api/rules/equality/executions/{execution.execution_id}"
+                elif execution.policy_type == "DATA_DRIFT":
+                    endpoint = f"/catalog-server/api/rules/data-drift/executions/{execution.execution_id}"
+                elif execution.policy_type == "PROFILE_ANOMALY":
+                    endpoint = f"/catalog-server/api/rules/profile-anomaly/executions/{execution.execution_id}"
+                elif execution.policy_type == "SCHEMA_DRIFT":
+                    endpoint = f"/catalog-server/api/rules/schema-drift/executions/{execution.execution_id}"
+                else:
+                    log_error(f"Unsupported policy type: {execution.policy_type}")
+                    continue
+
                 response = http_client.get(endpoint)
 
                 if not response.is_success:
@@ -219,7 +533,7 @@ def process_execution_details(
         processed_count += 1
         if processed_count % 25 == 0:
             progress.update(
-                task_id, description=f"Processed {processed_count} DQ executions..."
+                task_id, description=f"Processed {processed_count} executions..."
             )
 
     return execution_details
@@ -258,7 +572,7 @@ def process_policy_details(
     progress: Progress,
     task_id,
 ) -> list[PolicyDetail]:
-    """Process policy details for DQ policies.
+    """Process policy details for policies.
 
     Args:
         policy_executions: List of policy executions
@@ -280,62 +594,76 @@ def process_policy_details(
             unique_policies[key] = execution
 
     for execution in unique_policies.values():
-        if execution.policy_type == "DATA_QUALITY":
-            try:
-                progress.update(
-                    task_id,
-                    description=f"Processing policy details {processed_count + 1}...",
-                )
+        try:
+            progress.update(
+                task_id,
+                description=f"Processing {execution.policy_type} policy details {processed_count + 1}...",
+            )
 
+            # Build endpoint based on policy type
+            if execution.policy_type == "DATA_QUALITY":
                 endpoint = f"/catalog-server/api/rules/data-quality/{execution.policy_id}?version={execution.policy_version}"
-                response = http_client.get(endpoint)
+            elif execution.policy_type == "EQUALITY":
+                endpoint = f"/catalog-server/api/rules/equality/{execution.policy_id}?version={execution.policy_version}"
+            elif execution.policy_type == "DATA_DRIFT":
+                endpoint = f"/catalog-server/api/rules/data-drift/{execution.policy_id}?version={execution.policy_version}"
+            elif execution.policy_type == "PROFILE_ANOMALY":
+                endpoint = f"/catalog-server/api/rules/profile-anomaly/{execution.policy_id}?version={execution.policy_version}"
+            elif execution.policy_type == "SCHEMA_DRIFT":
+                endpoint = f"/catalog-server/api/rules/schema-drift/{execution.policy_id}?version={execution.policy_version}"
+            else:
+                log_error(f"Unsupported policy type: {execution.policy_type}")
+                continue
 
-                if not response.is_success:
-                    log_error(
-                        f"Failed to fetch policy details for {execution.policy_id}"
-                    )
-                    continue
+            response = http_client.get(endpoint)
 
-                policy_detail_data = response.json()
-                rule_data = safe_get(policy_detail_data, "rule", {})
-                backing_asset = safe_get(rule_data, "backingAsset", {})
-                table_asset_id = safe_get(backing_asset, "tableAssetId")
-
-                # Fetch table asset name
-                table_asset_name = (
-                    fetch_asset_name(table_asset_id, http_client)
-                    if table_asset_id
-                    else None
-                )
-
-                details_data = safe_get(policy_detail_data, "details", {})
-                for item in safe_get(details_data, "items", []):
-                    pde_value = next(
-                        (
-                            safe_get(label, "value")
-                            for label in safe_get(item, "labels", [])
-                            if safe_get(label, "key") == "PDE"
-                        ),
-                        None,
-                    )
-
-                    policy_detail = PolicyDetail(
-                        policy_name=execution.policy_name,
-                        policy_id=execution.policy_id,
-                        id=safe_get(item, "id", ""),
-                        rule_version=safe_get(item, "ruleVersion", 1),
-                        column_name=safe_get(item, "columnName"),
-                        pde_value=pde_value,
-                        table_asset_id=table_asset_id,
-                        table_asset_name=table_asset_name,
-                    )
-                    policy_details.append(policy_detail)
-
-            except Exception as e:
+            if not response.is_success:
                 log_error(
-                    f"Error processing policy details for {execution.policy_id}: {e}"
+                    f"Failed to fetch policy details for {execution.policy_id}"
                 )
                 continue
+
+            policy_detail_data = response.json()
+            rule_data = safe_get(policy_detail_data, "rule", {})
+            backing_asset = safe_get(rule_data, "backingAsset", {})
+            table_asset_id = safe_get(backing_asset, "tableAssetId")
+
+            # Fetch table asset name
+            table_asset_name = (
+                fetch_asset_name(table_asset_id, http_client)
+                if table_asset_id
+                else None
+            )
+
+            details_data = safe_get(policy_detail_data, "details", {})
+            for item in safe_get(details_data, "items", []):
+                pde_value = next(
+                    (
+                        safe_get(label, "value")
+                        for label in safe_get(item, "labels", [])
+                        if safe_get(label, "key") == "PDE"
+                    ),
+                    None,
+                )
+
+                policy_detail = PolicyDetail(
+                    policy_name=execution.policy_name,
+                    policy_id=execution.policy_id,
+                    policy_type=execution.policy_type,
+                    id=safe_get(item, "id", ""),
+                    rule_version=safe_get(item, "ruleVersion", 1),
+                    column_name=safe_get(item, "columnName"),
+                    pde_value=pde_value,
+                    table_asset_id=table_asset_id,
+                    table_asset_name=table_asset_name,
+                )
+                policy_details.append(policy_detail)
+
+        except Exception as e:
+            log_error(
+                f"Error processing policy details for {execution.policy_id}: {e}"
+            )
+            continue
 
         processed_count += 1
         if processed_count % 10 == 0:
@@ -389,7 +717,7 @@ def merge_execution_data(
                 end_ts=exec_detail.end_ts,
                 execution_date=convert_timestamp_to_datetime(exec_detail.end_ts),
                 execution_status="SUCCESSFUL",  # Only successful executions are processed
-                policy_type="DATA_QUALITY",  # Only DQ policies are processed
+                policy_type=policy_detail.policy_type,
             )
             merged_records.append(record)
 
@@ -508,7 +836,7 @@ class ExecutionMetricsService(TraceableMixin):
     def fetch_execution_metrics(
         self, start_ts_marker: int, progress: Progress, policy_types: list[str] = None
     ) -> list[ExecutionMetricsRecord]:
-        """Fetch and process execution metrics data.
+        """Fetch and process execution metrics data with parallel processing.
 
         Args:
             start_ts_marker: Timestamp marker for incremental processing
@@ -520,6 +848,7 @@ class ExecutionMetricsService(TraceableMixin):
         """
         if policy_types is None:
             policy_types = ["DATA_QUALITY", "EQUALITY"]
+            
         # Step 1: Fetch policy executions
         task1 = progress.add_task("Fetching policy executions...", total=None)
         self.trace("fetching_policy_executions", start_ts_marker=start_ts_marker)
@@ -538,10 +867,10 @@ class ExecutionMetricsService(TraceableMixin):
                 log_info("No new policy executions found")
                 return []
 
-            # Step 2: Fetch execution details
+            # Step 2: Fetch execution details in parallel
             task2 = progress.add_task("Fetching execution details...", total=None)
-            execution_details = process_execution_details(
-                policy_executions, self.http_client, progress, task2
+            execution_details = self._fetch_execution_details_parallel(
+                policy_executions, progress, task2
             )
             progress.update(
                 task2,
@@ -549,10 +878,10 @@ class ExecutionMetricsService(TraceableMixin):
                 completed=True,
             )
 
-            # Step 3: Fetch policy details
+            # Step 3: Fetch policy details in parallel
             task3 = progress.add_task("Fetching policy details...", total=None)
-            policy_details = process_policy_details(
-                policy_executions, self.http_client, progress, task3
+            policy_details = self._fetch_policy_details_parallel(
+                policy_executions, progress, task3
             )
             progress.update(
                 task3,
@@ -587,7 +916,7 @@ class ExecutionMetricsService(TraceableMixin):
     def _fetch_policy_executions(
         self, start_ts_marker: int, progress: Progress, task_id, policy_types: list[str]
     ) -> list[PolicyExecution]:
-        """Fetch policy executions from API with pagination.
+        """Fetch policy executions from API with parallel pagination.
 
         Args:
             start_ts_marker: Timestamp marker for incremental processing
@@ -598,59 +927,452 @@ class ExecutionMetricsService(TraceableMixin):
         Returns:
             List of PolicyExecution models
         """
-        policy_executions = []
+        # Create a thread-safe data collector
+        data_collector = ThreadSafeDataCollector()
+        
+        # First, let's determine how many pages we need to fetch
+        # We'll start with a small batch to estimate the total
+        initial_pages = 3
+        max_workers = min(initial_pages, 10)  # Limit concurrent workers
+        
+        # Create progress tasks for parallel fetching
+        progress_tasks = {}
+        for i in range(max_workers):
+            task_name = f"fetch_page_{i}"
+            progress_tasks[task_name] = progress.add_task(
+                f"[cyan]Thread {i+1}: Waiting...",
+                total=None,
+                columns=[
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}")
+                ]
+            )
+        
+        # Track which worker is available
+        available_workers = list(range(max_workers))
+        worker_lock = threading.Lock()
+        
+        def get_available_worker():
+            """Get an available worker ID in a thread-safe manner."""
+            with worker_lock:
+                if available_workers:
+                    return available_workers.pop(0)
+                return None
+        
+        def release_worker(worker_id):
+            """Release a worker ID back to the pool."""
+            with worker_lock:
+                available_workers.append(worker_id)
+        
+        # Fetch initial pages in parallel
         page = 0
-        exec_count = 100
-        stop_loop = False
-
-        while not stop_loop:
-            progress.update(
-                task_id, description=f"Fetching executions page {page + 1}..."
-            )
-
-            rule_types_param = ",".join(policy_types)
-            endpoint = (
-                f"/catalog-server/api/rules/executions"
-                f"?page={page}&size={exec_count}&sortBy=execution.startedAt:DESC"
-                "&executionStatus=SUCCESSFUL,ERRORED,ABORTED,WARNING"
-                f"&ruleType={rule_types_param}"
-            )
-
-            try:
-                response = self.http_client.get(endpoint)
-                if not response.is_success:
-                    raise HTTPError(
-                        f"Failed to fetch executions page {page}: HTTP {response.status_code}"
-                    )
-
-                exec_data = response.json()
-                executions = safe_get(exec_data, "executions", [])
-
-                if not executions:
-                    break
-
-                page_executions = process_policy_executions(exec_data, start_ts_marker)
-
-                # Check if we've reached the timestamp marker
-                for execution in executions:
-                    ex = safe_get(execution, "execution", {})
-                    start_ts = safe_get(ex, "startedAt")
-                    if start_ts is not None and start_ts <= start_ts_marker:
-                        stop_loop = True
+        stop_fetching = False
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            while not stop_fetching and page < 50:  # Safety limit
+                # Submit tasks for parallel execution
+                futures = []
+                
+                for _ in range(max_workers):
+                    if stop_fetching:
                         break
-
-                policy_executions.extend(page_executions)
-                page += 1
-
-                self.trace(
-                    "fetched_executions_page",
-                    page=page,
-                    executions_on_page=len(executions),
-                    processed_executions=len(page_executions),
-                )
-
-            except Exception as e:
-                log_error(f"Error fetching executions page {page}: {e}")
-                break
-
+                        
+                    worker_id = get_available_worker()
+                    if worker_id is None:
+                        break
+                    
+                    task_name = f"fetch_page_{worker_id}"
+                    task_progress_id = progress_tasks[task_name]
+                    
+                    future = executor.submit(
+                        fetch_execution_page,
+                        page,
+                        100,  # exec_count
+                        policy_types,
+                        self.http_client,
+                        progress,
+                        task_progress_id
+                    )
+                    futures.append((future, worker_id, page))
+                    page += 1
+                
+                # Wait for all submitted tasks to complete
+                for future, worker_id, page_num in futures:
+                    try:
+                        result_page, page_executions, should_stop = future.result(timeout=30)
+                        
+                        if should_stop:
+                            stop_fetching = True
+                        
+                        if page_executions:
+                            # Filter by timestamp marker
+                            filtered_executions = [
+                                exec for exec in page_executions
+                                if exec.start_ts is None or exec.start_ts > start_ts_marker
+                            ]
+                            
+                            if filtered_executions:
+                                data_collector.extend(filtered_executions)
+                            
+                            # Check if we've reached the timestamp marker
+                            if any(exec.start_ts is not None and exec.start_ts <= start_ts_marker 
+                                   for exec in page_executions):
+                                stop_fetching = True
+                        
+                        # Update progress
+                        task_name = f"fetch_page_{worker_id}"
+                        task_progress_id = progress_tasks[task_name]
+                        progress.update(
+                            task_progress_id,
+                            description=f"Thread {worker_id+1}: Page {page_num+1} complete",
+                            completed=True
+                        )
+                        
+                    except Exception as e:
+                        log_error(f"Error processing page {page_num}: {e}")
+                        task_name = f"fetch_page_{worker_id}"
+                        task_progress_id = progress_tasks[task_name]
+                        progress.update(
+                            task_progress_id,
+                            description=f"Thread {worker_id+1}: Error on page {page_num+1}",
+                            completed=True
+                        )
+                    finally:
+                        release_worker(worker_id)
+                
+                # If we didn't get any data, stop
+                if not futures:
+                    break
+        
+        # Clean up progress tasks
+        for task_id in progress_tasks.values():
+            progress.remove_task(task_id)
+        
+        policy_executions = data_collector.get_all()
+        
+        self.trace(
+            "fetched_executions_parallel",
+            total_executions=len(policy_executions),
+            pages_processed=page
+        )
+        
         return policy_executions
+
+    @trace_method("fetch_execution_details_parallel", "execution_metrics_service")
+    def _fetch_execution_details_parallel(
+        self, policy_executions: list[PolicyExecution], progress: Progress, task_id
+    ) -> list[ExecutionDetail]:
+        """Fetch execution details in parallel.
+
+        Args:
+            policy_executions: List of policy executions
+            progress: Progress tracker
+            task_id: Progress task ID
+
+        Returns:
+            List of ExecutionDetail models
+        """
+        # Filter to only successful executions
+        successful_executions = [
+            exec for exec in policy_executions 
+            if exec.execution_status == "SUCCESSFUL"
+        ]
+        
+        if not successful_executions:
+            return []
+        
+        # Create thread-safe data collector
+        data_collector = ThreadSafeDataCollector()
+        
+        # Determine number of workers (limit to avoid overwhelming the API)
+        max_workers = min(len(successful_executions), 10)
+        
+        # Create progress tasks for parallel processing
+        progress_tasks = {}
+        for i in range(max_workers):
+            task_name = f"exec_details_{i}"
+            progress_tasks[task_name] = progress.add_task(
+                f"[green]Exec Thread {i+1}: Waiting...",
+                total=None,
+                columns=[
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}")
+                ]
+            )
+        
+        # Track which worker is available
+        available_workers = list(range(max_workers))
+        worker_lock = threading.Lock()
+        
+        def get_available_worker():
+            """Get an available worker ID in a thread-safe manner."""
+            with worker_lock:
+                if available_workers:
+                    return available_workers.pop(0)
+                return None
+        
+        def release_worker(worker_id):
+            """Release a worker ID back to the pool."""
+            with worker_lock:
+                available_workers.append(worker_id)
+        
+        # Process executions in parallel
+        execution_index = 0
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            
+            # Submit initial batch of tasks
+            while execution_index < len(successful_executions):
+                worker_id = get_available_worker()
+                if worker_id is None:
+                    break
+                
+                execution = successful_executions[execution_index]
+                task_name = f"exec_details_{worker_id}"
+                task_progress_id = progress_tasks[task_name]
+                
+                future = executor.submit(
+                    process_execution_details_parallel,
+                    execution,
+                    self.http_client,
+                    progress,
+                    task_progress_id
+                )
+                futures.append((future, worker_id, execution_index))
+                execution_index += 1
+            
+            # Process completed tasks and submit new ones
+            while futures or execution_index < len(successful_executions):
+                # Wait for at least one task to complete
+                if futures:
+                    # Wait for any future to complete
+                    done_futures, not_done = [], []
+                    for future, worker_id, exec_idx in futures:
+                        if future.done():
+                            done_futures.append((future, worker_id, exec_idx))
+                        else:
+                            not_done.append((future, worker_id, exec_idx))
+                    
+                    futures = not_done
+                    
+                    for future, worker_id, exec_idx in done_futures:
+                        try:
+                            execution_details = future.result(timeout=30)
+                            data_collector.extend(execution_details)
+                            
+                            # Update progress
+                            task_name = f"exec_details_{worker_id}"
+                            task_progress_id = progress_tasks[task_name]
+                            progress.update(
+                                task_progress_id,
+                                description=f"Exec Thread {worker_id+1}: {len(execution_details)} details",
+                                completed=True
+                            )
+                            
+                        except Exception as e:
+                            log_error(f"Error processing execution details: {e}")
+                            task_name = f"exec_details_{worker_id}"
+                            task_progress_id = progress_tasks[task_name]
+                            progress.update(
+                                task_progress_id,
+                                description=f"Exec Thread {worker_id+1}: Error",
+                                completed=True
+                            )
+                        finally:
+                            release_worker(worker_id)
+                
+                # Submit new tasks if we have more executions to process
+                while execution_index < len(successful_executions):
+                    worker_id = get_available_worker()
+                    if worker_id is None:
+                        break
+                    
+                    execution = successful_executions[execution_index]
+                    task_name = f"exec_details_{worker_id}"
+                    task_progress_id = progress_tasks[task_name]
+                    
+                    future = executor.submit(
+                        process_execution_details_parallel,
+                        execution,
+                        self.http_client,
+                        progress,
+                        task_progress_id
+                    )
+                    futures.append((future, worker_id, execution_index))
+                    execution_index += 1
+        
+        # Clean up progress tasks
+        for task_id in progress_tasks.values():
+            progress.remove_task(task_id)
+        
+        execution_details = data_collector.get_all()
+        
+        self.trace(
+            "execution_details_parallel_completed",
+            total_details=len(execution_details),
+            executions_processed=len(successful_executions)
+        )
+        
+        return execution_details
+
+    @trace_method("fetch_policy_details_parallel", "execution_metrics_service")
+    def _fetch_policy_details_parallel(
+        self, policy_executions: list[PolicyExecution], progress: Progress, task_id
+    ) -> list[PolicyDetail]:
+        """Fetch policy details in parallel.
+
+        Args:
+            policy_executions: List of policy executions
+            progress: Progress tracker
+            task_id: Progress task ID
+
+        Returns:
+            List of PolicyDetail models
+        """
+        # Get unique policies (deduplicate by policy_id and policy_version)
+        unique_policies = {}
+        for execution in policy_executions:
+            key = (execution.policy_id, execution.policy_version)
+            if key not in unique_policies:
+                unique_policies[key] = execution
+        
+        unique_executions = list(unique_policies.values())
+        
+        if not unique_executions:
+            return []
+        
+        # Create thread-safe data collector
+        data_collector = ThreadSafeDataCollector()
+        
+        # Determine number of workers (limit to avoid overwhelming the API)
+        max_workers = min(len(unique_executions), 8)  # Slightly fewer workers for policy details
+        
+        # Create progress tasks for parallel processing
+        progress_tasks = {}
+        for i in range(max_workers):
+            task_name = f"policy_details_{i}"
+            progress_tasks[task_name] = progress.add_task(
+                f"[yellow]Policy Thread {i+1}: Waiting...",
+                total=None,
+                columns=[
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}")
+                ]
+            )
+        
+        # Track which worker is available
+        available_workers = list(range(max_workers))
+        worker_lock = threading.Lock()
+        
+        def get_available_worker():
+            """Get an available worker ID in a thread-safe manner."""
+            with worker_lock:
+                if available_workers:
+                    return available_workers.pop(0)
+                return None
+        
+        def release_worker(worker_id):
+            """Release a worker ID back to the pool."""
+            with worker_lock:
+                available_workers.append(worker_id)
+        
+        # Process policies in parallel
+        policy_index = 0
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            
+            # Submit initial batch of tasks
+            while policy_index < len(unique_executions):
+                worker_id = get_available_worker()
+                if worker_id is None:
+                    break
+                
+                execution = unique_executions[policy_index]
+                task_name = f"policy_details_{worker_id}"
+                task_progress_id = progress_tasks[task_name]
+                
+                future = executor.submit(
+                    process_policy_details_parallel,
+                    execution,
+                    self.http_client,
+                    progress,
+                    task_progress_id
+                )
+                futures.append((future, worker_id, policy_index))
+                policy_index += 1
+            
+            # Process completed tasks and submit new ones
+            while futures or policy_index < len(unique_executions):
+                # Wait for at least one task to complete
+                if futures:
+                    # Wait for any future to complete
+                    done_futures, not_done = [], []
+                    for future, worker_id, policy_idx in futures:
+                        if future.done():
+                            done_futures.append((future, worker_id, policy_idx))
+                        else:
+                            not_done.append((future, worker_id, policy_idx))
+                    
+                    futures = not_done
+                    
+                    for future, worker_id, policy_idx in done_futures:
+                        try:
+                            policy_details = future.result(timeout=30)
+                            data_collector.extend(policy_details)
+                            
+                            # Update progress
+                            task_name = f"policy_details_{worker_id}"
+                            task_progress_id = progress_tasks[task_name]
+                            progress.update(
+                                task_progress_id,
+                                description=f"Policy Thread {worker_id+1}: {len(policy_details)} details",
+                                completed=True
+                            )
+                            
+                        except Exception as e:
+                            log_error(f"Error processing policy details: {e}")
+                            task_name = f"policy_details_{worker_id}"
+                            task_progress_id = progress_tasks[task_name]
+                            progress.update(
+                                task_progress_id,
+                                description=f"Policy Thread {worker_id+1}: Error",
+                                completed=True
+                            )
+                        finally:
+                            release_worker(worker_id)
+                
+                # Submit new tasks if we have more policies to process
+                while policy_index < len(unique_executions):
+                    worker_id = get_available_worker()
+                    if worker_id is None:
+                        break
+                    
+                    execution = unique_executions[policy_index]
+                    task_name = f"policy_details_{worker_id}"
+                    task_progress_id = progress_tasks[task_name]
+                    
+                    future = executor.submit(
+                        process_policy_details_parallel,
+                        execution,
+                        self.http_client,
+                        progress,
+                        task_progress_id
+                    )
+                    futures.append((future, worker_id, policy_index))
+                    policy_index += 1
+        
+        # Clean up progress tasks
+        for task_id in progress_tasks.values():
+            progress.remove_task(task_id)
+        
+        policy_details = data_collector.get_all()
+        
+        self.trace(
+            "policy_details_parallel_completed",
+            total_details=len(policy_details),
+            policies_processed=len(unique_executions)
+        )
+        
+        return policy_details

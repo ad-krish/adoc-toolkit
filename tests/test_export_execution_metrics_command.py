@@ -26,6 +26,11 @@ from adoc_toolkit.cli.commands.execution_metrics_service import (
     convert_timestamp_to_datetime,
     calculate_failed_rows,
     process_policy_executions,
+    merge_execution_data,
+    ThreadSafeDataCollector,
+    fetch_execution_page,
+    process_execution_details_parallel,
+    process_policy_details_parallel,
 )
 from adoc_toolkit.models import (
     ExecutionMetricsArgs,
@@ -478,17 +483,74 @@ class TestServiceUtilities:
                 {
                     "execution": {
                         "ruleName": "Other Policy",
-                        "ruleType": "SCHEMA_DRIFT",  # Not included
+                        "ruleType": "SCHEMA_DRIFT",  # Not included in default types
                         "startedAt": 1703505600000,
                     }
                 },
             ]
         }
 
+        # Test with default policy types (all supported types) - both should be included
         result = process_policy_executions(executions_data, 0)
+        assert len(result) == 2
+        policy_names = [exec.policy_name for exec in result]
+        assert "DQ Policy" in policy_names
+        assert "Other Policy" in policy_names
 
+        # Test with specific policy types including SCHEMA_DRIFT
+        result = process_policy_executions(executions_data, 0, ["DATA_QUALITY", "SCHEMA_DRIFT"])
+        assert len(result) == 2
+        policy_names = [exec.policy_name for exec in result]
+        assert "DQ Policy" in policy_names
+        assert "Other Policy" in policy_names
+
+    def test_process_policy_executions_with_policy_types_parameter(self):
+        """Test processing policy executions with policy types parameter."""
+        executions_data = {
+            "executions": [
+                {
+                    "execution": {
+                        "ruleName": "DQ Policy",
+                        "ruleType": "DATA_QUALITY",
+                        "startedAt": 1703505600000,
+                    }
+                },
+                {
+                    "execution": {
+                        "ruleName": "Equality Policy",
+                        "ruleType": "EQUALITY",
+                        "startedAt": 1703505600000,
+                    }
+                },
+                {
+                    "execution": {
+                        "ruleName": "Drift Policy",
+                        "ruleType": "DATA_DRIFT",
+                        "startedAt": 1703505600000,
+                    }
+                },
+            ]
+        }
+
+        # Test with only DATA_QUALITY
+        result = process_policy_executions(executions_data, 0, ["DATA_QUALITY"])
         assert len(result) == 1
         assert result[0].policy_name == "DQ Policy"
+
+        # Test with DATA_QUALITY and EQUALITY
+        result = process_policy_executions(executions_data, 0, ["DATA_QUALITY", "EQUALITY"])
+        assert len(result) == 2
+        policy_names = [exec.policy_name for exec in result]
+        assert "DQ Policy" in policy_names
+        assert "Equality Policy" in policy_names
+
+        # Test with all supported types
+        result = process_policy_executions(executions_data, 0, ["DATA_QUALITY", "EQUALITY", "DATA_DRIFT"])
+        assert len(result) == 3
+        policy_names = [exec.policy_name for exec in result]
+        assert "DQ Policy" in policy_names
+        assert "Equality Policy" in policy_names
+        assert "Drift Policy" in policy_names
 
 
 class TestPydanticModels:
@@ -692,12 +754,14 @@ class TestPydanticModels:
         detail = PolicyDetail(
             policy_name="Test Policy",
             policy_id=70381,  # Integer ID
+            policy_type="DATA_QUALITY",
             id=238228,  # Integer ID
             rule_version=1,
             table_asset_id=12345,  # Integer ID (optional)
         )
 
         assert detail.policy_id == "70381"
+        assert detail.policy_type == "DATA_QUALITY"
         assert detail.id == "238228"
         assert detail.table_asset_id == "12345"
 
@@ -706,14 +770,458 @@ class TestPydanticModels:
         detail = PolicyDetail(
             policy_name="Test Policy",
             policy_id="policy-123",
+            policy_type="EQUALITY",
             id="item-456",
             rule_version=1,
             table_asset_id=None,  # None value for optional field
         )
 
         assert detail.policy_id == "policy-123"
+        assert detail.policy_type == "EQUALITY"
         assert detail.id == "item-456"
         assert detail.table_asset_id is None
+
+    def test_policy_detail_different_policy_types(self):
+        """Test PolicyDetail with different policy types."""
+        # Test DATA_QUALITY
+        detail_dq = PolicyDetail(
+            policy_name="DQ Policy",
+            policy_id="policy-123",
+            policy_type="DATA_QUALITY",
+            id="item-456",
+            rule_version=1,
+        )
+        assert detail_dq.policy_type == "DATA_QUALITY"
+
+        # Test EQUALITY
+        detail_eq = PolicyDetail(
+            policy_name="Equality Policy",
+            policy_id="policy-456",
+            policy_type="EQUALITY",
+            id="item-789",
+            rule_version=1,
+        )
+        assert detail_eq.policy_type == "EQUALITY"
+
+        # Test DATA_DRIFT
+        detail_drift = PolicyDetail(
+            policy_name="Drift Policy",
+            policy_id="policy-789",
+            policy_type="DATA_DRIFT",
+            id="item-012",
+            rule_version=1,
+        )
+        assert detail_drift.policy_type == "DATA_DRIFT"
+
+
+class TestThreadSafeDataCollector:
+    """Test ThreadSafeDataCollector class."""
+
+    def test_thread_safe_data_collector_init(self):
+        """Test ThreadSafeDataCollector initialization."""
+        collector = ThreadSafeDataCollector()
+        assert collector.get_all() == []
+
+    def test_thread_safe_data_collector_add(self):
+        """Test adding items to ThreadSafeDataCollector."""
+        collector = ThreadSafeDataCollector()
+        collector.add("item1")
+        collector.add("item2")
+        
+        result = collector.get_all()
+        assert len(result) == 2
+        assert "item1" in result
+        assert "item2" in result
+
+    def test_thread_safe_data_collector_extend(self):
+        """Test extending ThreadSafeDataCollector with multiple items."""
+        collector = ThreadSafeDataCollector()
+        collector.extend(["item1", "item2", "item3"])
+        
+        result = collector.get_all()
+        assert len(result) == 3
+        assert "item1" in result
+        assert "item2" in result
+        assert "item3" in result
+
+    def test_thread_safe_data_collector_clear(self):
+        """Test clearing ThreadSafeDataCollector."""
+        collector = ThreadSafeDataCollector()
+        collector.add("item1")
+        collector.add("item2")
+        
+        assert len(collector.get_all()) == 2
+        
+        collector.clear()
+        assert len(collector.get_all()) == 0
+
+    def test_thread_safe_data_collector_get_all_returns_copy(self):
+        """Test that get_all returns a copy of the data."""
+        collector = ThreadSafeDataCollector()
+        collector.add("item1")
+        
+        result1 = collector.get_all()
+        result2 = collector.get_all()
+        
+        # Modifying one result shouldn't affect the other
+        result1.append("item2")
+        assert len(result1) == 2
+        assert len(result2) == 1
+        assert len(collector.get_all()) == 1
+
+
+class TestParallelProcessingFunctions:
+    """Test parallel processing functions."""
+
+    def test_fetch_execution_page_success(self):
+        """Test successful execution page fetching."""
+        mock_client = Mock()
+        mock_response = Mock()
+        mock_response.is_success = True
+        mock_response.json.return_value = {
+            "executions": [
+                {
+                    "execution": {
+                        "ruleName": "Test Policy",
+                        "ruleVersion": 1,
+                        "ruleId": "policy-123",
+                        "ruleType": "DATA_QUALITY",
+                        "id": "exec-456",
+                        "executionStatus": "SUCCESSFUL",
+                        "startedAt": 1703505600000,
+                    },
+                    "result": {"qualityScore": {"value": 85.5}},
+                }
+            ]
+        }
+        mock_client.get.return_value = mock_response
+        
+        mock_progress = Mock()
+        mock_task_id = "test_task"
+        
+        page, executions, should_stop = fetch_execution_page(
+            0, 100, ["DATA_QUALITY"], mock_client, mock_progress, mock_task_id
+        )
+        
+        assert page == 0
+        assert len(executions) == 1
+        assert should_stop is False
+        assert executions[0].policy_name == "Test Policy"
+
+    def test_fetch_execution_page_no_data(self):
+        """Test execution page fetching with no data."""
+        mock_client = Mock()
+        mock_response = Mock()
+        mock_response.is_success = True
+        mock_response.json.return_value = {"executions": []}
+        mock_client.get.return_value = mock_response
+        
+        mock_progress = Mock()
+        mock_task_id = "test_task"
+        
+        page, executions, should_stop = fetch_execution_page(
+            0, 100, ["DATA_QUALITY"], mock_client, mock_progress, mock_task_id
+        )
+        
+        assert page == 0
+        assert len(executions) == 0
+        assert should_stop is True
+
+    def test_fetch_execution_page_http_error(self):
+        """Test execution page fetching with HTTP error."""
+        mock_client = Mock()
+        mock_response = Mock()
+        mock_response.is_success = False
+        mock_response.status_code = 500
+        mock_client.get.return_value = mock_response
+        
+        mock_progress = Mock()
+        mock_task_id = "test_task"
+        
+        page, executions, should_stop = fetch_execution_page(
+            0, 100, ["DATA_QUALITY"], mock_client, mock_progress, mock_task_id
+        )
+        
+        assert page == 0
+        assert len(executions) == 0
+        assert should_stop is False
+
+    def test_process_execution_details_parallel_success(self):
+        """Test successful parallel execution details processing."""
+        execution = PolicyExecution(
+            policy_name="Test Policy",
+            policy_version=1,
+            policy_id="policy-123",
+            policy_type="DATA_QUALITY",
+            execution_id="exec-456",
+            execution_status="SUCCESSFUL",
+            end_ts=1703505700000,
+        )
+        
+        mock_client = Mock()
+        mock_response = Mock()
+        mock_response.is_success = True
+        mock_response.json.return_value = {
+            "items": [
+                {
+                    "item": {
+                        "id": "item-123",
+                        "columnName": "test_column",
+                        "ruleVersion": 1,
+                    },
+                    "rowsScanned": 1000,
+                    "result": "0.95",
+                    "thresholdConfig": {
+                        "strategy": "ABSOLUTE",
+                        "lower": 0.8,
+                        "upper": 1.0,
+                    },
+                }
+            ]
+        }
+        mock_client.get.return_value = mock_response
+        
+        mock_progress = Mock()
+        mock_task_id = "test_task"
+        
+        result = process_execution_details_parallel(
+            execution, mock_client, mock_progress, mock_task_id
+        )
+        
+        assert len(result) == 1
+        assert result[0].item_id == "item-123"
+        assert result[0].item_column_name == "test_column"
+
+    def test_process_execution_details_parallel_unsuccessful_execution(self):
+        """Test parallel execution details processing for unsuccessful execution."""
+        execution = PolicyExecution(
+            policy_name="Test Policy",
+            policy_version=1,
+            policy_id="policy-123",
+            policy_type="DATA_QUALITY",
+            execution_id="exec-456",
+            execution_status="ERRORED",  # Not successful
+            end_ts=1703505700000,
+        )
+        
+        mock_client = Mock()
+        mock_progress = Mock()
+        mock_task_id = "test_task"
+        
+        result = process_execution_details_parallel(
+            execution, mock_client, mock_progress, mock_task_id
+        )
+        
+        assert len(result) == 0  # Should return empty list for unsuccessful execution
+
+    def test_process_policy_details_parallel_success(self):
+        """Test successful parallel policy details processing."""
+        execution = PolicyExecution(
+            policy_name="Test Policy",
+            policy_version=1,
+            policy_id="policy-123",
+            policy_type="DATA_QUALITY",
+            execution_id="exec-456",
+            execution_status="SUCCESSFUL",
+        )
+        
+        mock_client = Mock()
+        mock_response = Mock()
+        mock_response.is_success = True
+        mock_response.json.return_value = {
+            "rule": {
+                "backingAsset": {
+                    "tableAssetId": "asset-123"
+                }
+            },
+            "details": {
+                "items": [
+                    {
+                        "id": "item-123",
+                        "ruleVersion": 1,
+                        "columnName": "test_column",
+                        "labels": [
+                            {"key": "PDE", "value": "test_pde"}
+                        ]
+                    }
+                ]
+            }
+        }
+        mock_client.get.return_value = mock_response
+        
+        mock_progress = Mock()
+        mock_task_id = "test_task"
+        
+        result = process_policy_details_parallel(
+            execution, mock_client, mock_progress, mock_task_id
+        )
+        
+        assert len(result) == 1
+        assert result[0].id == "item-123"
+        assert result[0].policy_type == "DATA_QUALITY"
+        assert result[0].column_name == "test_column"
+
+
+class TestMergeExecutionData:
+    """Test merge_execution_data function."""
+
+    def test_merge_execution_data_basic(self):
+        """Test basic merging of execution details with policy details."""
+        execution_details = [
+            ExecutionDetail(
+                item_id="item-123",
+                exec_id="exec-456",
+                item_ver=1,
+                result="0.95",
+                rows_scanned=1000,
+                rows_failed=50,
+                end_ts=1703505600000,
+            )
+        ]
+
+        policy_details = [
+            PolicyDetail(
+                policy_name="Test Policy",
+                policy_id="policy-123",
+                policy_type="DATA_QUALITY",
+                id="item-123",
+                rule_version=1,
+                table_asset_name="test_table",
+            )
+        ]
+
+        result = merge_execution_data(execution_details, policy_details)
+
+        assert len(result) == 1
+        record = result[0]
+        assert record.policy_name == "Test Policy"
+        assert record.policy_id == "policy-123"
+        assert record.policy_type == "DATA_QUALITY"  # Should use policy_type from PolicyDetail
+        assert record.exec_id == "exec-456"
+        assert record.table_asset_name == "test_table"
+        assert record.execution_status == "SUCCESSFUL"
+
+    def test_merge_execution_data_different_policy_types(self):
+        """Test merging with different policy types."""
+        execution_details = [
+            ExecutionDetail(
+                item_id="item-123",
+                exec_id="exec-456",
+                item_ver=1,
+                result="0.95",
+                rows_scanned=1000,
+                rows_failed=50,
+                end_ts=1703505600000,
+            ),
+            ExecutionDetail(
+                item_id="item-456",
+                exec_id="exec-789",
+                item_ver=1,
+                result="0.98",
+                rows_scanned=500,
+                rows_failed=10,
+                end_ts=1703505700000,
+            ),
+        ]
+
+        policy_details = [
+            PolicyDetail(
+                policy_name="DQ Policy",
+                policy_id="policy-123",
+                policy_type="DATA_QUALITY",
+                id="item-123",
+                rule_version=1,
+                table_asset_name="dq_table",
+            ),
+            PolicyDetail(
+                policy_name="Equality Policy",
+                policy_id="policy-456",
+                policy_type="EQUALITY",
+                id="item-456",
+                rule_version=1,
+                table_asset_name="equality_table",
+            ),
+        ]
+
+        result = merge_execution_data(execution_details, policy_details)
+
+        assert len(result) == 2
+        
+        # Check first record (DATA_QUALITY)
+        record1 = result[0]
+        assert record1.policy_type == "DATA_QUALITY"
+        assert record1.policy_name == "DQ Policy"
+        
+        # Check second record (EQUALITY)
+        record2 = result[1]
+        assert record2.policy_type == "EQUALITY"
+        assert record2.policy_name == "Equality Policy"
+
+    def test_merge_execution_data_no_matching_policy_detail(self):
+        """Test merging when no matching policy detail is found."""
+        execution_details = [
+            ExecutionDetail(
+                item_id="item-123",
+                exec_id="exec-456",
+                item_ver=1,
+                result="0.95",
+                rows_scanned=1000,
+                rows_failed=50,
+                end_ts=1703505600000,
+            )
+        ]
+
+        policy_details = [
+            PolicyDetail(
+                policy_name="Different Policy",
+                policy_id="policy-456",
+                policy_type="DATA_QUALITY",
+                id="item-456",  # Different ID
+                rule_version=1,
+                table_asset_name="different_table",
+            )
+        ]
+
+        result = merge_execution_data(execution_details, policy_details)
+
+        # Should not create any records when no matching policy detail is found
+        assert len(result) == 0
+
+    def test_merge_execution_data_all_policy_types(self):
+        """Test merging with all supported policy types."""
+        execution_details = [
+            ExecutionDetail(
+                item_id=f"item-{i}",
+                exec_id=f"exec-{i}",
+                item_ver=1,
+                result="0.95",
+                rows_scanned=1000,
+                rows_failed=50,
+                end_ts=1703505600000,
+            )
+            for i in range(1, 6)
+        ]
+
+        policy_types = ["DATA_QUALITY", "EQUALITY", "DATA_DRIFT", "PROFILE_ANOMALY", "SCHEMA_DRIFT"]
+        policy_details = [
+            PolicyDetail(
+                policy_name=f"Policy {i}",
+                policy_id=f"policy-{i}",
+                policy_type=policy_types[i-1],
+                id=f"item-{i}",
+                rule_version=1,
+                table_asset_name=f"table_{i}",
+            )
+            for i in range(1, 6)
+        ]
+
+        result = merge_execution_data(execution_details, policy_details)
+
+        assert len(result) == 5
+        
+        # Check that all policy types are correctly set
+        result_policy_types = [record.policy_type for record in result]
+        assert set(result_policy_types) == set(policy_types)
 
 
 class TestExecutionMetricsService:
@@ -855,6 +1363,110 @@ class TestExecutionMetricsService:
             assert result.total_records_processed == 0  # Reset to 0 for backload
         finally:
             tmp_path.unlink(missing_ok=True)
+
+    @patch("adoc_toolkit.cli.commands.execution_metrics_service.process_execution_details")
+    @patch("adoc_toolkit.cli.commands.execution_metrics_service.process_policy_details")
+    @patch("adoc_toolkit.cli.commands.execution_metrics_service.merge_execution_data")
+    def test_fetch_execution_metrics_with_policy_types(self, mock_merge, mock_policy_details, mock_exec_details):
+        """Test fetch_execution_metrics with different policy types."""
+        # Mock the service methods
+        mock_exec_details.return_value = [
+            ExecutionDetail(
+                item_id="item-123",
+                exec_id="exec-456",
+                item_ver=1,
+                result="0.95",
+                rows_scanned=1000,
+                rows_failed=50,
+                end_ts=1703505600000,
+            )
+        ]
+        mock_policy_details.return_value = [
+            PolicyDetail(
+                policy_name="Test Policy",
+                policy_id="policy-123",
+                policy_type="DATA_QUALITY",
+                id="item-123",
+                rule_version=1,
+                table_asset_name="test_table",
+            )
+        ]
+        mock_merge.return_value = [
+            ExecutionMetricsRecord(
+                policy_name="Test Policy",
+                policy_id="policy-123",
+                rule_version=1,
+                exec_id="exec-456",
+                item_id="item-123",
+                execution_status="SUCCESSFUL",
+                policy_type="DATA_QUALITY",
+            )
+        ]
+
+        # Mock HTTP client
+        mock_client = Mock()
+        service = ExecutionMetricsService(mock_client)
+
+        # Mock progress
+        mock_progress = Mock()
+        mock_task = Mock()
+        mock_progress.add_task.return_value = mock_task
+
+        # Mock the _fetch_policy_executions method to return test data
+        with patch.object(service, '_fetch_policy_executions') as mock_fetch:
+            mock_fetch.return_value = [
+                PolicyExecution(
+                    policy_name="Test Policy",
+                    policy_version=1,
+                    policy_id="policy-123",
+                    policy_type="DATA_QUALITY",
+                    execution_id="exec-456",
+                    execution_status="SUCCESSFUL",
+                )
+            ]
+
+            # Test with specific policy types
+            result = service.fetch_execution_metrics(
+                start_ts_marker=0,
+                progress=mock_progress,
+                policy_types=["DATA_QUALITY", "EQUALITY"]
+            )
+
+            # Verify that _fetch_policy_executions was called with the correct policy types
+            mock_fetch.assert_called_once()
+            call_args = mock_fetch.call_args
+            assert call_args[0][3] == ["DATA_QUALITY", "EQUALITY"]  # policy_types
+
+            assert len(result) == 1
+            assert result[0].policy_type == "DATA_QUALITY"
+
+    def test_fetch_execution_metrics_default_policy_types(self):
+        """Test fetch_execution_metrics with default policy types."""
+        # Mock HTTP client
+        mock_client = Mock()
+        service = ExecutionMetricsService(mock_client)
+
+        # Mock progress
+        mock_progress = Mock()
+        mock_task = Mock()
+        mock_progress.add_task.return_value = mock_task
+
+        # Mock the _fetch_policy_executions method
+        with patch.object(service, '_fetch_policy_executions') as mock_fetch:
+            mock_fetch.return_value = []
+            
+            # Test without specifying policy types (should use defaults)
+            result = service.fetch_execution_metrics(
+                start_ts_marker=0,
+                progress=mock_progress
+            )
+
+            # Verify that _fetch_policy_executions was called with default policy types
+            mock_fetch.assert_called_once()
+            call_args = mock_fetch.call_args
+            assert call_args[0][3] == ["DATA_QUALITY", "EQUALITY"]  # default policy types
+
+            assert result == []
 
 
 class TestExportExecutionMetricsCommand:

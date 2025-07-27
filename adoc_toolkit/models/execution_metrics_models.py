@@ -129,6 +129,7 @@ class PolicyDetail(BaseModel):
 
     policy_name: str = Field(description="Name of the policy")
     policy_id: str = Field(description="Policy identifier")
+    policy_type: str = Field(description="Type of policy")
     id: str = Field(description="Item identifier")
     rule_version: int = Field(description="Rule version")
     column_name: Optional[str] = Field(default=None, description="Column name")
