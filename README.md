@@ -47,6 +47,8 @@ bin\adoc-toolkit.bat
    ```bash
    ADOC > use <environment-name>
    ```
+   
+   > **📋 Environment Setup**: Before using the toolkit, you need to configure your ADOC environments. See the [Environment Setup Guide](docs/environment-setup.md) for detailed instructions on configuring `config/environments.yaml`.
 
 3. **Explore available commands**:
    ```bash
@@ -58,6 +60,8 @@ bin\adoc-toolkit.bat
 #### Environment Management
 - **`use <environment>`** - Switch to a different ADOC environment
 - **`show-env`** - Display current environment configuration
+
+> **📋 Environment Setup**: Configure your environments in `config/environments.yaml`. See the [Environment Setup Guide](docs/environment-setup.md) for detailed instructions.
 
 #### API Access
 - **`get <url> [params]`** - Make GET requests to ADOC API endpoints
@@ -272,5 +276,6 @@ Apache License 2.0 - see [LICENSE](LICENSE) file for details.
 ## 🆘 Support
 
 - **Documentation**: Check the `docs/` directory for detailed command documentation
+- **Environment Setup**: See the [Environment Setup Guide](docs/environment-setup.md) for configuring your ADOC environments
 - **Issues**: Report bugs and feature requests on GitHub
 - **Help**: Use `help` command in the interactive shell for command assistance
