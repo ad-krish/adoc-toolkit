@@ -21,62 +21,54 @@ class TestCustomModelOptions:
                     "value": {
                         "claude": [
                             "claude-3-5-sonnet-20241022",
-                            "claude-3-5-haiku-20241022"
+                            "claude-3-5-haiku-20241022",
                         ],
-                        "gemini": [
-                            "gemini-1.5-pro",
-                            "gemini-1.5-flash"
-                        ],
-                        "grok": [
-                            "grok-beta"
-                        ],
-                        "chatgpt": [
-                            "gpt-4o",
-                            "gpt-4o-mini"
-                        ]
+                        "gemini": ["gemini-1.5-pro", "gemini-1.5-flash"],
+                        "grok": ["grok-beta"],
+                        "chatgpt": ["gpt-4o", "gpt-4o-mini"],
                     },
                     "description": "Available models for each vendor (configurable)",
                     "type": "object",
                     "options": ["custom", "default"],
-                    "default": "default"
+                    "default": "default",
                 }
             }
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(custom_config, f)
             config_file = Path(f.name)
 
         try:
             # Reset config manager with custom config file
             config_manager = reset_config_manager(config_file)
-            
+
             # Get LLM config
             llm_config = config_manager._config.llm
-            
+
             # Test that custom model options are loaded
             assert llm_config.model_options is not None
-            
+
             # Test Claude models
             llm_config.vendor = LLMVendor.CLAUDE
             claude_models = llm_config.get_model_options()
             assert "claude-3-5-sonnet-20241022" in claude_models
             assert "claude-3-5-haiku-20241022" in claude_models
             assert len(claude_models) == 2  # Only custom models
-            
+
             # Test Gemini models
             llm_config.vendor = LLMVendor.GEMINI
             gemini_models = llm_config.get_model_options()
             assert "gemini-1.5-pro" in gemini_models
             assert "gemini-1.5-flash" in gemini_models
             assert len(gemini_models) == 2  # Only custom models
-            
+
             # Test Grok models
             llm_config.vendor = LLMVendor.GROK
             grok_models = llm_config.get_model_options()
             assert "grok-beta" in grok_models
             assert len(grok_models) == 1  # Only custom models
-            
+
             # Test ChatGPT models
             llm_config.vendor = LLMVendor.CHATGPT
             chatgpt_models = llm_config.get_model_options()
@@ -95,49 +87,45 @@ class TestCustomModelOptions:
             "llm": {
                 "model_options": {
                     "value": {
-                        "claude": [
-                            "claude-3-5-sonnet-20241022"
-                        ],
-                        "gemini": [
-                            "gemini-1.5-pro"
-                        ]
+                        "claude": ["claude-3-5-sonnet-20241022"],
+                        "gemini": ["gemini-1.5-pro"],
                         # Missing grok and chatgpt - should use defaults
                     },
                     "description": "Available models for each vendor (configurable)",
                     "type": "object",
                     "options": ["custom", "default"],
-                    "default": "default"
+                    "default": "default",
                 }
             }
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(partial_config, f)
             config_file = Path(f.name)
 
         try:
             # Reset config manager with partial config file
             config_manager = reset_config_manager(config_file)
-            
+
             # Get LLM config
             llm_config = config_manager._config.llm
-            
+
             # Test Claude (custom)
             llm_config.vendor = LLMVendor.CLAUDE
             claude_models = llm_config.get_model_options()
             assert claude_models == ["claude-3-5-sonnet-20241022"]
-            
+
             # Test Gemini (custom)
             llm_config.vendor = LLMVendor.GEMINI
             gemini_models = llm_config.get_model_options()
             assert gemini_models == ["gemini-1.5-pro"]
-            
+
             # Test Grok (should use defaults)
             llm_config.vendor = LLMVendor.GROK
             grok_models = llm_config.get_model_options()
             assert "grok-beta" in grok_models
             assert "grok-2" in grok_models
-            
+
             # Test ChatGPT (should use defaults)
             llm_config.vendor = LLMVendor.CHATGPT
             chatgpt_models = llm_config.get_model_options()
@@ -158,25 +146,25 @@ class TestCustomModelOptions:
                     "description": "LLM vendor to use for AI operations",
                     "type": "string",
                     "options": ["claude", "gemini", "grok", "chatgpt"],
-                    "default": "gemini"
+                    "default": "gemini",
                 }
             }
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(basic_config, f)
             config_file = Path(f.name)
 
         try:
             # Reset config manager with basic config file
             config_manager = reset_config_manager(config_file)
-            
+
             # Get LLM config
             llm_config = config_manager._config.llm
-            
+
             # Should use default model options
             assert llm_config.model_options is None
-            
+
             # Test that default options are returned
             llm_config.vendor = LLMVendor.CLAUDE
             claude_models = llm_config.get_model_options()
@@ -198,30 +186,30 @@ class TestCustomModelOptions:
                         "claude": ["claude-3-5-sonnet-20241022"],
                         "gemini": ["gemini-1.5-pro"],
                         "grok": ["grok-beta"],
-                        "chatgpt": ["gpt-4o"]
+                        "chatgpt": ["gpt-4o"],
                     },
                     "description": "Available models for each vendor (configurable)",
                     "type": "object",
                     "options": ["custom", "default"],
-                    "default": "default"
+                    "default": "default",
                 }
             }
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(custom_config, f)
             config_file = Path(f.name)
 
         try:
             # Reset config manager with custom config file
             config_manager = reset_config_manager(config_file)
-            
+
             # Get LLM config
             llm_config = config_manager._config.llm
-            
+
             # Test get_all_model_options
             all_options = llm_config.get_all_model_options()
-            
+
             # Should return custom model options
             assert all_options["claude"] == ["claude-3-5-sonnet-20241022"]
             assert all_options["gemini"] == ["gemini-1.5-pro"]
@@ -230,4 +218,4 @@ class TestCustomModelOptions:
 
         finally:
             # Clean up
-            config_file.unlink() 
+            config_file.unlink()

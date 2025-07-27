@@ -34,16 +34,17 @@ from .interactive import InteractiveProcessor
 def display_version() -> None:
     """
     Display version information - pure function.
-    
+
     This is a pure function that imports the version and displays it
     using Rich console formatting. It has no side effects beyond
     the display operation.
-    
+
     Example:
         >>> display_version()
         ADOC Toolkit version 0.1.0
     """
     from adoc_toolkit import __version__
+
     console = Console()
     console.print(f"ADOC Toolkit version {__version__}")
 
@@ -51,17 +52,17 @@ def display_version() -> None:
 def create_processor(config: Optional[str]) -> InteractiveProcessor:
     """
     Create an InteractiveProcessor instance - pure function.
-    
+
     This function creates and returns a new InteractiveProcessor instance
     with the specified configuration file. It's pure because it always
     returns the same result for the same input and has no side effects.
-    
+
     Args:
         config: Optional path to configuration file
-        
+
     Returns:
         InteractiveProcessor: A new processor instance
-        
+
     Example:
         >>> processor = create_processor("/path/to/config.json")
         >>> isinstance(processor, InteractiveProcessor)
@@ -73,14 +74,14 @@ def create_processor(config: Optional[str]) -> InteractiveProcessor:
 def run_processor(config: Optional[str]) -> None:
     """
     Run the interactive processor - pure function.
-    
+
     This function composes create_processor() with the run() method
     to create and immediately execute a processor. It demonstrates
     function composition in functional programming.
-    
+
     Args:
         config: Optional path to configuration file
-        
+
     Example:
         >>> run_processor("/path/to/config.json")
         # Starts interactive mode with specified config
@@ -91,15 +92,15 @@ def run_processor(config: Optional[str]) -> None:
 def execute_help_command(command: str, config: Optional[str]) -> None:
     """
     Execute help command for specific command - pure function.
-    
+
     Creates a processor and executes the help command for a specific
     command. The function handles the conditional list creation
     for the command arguments.
-    
+
     Args:
         command: The command name to get help for
         config: Optional path to configuration file
-        
+
     Example:
         >>> execute_help_command("get", "/path/to/config.json")
         # Shows help for the 'get' command
@@ -111,11 +112,11 @@ def execute_help_command(command: str, config: Optional[str]) -> None:
 def display_general_help() -> None:
     """
     Display general help - pure function.
-    
+
     Uses Click's context to display the general help information
     for all available commands. This is a pure function that
     only performs the display operation.
-    
+
     Example:
         >>> display_general_help()
         # Shows general CLI help
@@ -127,19 +128,19 @@ def display_general_help() -> None:
 def handle_help_command(command: Optional[str], config: Optional[str]) -> None:
     """
     Handle help command logic - pure function.
-    
+
     This function demonstrates conditional logic in functional programming.
     It routes to either specific command help or general help based on
     whether a command parameter is provided.
-    
+
     Args:
         command: Optional command name for specific help
         config: Optional path to configuration file
-        
+
     Example:
         >>> handle_help_command("get", None)
         # Shows help for 'get' command
-        
+
         >>> handle_help_command(None, None)
         # Shows general help
     """
@@ -161,19 +162,19 @@ def cli(
     ADOC Toolkit - Acceldata Observability Cloud toolkit.
 
     A command-line toolkit for working with Acceldata Observability Cloud.
-    
+
     This is the main CLI group that handles the root command and its options.
     The function demonstrates functional programming by:
     - Using pure functions for side effects (display_version, run_processor)
     - Eliminating code duplication between interactive and default modes
     - Maintaining immutable data flow
-    
+
     Args:
         ctx: Click context for command execution
         interactive: Flag to explicitly start interactive mode
         version: Flag to display version information
         config: Optional path to configuration file
-        
+
     Example:
         $ adoc-toolkit --version
         $ adoc-toolkit --interactive --config config.json
@@ -195,14 +196,14 @@ def cli(
 def interactive(config: Optional[str]) -> None:
     """
     Start interactive mode.
-    
+
     This command explicitly starts the interactive shell. It reuses
     the pure function run_processor() to maintain consistency and
     avoid code duplication.
-    
+
     Args:
         config: Optional path to configuration file
-        
+
     Example:
         $ adoc-toolkit interactive --config config.json
     """
@@ -215,16 +216,16 @@ def interactive(config: Optional[str]) -> None:
 def help(command: Optional[str] = None, config: Optional[str] = None) -> None:
     """
     Show help for commands.
-    
+
     This command provides help functionality for the CLI. It can show
     either general help or help for a specific command. The function
     uses the pure function handle_help_command() to maintain separation
     of concerns.
-    
+
     Args:
         command: Optional command name for specific help
         config: Optional path to configuration file
-        
+
     Example:
         $ adoc-toolkit help
         $ adoc-toolkit help get
@@ -236,10 +237,10 @@ def help(command: Optional[str] = None, config: Optional[str] = None) -> None:
 def main() -> None:
     """
     Main entry point for the CLI.
-    
+
     This function serves as the entry point for the Click CLI application.
     It's kept simple and delegates all logic to the Click framework.
-    
+
     Example:
         >>> main()
         # Starts the CLI application

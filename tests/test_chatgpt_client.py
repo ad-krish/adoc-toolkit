@@ -21,7 +21,7 @@ class TestChatGPTLLMClient:
 
     def test_generate_response_method_exists(self):
         """Test that generate_response method exists."""
-        assert hasattr(self.client, 'generate_response')
+        assert hasattr(self.client, "generate_response")
         assert callable(self.client.generate_response)
 
     def test_create_chatgpt_messages(self):
@@ -30,19 +30,19 @@ class TestChatGPTLLMClient:
             system_prompt="You are a helpful assistant.",
             user_prompt="Hello, how are you?",
             api_key="test-key",
-            model="gpt-4o"
+            model="gpt-4o",
         )
-        
+
         messages = self.client._create_chatgpt_messages(request)
-        
+
         expected_messages = [
             {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "Hello, how are you?"}
+            {"role": "user", "content": "Hello, how are you?"},
         ]
-        
+
         assert messages == expected_messages
 
-    @patch('builtins.__import__')
+    @patch("builtins.__import__")
     def test_generate_chatgpt_response_success(self, mock_import):
         """Test successful ChatGPT response generation."""
         # Mock the openai module
@@ -50,14 +50,16 @@ class TestChatGPTLLMClient:
         mock_openai.ChatCompletion.create.return_value = Mock()
         mock_openai.ChatCompletion.create.return_value.choices = [Mock()]
         mock_openai.ChatCompletion.create.return_value.choices[0].message = Mock()
-        mock_openai.ChatCompletion.create.return_value.choices[0].message.content = "I'm doing well, thank you!"
+        mock_openai.ChatCompletion.create.return_value.choices[
+            0
+        ].message.content = "I'm doing well, thank you!"
         mock_import.return_value = mock_openai
 
         request = ChatGPTRequest(
             system_prompt="You are a helpful assistant.",
             user_prompt="Hello, how are you?",
             api_key="test-key",
-            model="gpt-4o"
+            model="gpt-4o",
         )
 
         response = self.client.generate_response(request)
@@ -65,9 +67,9 @@ class TestChatGPTLLMClient:
         # Verify OpenAI was called correctly
         mock_openai.ChatCompletion.create.assert_called_once()
         call_args = mock_openai.ChatCompletion.create.call_args
-        assert call_args[1]['model'] == 'gpt-4o'
-        assert call_args[1]['max_tokens'] == 4000
-        assert call_args[1]['temperature'] == 0.7
+        assert call_args[1]["model"] == "gpt-4o"
+        assert call_args[1]["max_tokens"] == 4000
+        assert call_args[1]["temperature"] == 0.7
 
         # Verify response
         assert isinstance(response, LLMResponse)
@@ -75,7 +77,7 @@ class TestChatGPTLLMClient:
         assert response.model_used == "gpt-4o"
         assert response.vendor == "chatgpt"
 
-    @patch('builtins.__import__')
+    @patch("builtins.__import__")
     def test_generate_chatgpt_response_with_custom_params(self, mock_import):
         """Test ChatGPT response generation with custom parameters."""
         # Mock the openai module
@@ -83,7 +85,9 @@ class TestChatGPTLLMClient:
         mock_openai.ChatCompletion.create.return_value = Mock()
         mock_openai.ChatCompletion.create.return_value.choices = [Mock()]
         mock_openai.ChatCompletion.create.return_value.choices[0].message = Mock()
-        mock_openai.ChatCompletion.create.return_value.choices[0].message.content = "Custom response"
+        mock_openai.ChatCompletion.create.return_value.choices[
+            0
+        ].message.content = "Custom response"
         mock_import.return_value = mock_openai
 
         request = ChatGPTRequest(
@@ -93,18 +97,18 @@ class TestChatGPTLLMClient:
             model="gpt-4o",
             max_tokens=1000,
             temperature=0.5,
-            additional_params={"top_p": 0.9}
+            additional_params={"top_p": 0.9},
         )
 
         response = self.client.generate_response(request)
 
         # Verify OpenAI was called with custom parameters
         call_args = mock_openai.ChatCompletion.create.call_args
-        assert call_args[1]['max_tokens'] == 1000
-        assert call_args[1]['temperature'] == 0.5
-        assert call_args[1]['top_p'] == 0.9
+        assert call_args[1]["max_tokens"] == 1000
+        assert call_args[1]["temperature"] == 0.5
+        assert call_args[1]["top_p"] == 0.9
 
-    @patch('builtins.__import__')
+    @patch("builtins.__import__")
     def test_generate_chatgpt_response_api_error(self, mock_import):
         """Test ChatGPT response generation with API error."""
         # Mock the openai module
@@ -116,24 +120,23 @@ class TestChatGPTLLMClient:
             system_prompt="You are a helpful assistant.",
             user_prompt="Hello, how are you?",
             api_key="test-key",
-            model="gpt-4o"
+            model="gpt-4o",
         )
 
         # The with_error_handling decorator returns (None, error_message) on exception
         result = self.client._generate_chatgpt_response(request)
         assert result[0] is None  # First element of tuple should be None
-        assert "ChatGPT API error" in result[1]  # Second element should contain error message
+        assert (
+            "ChatGPT API error" in result[1]
+        )  # Second element should contain error message
 
     def test_chatgpt_request_validation(self):
         """Test ChatGPT request validation."""
         # Test valid model
         request = ChatGPTRequest(
-            system_prompt="Test",
-            user_prompt="Test",
-            api_key="test-key",
-            model="gpt-4o"
+            system_prompt="Test", user_prompt="Test", api_key="test-key", model="gpt-4o"
         )
-        
+
         assert request.model == "gpt-4o"
         assert request.max_tokens == 4000
         assert request.temperature == 0.7
@@ -144,18 +147,16 @@ class TestChatGPTLLMClient:
                 system_prompt="Test",
                 user_prompt="Test",
                 api_key="test-key",
-                model="invalid-model"
+                model="invalid-model",
             )
         assert "Invalid ChatGPT model" in str(exc_info.value)
 
     def test_chatgpt_request_defaults(self):
         """Test ChatGPT request default values."""
         request = ChatGPTRequest(
-            system_prompt="Test",
-            user_prompt="Test",
-            api_key="test-key"
+            system_prompt="Test", user_prompt="Test", api_key="test-key"
         )
-        
+
         assert request.model == "gpt-4o"  # Default model
         assert request.max_tokens == 4000  # Default max_tokens
         assert request.temperature == 0.7  # Default temperature
@@ -163,20 +164,22 @@ class TestChatGPTLLMClient:
     def test_extract_content_function(self):
         """Test content extraction from OpenAI response."""
         from adoc_toolkit.llm.client import extract_content
-        
+
         # Test OpenAI response format
         mock_response = Mock()
         mock_response.choices = [Mock()]
         mock_response.choices[0].message = Mock()
         mock_response.choices[0].message.content = "Test content"
-        
+
         content = extract_content(mock_response)
         assert content == "Test content"
 
         # Test fallback to string conversion
         mock_response.choices = []
         content = extract_content(mock_response)
-        assert "Mock" in str(content)  # Should contain Mock object string representation
+        assert "Mock" in str(
+            content
+        )  # Should contain Mock object string representation
 
 
 class TestChatGPTRequest:
@@ -185,19 +188,19 @@ class TestChatGPTRequest:
     def test_valid_models(self):
         """Test that all valid ChatGPT models are accepted."""
         valid_models = [
-            'gpt-4o',
-            'gpt-4o-mini',
-            'gpt-4-turbo',
-            'gpt-4',
-            'gpt-3.5-turbo'
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-4-turbo",
+            "gpt-4",
+            "gpt-3.5-turbo",
         ]
-        
+
         for model in valid_models:
             request = ChatGPTRequest(
                 system_prompt="Test",
                 user_prompt="Test",
                 api_key="test-key",
-                model=model
+                model=model,
             )
             assert request.model == model
 
@@ -208,18 +211,16 @@ class TestChatGPTRequest:
                 system_prompt="Test",
                 user_prompt="Test",
                 api_key="test-key",
-                model="invalid-model"
+                model="invalid-model",
             )
         assert "Invalid ChatGPT model" in str(exc_info.value)
 
     def test_default_values(self):
         """Test default values for ChatGPT request."""
         request = ChatGPTRequest(
-            system_prompt="Test",
-            user_prompt="Test",
-            api_key="test-key"
+            system_prompt="Test", user_prompt="Test", api_key="test-key"
         )
-        
+
         assert request.model == "gpt-4o"
         assert request.max_tokens == 4000
         assert request.temperature == 0.7
@@ -232,9 +233,9 @@ class TestChatGPTRequest:
             api_key="test-key",
             model="gpt-3.5-turbo",
             max_tokens=2000,
-            temperature=0.3
+            temperature=0.3,
         )
-        
+
         assert request.model == "gpt-3.5-turbo"
         assert request.max_tokens == 2000
-        assert request.temperature == 0.3 
+        assert request.temperature == 0.3

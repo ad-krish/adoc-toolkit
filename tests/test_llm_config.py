@@ -46,7 +46,7 @@ class TestLLMConfig:
         config = LLMConfig(
             vendor=LLMVendor.CLAUDE,
             apikey="test-key",
-            model="claude-3-5-sonnet-20241022"
+            model="claude-3-5-sonnet-20241022",
         )
         assert config.vendor == LLMVendor.CLAUDE
         assert config.apikey == "test-key"
@@ -59,10 +59,7 @@ class TestLLMConfig:
 
     def test_get_model_custom(self):
         """Test getting custom model."""
-        config = LLMConfig(
-            vendor=LLMVendor.CLAUDE,
-            model="claude-3-5-haiku-20241022"
-        )
+        config = LLMConfig(vendor=LLMVendor.CLAUDE, model="claude-3-5-haiku-20241022")
         assert config.get_model() == "claude-3-5-haiku-20241022"
 
     def test_get_vendor_options(self):
@@ -149,10 +146,7 @@ class TestLLMConfig:
         assert config.get_model() == "claude-3-5-sonnet-20241022"
 
         # This should also work - custom model
-        config = LLMConfig(
-            vendor=LLMVendor.CLAUDE,
-            model="claude-3-5-haiku-20241022"
-        )
+        config = LLMConfig(vendor=LLMVendor.CLAUDE, model="claude-3-5-haiku-20241022")
         assert config.get_model() == "claude-3-5-haiku-20241022"
 
 
@@ -164,7 +158,7 @@ class TestLLMConfigIntegration:
         from adoc_toolkit.models.configuration_data import ConfigurationData
 
         config = ConfigurationData()
-        assert hasattr(config, 'llm')
+        assert hasattr(config, "llm")
         assert isinstance(config.llm, LLMConfig)
         assert config.llm.vendor == LLMVendor.GEMINI
 
@@ -173,15 +167,15 @@ class TestLLMConfigIntegration:
         from adoc_toolkit.models.configuration_data import ConfigurationData
 
         config = ConfigurationData()
-        
+
         # Test setting vendor
         config.set("llm.vendor", "claude")
         assert config.llm.vendor == LLMVendor.CLAUDE
-        
+
         # Test setting API key
         config.set("llm.apikey", "test-key")
         assert config.llm.apikey == "test-key"
-        
+
         # Test setting model
         config.set("llm.model", "claude-3-5-haiku-20241022")
         assert config.llm.model == "claude-3-5-haiku-20241022"
@@ -191,7 +185,7 @@ class TestLLMConfigIntegration:
         from adoc_toolkit.models.configuration_data import ConfigurationData
 
         config = ConfigurationData()
-        
+
         with pytest.raises(ValueError, match="Invalid LLM vendor"):
             config.set("llm.vendor", "invalid")
 
@@ -203,7 +197,7 @@ class TestLLMConfigIntegration:
         config.llm.vendor = LLMVendor.CLAUDE
         config.llm.apikey = "test-key"
         config.llm.model = "claude-3-5-sonnet-20241022"
-        
+
         assert config.get("llm.vendor") == LLMVendor.CLAUDE
         assert config.get("llm.apikey") == "test-key"
-        assert config.get("llm.model") == "claude-3-5-sonnet-20241022" 
+        assert config.get("llm.model") == "claude-3-5-sonnet-20241022"

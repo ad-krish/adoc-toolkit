@@ -34,7 +34,10 @@ class TestTextToDQPolicyCommand:
         help_text = self.cmd.get_help()
         assert "text-to-dq-policy" in help_text
         assert "Convert text to data quality policy using LLM" in help_text
-        assert "Usage: text-to-dq-policy <text> [--uids <comma-separated-uids>]" in help_text
+        assert (
+            "Usage: text-to-dq-policy <text> [--uids <comma-separated-uids>]"
+            in help_text
+        )
         assert "--uids <comma-separated-uids>" in help_text
         assert "llm.vendor" in help_text
         assert "llm.model" in help_text
@@ -80,14 +83,19 @@ class TestTextToDQPolicyCommand:
         completions = self.cmd.get_completions("text-to-dq-policy ", 0)
         assert len(completions) == 1
         assert completions[0].text == '"Sample business text here"'
-        assert completions[0].description == "Enter business text to convert to DQ policy"
+        assert (
+            completions[0].description == "Enter business text to convert to DQ policy"
+        )
 
     def test_get_completions_with_uids_option(self):
         """Test auto-completion for --uids option."""
         completions = self.cmd.get_completions("text-to-dq-policy test ", 0)
         assert len(completions) == 1
         assert completions[0].text == "--uids"
-        assert completions[0].description == "Specify comma-separated UIDs for policy generation"
+        assert (
+            completions[0].description
+            == "Specify comma-separated UIDs for policy generation"
+        )
 
     def test_get_completions_with_uids_value(self):
         """Test auto-completion for UID values."""
@@ -96,7 +104,7 @@ class TestTextToDQPolicyCommand:
         assert completions[0].text == "12345,67890,11111"
         assert completions[0].description == "Comma-separated list of UIDs"
 
-    @patch('adoc_toolkit.cli.commands.text_to_dq_policy_command.get_config_manager')
+    @patch("adoc_toolkit.cli.commands.text_to_dq_policy_command.get_config_manager")
     def test_generate_dq_policy_no_apikey(self, mock_get_config_manager):
         """Test DQ policy generation with no API key configured."""
         # Mock config manager
@@ -109,9 +117,11 @@ class TestTextToDQPolicyCommand:
         result = self.cmd._generate_dq_policy("test text")
         assert result is True
 
-    @patch('adoc_toolkit.cli.commands.text_to_dq_policy_command.get_config_manager')
-    @patch('adoc_toolkit.cli.commands.text_to_dq_policy_command.get_llm_client')
-    def test_generate_dq_policy_with_uids(self, mock_get_llm_client, mock_get_config_manager):
+    @patch("adoc_toolkit.cli.commands.text_to_dq_policy_command.get_config_manager")
+    @patch("adoc_toolkit.cli.commands.text_to_dq_policy_command.get_llm_client")
+    def test_generate_dq_policy_with_uids(
+        self, mock_get_llm_client, mock_get_config_manager
+    ):
         """Test DQ policy generation with UIDs."""
         # Mock config manager
         mock_config_manager = Mock()
@@ -132,7 +142,7 @@ class TestTextToDQPolicyCommand:
         mock_get_llm_client.assert_called_once()
         mock_llm_client.generate_with_processing.assert_called_once()
 
-    @patch('adoc_toolkit.cli.commands.text_to_dq_policy_command.get_config_manager')
+    @patch("adoc_toolkit.cli.commands.text_to_dq_policy_command.get_config_manager")
     def test_generate_dq_policy_no_vendor(self, mock_get_config_manager):
         """Test DQ policy generation with no vendor configured."""
         # Mock config manager
@@ -146,7 +156,7 @@ class TestTextToDQPolicyCommand:
         result = self.cmd._generate_dq_policy("test text")
         assert result is True
 
-    @patch('adoc_toolkit.cli.commands.text_to_dq_policy_command.get_config_manager')
+    @patch("adoc_toolkit.cli.commands.text_to_dq_policy_command.get_config_manager")
     def test_generate_dq_policy_unsupported_vendor(self, mock_get_config_manager):
         """Test DQ policy generation with unsupported vendor."""
         # Mock config manager
@@ -162,15 +172,20 @@ class TestTextToDQPolicyCommand:
 
     def test_generate_dq_policy_exception(self):
         """Test DQ policy generation with general exception."""
-        with patch('adoc_toolkit.cli.commands.text_to_dq_policy_command.get_config_manager', side_effect=Exception("Test error")):
+        with patch(
+            "adoc_toolkit.cli.commands.text_to_dq_policy_command.get_config_manager",
+            side_effect=Exception("Test error"),
+        ):
             result = self.cmd._generate_dq_policy("test text")
             assert result is True
 
     def test_process_response_with_uids(self):
         """Test processing response with UIDs."""
-        response_content = '{"rule": {"enabled": true, "backingAsset": {"tableAssetId": "<uid>"}}}'
+        response_content = (
+            '{"rule": {"enabled": true, "backingAsset": {"tableAssetId": "<uid>"}}}'
+        )
         uids = ["12345", "67890"]
-        
+
         # This should not raise an exception
         self.cmd._process_response_with_uids(response_content, uids)
 
@@ -178,7 +193,7 @@ class TestTextToDQPolicyCommand:
         """Test processing response with UIDs and multiple policies."""
         response_content = '[{"rule": {"enabled": true, "backingAsset": {"tableAssetId": "<uid>"}}}, {"rule": {"enabled": true, "backingAsset": {"tableAssetId": "<uid>"}}}]'
         uids = ["12345", "67890"]
-        
+
         # This should not raise an exception
         self.cmd._process_response_with_uids(response_content, uids)
 
@@ -186,7 +201,7 @@ class TestTextToDQPolicyCommand:
         """Test processing response with invalid JSON."""
         response_content = "Invalid JSON content"
         uids = ["12345"]
-        
+
         # This should not raise an exception
         self.cmd._process_response_with_uids(response_content, uids)
 
@@ -197,17 +212,17 @@ class TestTextToDQPolicyCommandIntegration:
     def test_command_registration(self):
         """Test that the command can be instantiated and has required properties."""
         cmd = TextToDQPolicyCommand()
-        
+
         # Test basic properties
         assert cmd.name == "text-to-dq-policy"
         assert cmd.description == "Convert text to data quality policy using LLM"
         assert len(cmd.aliases) > 0
-        
+
         # Test help text
         help_text = cmd.get_help()
         assert "text-to-dq-policy" in help_text
         assert "Usage:" in help_text
-        
+
         # Test execution with help
         result = cmd.execute(["--help"])
         assert result is True
@@ -215,36 +230,42 @@ class TestTextToDQPolicyCommandIntegration:
     def test_command_completion_integration(self):
         """Test command completion integration."""
         cmd = TextToDQPolicyCommand()
-        
+
         # Test completions for empty input
         completions = cmd.get_completions("", 0)
         assert len(completions) == 1
-        assert hasattr(completions[0], 'text')
-        assert hasattr(completions[0], 'description') 
+        assert hasattr(completions[0], "text")
+        assert hasattr(completions[0], "description")
 
 
 class DummyConsole:
     def __init__(self):
         self.messages = []
+
     def print(self, message, style=None):
         self.messages.append((message, style))
+
 
 @pytest.fixture
 def dummy_console():
     return DummyConsole()
 
+
 @pytest.fixture
 def dummy_process_response():
     return Mock()
+
 
 def test_get_llm_client_grok(dummy_console, dummy_process_response):
     c = llm_client.get_llm_client("grok", dummy_console, dummy_process_response)
     assert isinstance(c, llm_client.GrokLLMClient)
 
+
 def test_get_llm_client_gemini(dummy_console, dummy_process_response):
     c = llm_client.get_llm_client("gemini", dummy_console, dummy_process_response)
     assert isinstance(c, llm_client.GeminiLLMClient)
 
+
 def test_get_llm_client_unsupported(dummy_console, dummy_process_response):
     with pytest.raises(ValueError):
-        llm_client.get_llm_client("unknown", dummy_console, dummy_process_response) 
+        llm_client.get_llm_client("unknown", dummy_console, dummy_process_response)

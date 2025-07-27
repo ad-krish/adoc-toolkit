@@ -53,7 +53,7 @@ class ShowEnvCommand(Command):
         """
         if not key:
             return "***"  # Empty key gets 3 asterisks
-        
+
         if len(key) < 4:
             # For short keys, mask completely with extra length for obfuscation
             return "*" * (len(key) + 2)  # Add 2 extra asterisks for obfuscation

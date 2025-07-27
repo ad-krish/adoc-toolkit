@@ -19,34 +19,29 @@ class LLMConfig(BaseModel):
     """LLM configuration settings."""
 
     vendor: LLMVendor = Field(
-        default=LLMVendor.GEMINI,
-        description="LLM vendor to use for AI operations"
+        default=LLMVendor.GEMINI, description="LLM vendor to use for AI operations"
     )
     apikey: Optional[str] = Field(
-        default=None,
-        description="API key for the selected LLM vendor"
+        default=None, description="API key for the selected LLM vendor"
     )
     model: Optional[str] = Field(
-        default=None,
-        description="Model name for the selected LLM vendor"
+        default=None, description="Model name for the selected LLM vendor"
     )
     temperature: float = Field(
-        default=0.2,
-        description="Temperature for LLM response generation (0.0 to 2.0)"
+        default=0.2, description="Temperature for LLM response generation (0.0 to 2.0)"
     )
     # Configurable model options - can be overridden from config file
     model_options: Optional[Dict[str, List[str]]] = Field(
-        default=None,
-        description="Available models for each vendor (configurable)"
+        default=None, description="Available models for each vendor (configurable)"
     )
 
-    @field_validator('vendor')
+    @field_validator("vendor")
     @classmethod
     def validate_vendor(cls, v: LLMVendor) -> LLMVendor:
         """Validate vendor is a supported option."""
         return v
 
-    @field_validator('apikey')
+    @field_validator("apikey")
     @classmethod
     def validate_apikey(cls, v: Optional[str]) -> Optional[str]:
         """Validate API key format."""
@@ -54,7 +49,7 @@ class LLMConfig(BaseModel):
             return None
         return v
 
-    @field_validator('temperature')
+    @field_validator("temperature")
     @classmethod
     def validate_temperature(cls, v: float) -> float:
         """Validate temperature is within valid range."""
@@ -64,13 +59,13 @@ class LLMConfig(BaseModel):
             raise ValueError("Temperature must be between 0.0 and 2.0")
         return float(v)
 
-    @field_validator('model')
+    @field_validator("model")
     @classmethod
     def validate_model(cls, v: Optional[str], info) -> Optional[str]:
         """Validate model based on vendor."""
         if v is None:
             # Set default model based on vendor
-            vendor = info.data.get('vendor', LLMVendor.GEMINI)
+            vendor = info.data.get("vendor", LLMVendor.GEMINI)
             return cls._get_default_model(vendor)
         return v
 
@@ -100,7 +95,7 @@ class LLMConfig(BaseModel):
         # If custom model options are configured, use them
         if self.model_options and self.vendor.value in self.model_options:
             return self.model_options[self.vendor.value]
-        
+
         # Otherwise, use hardcoded defaults
         default_model_options = {
             LLMVendor.CLAUDE: [
@@ -131,7 +126,7 @@ class LLMConfig(BaseModel):
         """Get all model options for all vendors."""
         if self.model_options:
             return self.model_options
-        
+
         # Return hardcoded defaults
         return {
             LLMVendor.CLAUDE.value: [
@@ -155,4 +150,4 @@ class LLMConfig(BaseModel):
                 "gpt-4-turbo",
                 "gpt-3.5-turbo",
             ],
-        } 
+        }

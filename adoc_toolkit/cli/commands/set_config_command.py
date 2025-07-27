@@ -64,7 +64,9 @@ class SetConfigCommand(Command):
 
         help_text += "  LLM Configuration:\n"
         help_text += "    llm.vendor      - LLM vendor: claude, gemini, grok, chatgpt (default: gemini)\n"
-        help_text += "    llm.apikey      - API key for the selected LLM vendor (optional)\n"
+        help_text += (
+            "    llm.apikey      - API key for the selected LLM vendor (optional)\n"
+        )
         help_text += "    llm.model       - Model name for the selected LLM vendor (auto-set based on vendor)\n"
         help_text += "    llm.temperature - Temperature for response generation: 0.0-2.0 (default: 0.2)\n"
         help_text += "                     Note: Available models can be customized by editing the config file\n\n"

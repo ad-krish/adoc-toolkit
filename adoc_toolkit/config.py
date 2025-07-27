@@ -104,20 +104,22 @@ class ConfigManager:
 
         # Load as legacy structure
         config = ConfigurationData.from_dict(legacy_data)
-        
+
         # Handle custom LLM model options after loading
         if "llm" in legacy_data and "model_options" in legacy_data["llm"]:
             model_options = legacy_data["llm"]["model_options"]
             if isinstance(model_options, dict):
                 # Set the custom model options on the LLM config
                 config.llm.model_options = model_options
-                
+
                 # Validate that model_options has the expected structure
                 for vendor in ["claude", "gemini", "grok", "chatgpt"]:
                     if vendor not in model_options:
                         # Use default for missing vendors
                         default_config = LLMConfig()
-                        config.llm.model_options[vendor] = default_config.get_all_model_options()[vendor]
+                        config.llm.model_options[vendor] = (
+                            default_config.get_all_model_options()[vendor]
+                        )
 
         return config
 
@@ -245,7 +247,9 @@ class ConfigManager:
                     "description": "Model name for the selected LLM vendor",
                     "type": "string",
                     "options": self._config.llm.get_model_options(),
-                    "default": self._config.llm._get_default_model(self._config.llm.vendor),
+                    "default": self._config.llm._get_default_model(
+                        self._config.llm.vendor
+                    ),
                 },
                 "temperature": {
                     "value": self._config.llm.temperature,
@@ -520,7 +524,9 @@ class ConfigManager:
             elif key == "log.rotate.ontime":
                 raise ValueError("Log rotation time must be an integer") from e
             elif key == "llm.vendor":
-                raise ValueError("LLM vendor must be one of: claude, gemini, grok, chatgpt") from e
+                raise ValueError(
+                    "LLM vendor must be one of: claude, gemini, grok, chatgpt"
+                ) from e
             else:
                 raise
 

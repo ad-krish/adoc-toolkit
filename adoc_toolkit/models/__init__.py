@@ -18,6 +18,14 @@ from .llm_models import (
     PromptConfig,
     DQPolicyPromptConfig,
 )
+from .execution_metrics_models import (
+    PolicyExecution,
+    ExecutionDetail,
+    PolicyDetail,
+    ExecutionMetricsRecord,
+    LastRunInfo,
+    ExecutionMetricsArgs,
+)
 
 __all__ = [
     "CommandResponse",
@@ -42,4 +50,10 @@ __all__ = [
     "LLMClientConfig",
     "PromptConfig",
     "DQPolicyPromptConfig",
+    "PolicyExecution",
+    "ExecutionDetail",
+    "PolicyDetail",
+    "ExecutionMetricsRecord",
+    "LastRunInfo",
+    "ExecutionMetricsArgs",
 ]

@@ -36,9 +36,7 @@ class ConfigurationData(BaseModel):
     log: LogConfig = Field(
         default_factory=LogConfig, description="Application logging configuration"
     )
-    llm: LLMConfig = Field(
-        default_factory=LLMConfig, description="LLM configuration"
-    )
+    llm: LLMConfig = Field(default_factory=LLMConfig, description="LLM configuration")
     # Allow additional fields for backward compatibility with tests
     model_config = {"extra": "allow"}
 

@@ -166,7 +166,9 @@ class TestExportMetricsCommand:
 
     def test_generate_filename_with_environment(self):
         """Test filename generation includes environment name suffix."""
-        filename = generate_filename_from_template("metrics-%y%m%d", "csv", "production")
+        filename = generate_filename_from_template(
+            "metrics-%y%m%d", "csv", "production"
+        )
 
         assert filename.endswith("_production.csv")
         assert "metrics-" in filename
@@ -343,9 +345,7 @@ class TestExportMetricsCommand:
     def test_get_completions_templates(self):
         """Test auto-completion for filename templates."""
         # Test completion for filename templates
-        completions = get_completion_suggestions(
-            "export-metrics --output-filename ", 0
-        )
+        completions = get_completion_suggestions("export-metrics --output-filename ", 0)
         assert "ad-metrics-%d-%m-%y-%h-%M" in completions
         assert "metrics-%y%m%d" in completions
 
@@ -683,9 +683,15 @@ class TestExportMetricsCommand:
 
             # Mock command methods
             with patch.object(self.command, "_fetch_all_data") as mock_fetch:
-                with patch("adoc_toolkit.cli.commands.export_metrics_command.process_metrics_data") as mock_process:
-                    with patch("adoc_toolkit.cli.commands.export_metrics_command.export_dataframe_to_format") as mock_export:
-                        with patch("adoc_toolkit.cli.commands.export_metrics_command.generate_filename_from_template") as mock_generate_filename:
+                with patch(
+                    "adoc_toolkit.cli.commands.export_metrics_command.process_metrics_data"
+                ) as mock_process:
+                    with patch(
+                        "adoc_toolkit.cli.commands.export_metrics_command.export_dataframe_to_format"
+                    ) as mock_export:
+                        with patch(
+                            "adoc_toolkit.cli.commands.export_metrics_command.generate_filename_from_template"
+                        ) as mock_generate_filename:
                             with patch("pathlib.Path.stat") as mock_stat:
                                 with patch("pathlib.Path.exists") as mock_exists:
                                     with patch("pathlib.Path.mkdir") as mock_mkdir:
@@ -700,20 +706,27 @@ class TestExportMetricsCommand:
                                         mock_df = Mock()
                                         mock_df.empty = False
                                         mock_df.__len__ = Mock(return_value=1)
-                                        mock_df.columns = ["test_column_1", "test_column_2"]
+                                        mock_df.columns = [
+                                            "test_column_1",
+                                            "test_column_2",
+                                        ]
                                         mock_df.head.return_value.to_string.return_value = "test data"
                                         # Ensure the DataFrame constructor returns our mock
                                         mock_dataframe.return_value = mock_df
 
                                         # Mock filename generation
-                                        mock_generate_filename.return_value = "test-metrics.csv"
+                                        mock_generate_filename.return_value = (
+                                            "test-metrics.csv"
+                                        )
 
                                         # Mock file stats for tracing
                                         mock_stat.return_value.st_size = 1024
                                         mock_exists.return_value = True
 
                                         # Mock Progress to avoid console issues
-                                        with patch("adoc_toolkit.cli.commands.export_metrics_command.Progress") as mock_progress:
+                                        with patch(
+                                            "adoc_toolkit.cli.commands.export_metrics_command.Progress"
+                                        ) as mock_progress:
                                             mock_progress_instance = Mock()
                                             mock_progress.return_value.__enter__.return_value = mock_progress_instance
                                             mock_progress_instance.add_task.return_value = "task_id"
@@ -758,7 +771,9 @@ class TestExportMetricsCommand:
         """Test execution when no data is retrieved."""
         with patch("adoc_toolkit.cli.commands.export_metrics_command.ADOCHTTPClient"):
             with patch.object(self.command, "_fetch_all_data") as mock_fetch:
-                with patch("adoc_toolkit.cli.commands.export_metrics_command.process_metrics_data") as mock_process:
+                with patch(
+                    "adoc_toolkit.cli.commands.export_metrics_command.process_metrics_data"
+                ) as mock_process:
                     with patch(
                         "adoc_toolkit.cli.commands.export_metrics_command.pd.DataFrame"
                     ) as mock_df_class:

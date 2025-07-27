@@ -63,31 +63,31 @@ class ResponseFormatter:
         try:
             # Convert data to JSON string
             json_data = json.dumps(data, indent=2, ensure_ascii=False)
-            
+
             # Load the system prompt
             prompt_file = Path("config/prompts/json_to_human_system.txt")
             if not prompt_file.exists():
                 return f"Error: Prompt file not found at {prompt_file}\n\nJSON Data:\n{json_data}"
-            
-            with open(prompt_file, 'r', encoding='utf-8') as f:
+
+            with open(prompt_file, "r", encoding="utf-8") as f:
                 system_prompt = f.read().strip()
-            
+
             # Create user prompt with the JSON data
             user_prompt = f"Please convert the following JSON API response to human-readable format:\n\n{json_data}"
-            
+
             # Get LLM client and configuration
             from ..config import get_config_manager
             from ..llm.client import get_llm_client
             from ..models import LLMRequest
-            
+
             config_manager = get_config_manager()
-            
+
             # Get LLM configuration
             vendor = config_manager.get("llm.vendor")
             api_key = config_manager.get("llm.apikey")
             model = config_manager.get("llm.model")
             temperature = config_manager.get("llm.temperature")
-            
+
             # Set defaults if values are None
             if vendor is None:
                 vendor = "gemini"
@@ -95,24 +95,24 @@ class ResponseFormatter:
                 model = "gemini-1.5-pro"
             if temperature is None:
                 temperature = 0.2
-            
+
             if not api_key:
                 return f"Error: No LLM API key configured. Please set 'llm.apikey' first.\n\nJSON Data:\n{json_data}"
-            
+
             request = LLMRequest(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 api_key=api_key,
                 model=model,
-                temperature=temperature
+                temperature=temperature,
             )
-            
+
             # Get LLM client
             client = get_llm_client(vendor, self.console)
-            
+
             # Generate human-readable response
             response_result = client.generate_response(request)
-            
+
             # Handle tuple return from with_error_handling decorator
             if isinstance(response_result, tuple):
                 result, error_message = response_result
@@ -121,9 +121,9 @@ class ResponseFormatter:
                 response = result
             else:
                 response = response_result
-            
+
             return response.content
-            
+
         except Exception as e:
             # Fallback to JSON if LLM conversion fails
             return f"Error converting to human-readable format: {e}\n\nJSON Data:\n{json.dumps(data, indent=2, ensure_ascii=False)}"

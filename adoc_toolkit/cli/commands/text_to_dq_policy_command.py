@@ -130,6 +130,7 @@ class TextToDQPolicyCommand(Command):
         Returns:
             Tuple of (text, uids)
         """
+
         def reducer(
             acc: tuple[str, list[str]], item: tuple[int, str]
         ) -> tuple[str, list[str]]:
@@ -181,7 +182,9 @@ class TextToDQPolicyCommand(Command):
             )
 
         if not llm_config.vendor:
-            return "Error: LLM vendor not configured. Use 'set-config llm.vendor <vendor>'"
+            return (
+                "Error: LLM vendor not configured. Use 'set-config llm.vendor <vendor>'"
+            )
 
         return None
 
@@ -196,7 +199,9 @@ class TextToDQPolicyCommand(Command):
         """
         try:
             parsed_content = json.loads(response_content)
-            return parsed_content if isinstance(parsed_content, list) else [parsed_content]
+            return (
+                parsed_content if isinstance(parsed_content, list) else [parsed_content]
+            )
         except json.JSONDecodeError:
             # Try to extract JSON from the response using regex
             json_match = re.search(r"\{.*\}", response_content, re.DOTALL)
@@ -205,7 +210,9 @@ class TextToDQPolicyCommand(Command):
             else:
                 raise ValueError("Could not parse JSON from LLM response") from None
 
-    def _create_policy_with_uid(self, policy_template: dict[str, Any], uid: str) -> dict[str, Any]:
+    def _create_policy_with_uid(
+        self, policy_template: dict[str, Any], uid: str
+    ) -> dict[str, Any]:
         """Create a policy copy with updated UID.
 
         Args:
