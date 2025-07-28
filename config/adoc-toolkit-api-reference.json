@@ -18,7 +18,7 @@
       "response_type": "json"
     },
     "/catalog-server/api/assets/:id/metadata": {
-      "url": "/catalog-server/api/assets/:asset-id/metadata",
+      "url": "/catalog-server/api/assets/:id/metadata",
       "description": "Get metadata for a specific asset",
       "query_params": {},
       "response_type": "json"

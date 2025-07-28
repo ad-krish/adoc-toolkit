@@ -10,9 +10,7 @@ from rich.table import Table
 
 from ...http import ADOCHTTPClient
 from ...http.formatter import ResponseFormatter
-from ...http.http_config import ResponseType
 from ...models import APIReference, CompletionItem
-from ...config import get_config_manager
 from .base import Command
 
 
@@ -335,23 +333,10 @@ class GetCommand(Command):
         try:
             response = self.http_client.get(final_url, params=query_params)
             
+            # Create response formatter (for both success and error cases)
+            formatter = ResponseFormatter(self.console)
+            
             if response.is_success:                                
-                # Get response type from configuration
-                config_manager = get_config_manager()
-                response_type_str = config_manager.get("http.response.type")
-                if response_type_str is None:
-                    response_type_str = "json"  # Default fallback
-                
-                # Convert string to ResponseType enum
-                try:
-                    response_type = ResponseType(response_type_str.lower())
-                except ValueError:
-                    # Fallback to JSON if invalid response type
-                    response_type = ResponseType.JSON
-                
-                # Create response formatter
-                formatter = ResponseFormatter(self.console)
-                
                 # Check if response is JSON by looking at content-type header or trying to parse as JSON
                 content_type = response.headers.get('content-type', '').lower()
                 is_json_response = 'json' in content_type or 'application/json' in content_type
@@ -359,8 +344,7 @@ class GetCommand(Command):
                 if is_json_response:
                     try:
                         data = response.json()
-                        self.console.print("Response:", style="bold")
-                        formatter.print_response(data, response_type)
+                        formatter.print_response_with_config(data)
                     except Exception as e:
                         self.console.print(f"Error parsing JSON response: {e}", style="red")
                         self.console.print("Raw response:")
@@ -369,19 +353,20 @@ class GetCommand(Command):
                     # Try to parse as JSON anyway in case content-type is not set correctly
                     try:
                         data = response.json()
-                        self.console.print("Response:", style="bold")
-                        formatter.print_response(data, response_type)
+                        formatter.print_response_with_config(data)
                     except Exception:
                         # If JSON parsing fails, show as text
-                        self.console.print("Response:")
                         self.console.print(response.text)
             else:
-                self.console.print("❌ Request failed", style="red")
-                self.console.print(f"Status: {response.status_code}")
-                self.console.print(f"URL: {response.request_info.url}")
-                if response.text:
-                    self.console.print("Error response:")
-                    self.console.print(response.text)
+                # Handle error response - use formatter for consistent formatting
+                try:
+                    error_data = response.json()
+                    # Use the formatter to respect http.response.type setting
+                    formatter.print_response_with_config(error_data)
+                except (ValueError, TypeError):
+                    # If not JSON, show raw text
+                    if response.text:
+                        self.console.print(response.text)
                     
         except Exception as e:
             self.console.print(f"❌ Error making request: {e}", style="red")

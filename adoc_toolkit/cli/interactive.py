@@ -624,22 +624,20 @@ class InteractiveProcessor:
         return create_environment_info(self.current_environment, self.current_environment_config)
 
     def add_to_history(self, command_text: str) -> None:
-        """Add a command to the history, handling duplicates and limits.
+        """Add a command to history using pure functions.
 
         Args:
-            command_text: The full command text to add to history
+            command_text: Command text to add to history
         """
-        # Use pure function to check if command should be added
-        if not should_add_to_history(command_text, self._excluded_commands):
-            return
-
-        # Use pure function to update history
-        self.command_history = update_history_list(
-            self.command_history, command_text, self._max_history
-        )
-
-        # Save to file after each addition
-        self._save_history_file()
+        if should_add_to_history(command_text, self._excluded_commands):
+            # Add to prompt_toolkit history for arrow key navigation
+            self.history.append_string(command_text)
+            
+            # Also maintain our custom history for the history command
+            self.command_history = update_history_list(
+                self.command_history, command_text, self._max_history
+            )
+            self._save_history_file()
 
     def get_command_history(self) -> list[str]:
         """Get the current command history.
@@ -658,10 +656,16 @@ class InteractiveProcessor:
         self._pending_recall_command = command_text
 
     def _load_history_file(self) -> None:
-        """Load command history from file on startup using pure function."""
+        """Load command history from file and populate prompt_toolkit history."""
         self.command_history = load_history_from_file(
             self._history_file, self._max_history
         )
+        
+        # Also populate prompt_toolkit history for arrow key navigation
+        # Reverse the order since prompt_toolkit expects most recent commands at the end
+        for command in reversed(self.command_history):
+            if should_add_to_history(command, self._excluded_commands):
+                self.history.append_string(command)
 
     def _save_history_file(self) -> None:
         """Save command history to file using pure function."""

@@ -55,6 +55,16 @@ bin\adoc-toolkit.bat
    ADOC > help
    ```
 
+### Interactive CLI Features
+
+The ADOC Toolkit provides a rich interactive command-line interface with several productivity features:
+
+- **Command History Navigation**: Use ↑ and ↓ arrow keys to browse through your command history
+- **Auto-completion**: Press Tab to get intelligent suggestions for commands and parameters
+- **Command History**: Use the `history` command to view and recall previous commands
+- **Environment Switching**: Easily switch between different ADOC environments
+- **Rich Output**: Colorized output and formatted tables for better readability
+
 ### Core Commands
 
 #### Environment Management
@@ -89,7 +99,8 @@ bin\adoc-toolkit.bat
 
 ### Key Features
 
-- **Interactive Shell**: Rich command-line interface with auto-completion
+- **Interactive Shell**: Rich command-line interface with auto-completion and command history navigation
+- **Command History**: Use ↑/↓ arrow keys to navigate through previous commands
 - **Environment Management**: Easy switching between different ADOC environments
 - **API Integration**: Direct access to ADOC platform APIs with automatic authentication
 - **Data Export**: Export metrics in multiple formats (JSON, CSV, Parquet, Avro)

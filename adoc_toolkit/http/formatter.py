@@ -67,7 +67,10 @@ class ResponseFormatter:
             # Load the system prompt
             prompt_file = Path("config/prompts/json_to_human_system.txt")
             if not prompt_file.exists():
-                return f"Error: Prompt file not found at {prompt_file}\n\nJSON Data:\n{json_data}"
+                warning = f"⚠️  Human-readable formatting unavailable: Prompt file not found at {prompt_file}\n"
+                warning += "   To enable human-readable responses, ensure the prompt file exists.\n"
+                warning += "   Falling back to JSON format.\n\n"
+                return warning + json_data
 
             with open(prompt_file, "r", encoding="utf-8") as f:
                 system_prompt = f.read().strip()
@@ -97,7 +100,11 @@ class ResponseFormatter:
                 temperature = 0.2
 
             if not api_key:
-                return f"Error: No LLM API key configured. Please set 'llm.apikey' first.\n\nJSON Data:\n{json_data}"
+                warning = f"⚠️  Human-readable formatting unavailable: No LLM API key configured.\n"
+                warning += "   To enable human-readable responses, set your API key:\n"
+                warning += "   set-config llm.apikey <your-api-key>\n"
+                warning += "   Falling back to JSON format.\n\n"
+                return warning + json_data
 
             request = LLMRequest(
                 system_prompt=system_prompt,
@@ -117,7 +124,10 @@ class ResponseFormatter:
             if isinstance(response_result, tuple):
                 result, error_message = response_result
                 if result is None:
-                    return f"Error converting to human-readable format: {error_message}\n\nJSON Data:\n{json_data}"
+                    warning = f"⚠️  Human-readable formatting failed: {error_message}\n"
+                    warning += "   Check your LLM configuration and API key.\n"
+                    warning += "   Falling back to JSON format.\n\n"
+                    return warning + json_data
                 response = result
             else:
                 response = response_result
@@ -126,7 +136,10 @@ class ResponseFormatter:
 
         except Exception as e:
             # Fallback to JSON if LLM conversion fails
-            return f"Error converting to human-readable format: {e}\n\nJSON Data:\n{json.dumps(data, indent=2, ensure_ascii=False)}"
+            warning = f"⚠️  Human-readable formatting failed: {e}\n"
+            warning += "   Check your LLM configuration and network connection.\n"
+            warning += "   Falling back to JSON format.\n\n"
+            return warning + json.dumps(data, indent=2, ensure_ascii=False)
 
     def _format_json(self, data: Any) -> str:
         """Format data as JSON.
@@ -475,3 +488,32 @@ class ResponseFormatter:
         """
         formatted = self.format_response(data, response_type, title)
         self.console.print(formatted)
+
+    def print_response_with_config(
+        self,
+        data: Any,
+        title: Optional[str] = None,
+    ) -> None:
+        """Print formatted response using configuration-based response type.
+
+        Args:
+            data: Response data to format and print
+            title: Optional title for table/csv output
+        """
+        from ..config import get_config_manager
+        
+        # Get response type from configuration
+        config_manager = get_config_manager()
+        response_type_str = config_manager.get("http.response.type")
+        
+        if response_type_str is None:
+            response_type_str = "json"  # Default fallback
+        
+        # Convert string to ResponseType enum
+        try:
+            response_type = ResponseType(response_type_str.lower())
+        except ValueError:
+            # Fallback to JSON if invalid response type
+            response_type = ResponseType.JSON
+        
+        self.print_response(data, response_type, title)
