@@ -232,11 +232,6 @@ $RECYCLE.BIN/
 .Trash-*
 .nfs*
 
-# ADOC Toolkit specific
-# Configuration files (may contain sensitive data)
-config/adoc-toolkit-config.json
-adoc-toolkit-config.json
-
 # Log files
 *.log
 
