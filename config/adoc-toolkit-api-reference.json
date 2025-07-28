@@ -17,17 +17,203 @@
       },
       "response_type": "json"
     },
-    "/catalog-server/api/assets": {
-      "url": "/catalog-server/api/assets",
-      "description": "Retrieve an asset by its unique identifier (UID).",
+    "/catalog-server/api/assets/:id/metadata": {
+      "url": "/catalog-server/api/assets/:asset-id/metadata",
+      "description": "Get metadata for a specific asset",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/:id/rulesWithLatestExecution" : {
+      "url": "/catalog-server/api/assets/:id/rulesWithLatestExecution",
+      "description": "Get rules with latest execution for a specific asset",
       "query_params": {
-        "uid": {
+        "ruleId" : {
           "type": "string",
-          "description": "A unique identifier (UID) for the asset."
+          "description": "Rule ID"
+        },
+        "ruleName" : {
+          "type": "string",
+          "description": "Rule name"
+        },
+        "ruleIds" : {
+          "type": "string",
+          "description": "Comma-separated list of rule IDs"
+        },
+        "executionStatus" : {
+          "type": "string",
+          "description": "Status of rule execution. Possible values: STARTED, RUNNING, ERRORED, WARNING, SUCCESSFUL, ABORTED.s"
+        },
+        "resultStatus" : {
+          "type": "string",
+          "description": "Status of rule execution result. Possible values: STARTED, RUNNING, ERRORED, WARNING, SUCCESSFUL, ABORTED."
+        },
+        "ruleType" : {
+          "type": "string",
+          "description": "Type of rule. Possible values: DATA_QUALITY, RECONCILIATION, EQUALITY, DATA_DRIFT, SCHEMA_DRIFT, DATA_CADENCE, PROFILE_ANOMALY."
+        },
+        "page" : {
+          "type": "integer",
+          "description": "The page number to retrieve."
+        },
+        "size" : {
+          "type": "integer",
+          "description": "The number of rules to include per page."
         }
       },
       "response_type": "json"
     },
+    "/catalog-server/api/assets/byUid/:uid/rulesWithLatestExecution" : {
+      "url": "/catalog-server/api/assets/byUid/:uid/rulesWithLatestExecution",
+      "description": "Get rules with latest execution for a specific asset",
+      "query_params": {
+        "ruleId" : {
+          "type": "string",
+          "description": "Rule ID"
+        },
+        "ruleName" : {
+          "type": "string",
+          "description": "Rule name"
+        },
+        "ruleIds" : {
+          "type": "string",
+          "description": "Comma-separated list of rule IDs"
+        },
+        "executionStatus" : {
+          "type": "string",
+          "description": "Status of rule execution. Possible values: STARTED, RUNNING, ERRORED, WARNING, SUCCESSFUL, ABORTED.s"
+        },
+        "resultStatus" : {
+          "type": "string",
+          "description": "Status of rule execution result. Possible values: STARTED, RUNNING, ERRORED, WARNING, SUCCESSFUL, ABORTED."
+        },
+        "ruleType" : {
+          "type": "string",
+          "description": "Type of rule. Possible values: DATA_QUALITY, RECONCILIATION, EQUALITY, DATA_DRIFT, SCHEMA_DRIFT, DATA_CADENCE, PROFILE_ANOMALY."
+        },
+        "page" : {
+          "type": "integer",
+          "description": "The page number to retrieve."
+        },
+        "size" : {
+          "type": "integer",
+          "description": "The number of rules to include per page."
+        }
+      },
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/byUid/:uid/scores" : {
+      "url": "/catalog-server/api/assets/byUid/:uid/scores",
+      "description": "Get scores for a specific asset",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/:id/scores" : {
+      "url": "/catalog-server/api/assets/:id/scores",
+      "description": "Get scores for a specific asset",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/:id/activity" : {
+      "url": "/catalog-server/api/assets/:id/activity",
+      "description": "Retrieves the activity log for a specific asset by providing the asset ID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/byUid/:uid/comments" : {
+      "url": "/catalog-server/api/assets/byUid/:uid/comments",
+      "description": "Retrieves the comments for a specific asset by providing the asset UID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/byUid/:uid/activity" : {
+      "url": "/catalog-server/api/assets/byUid/:uid/activity",
+      "description": "Retrieves the activity log for a specific asset by providing the asset UID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/custom-assets/sql-view/:id" : {
+      "url": "/catalog-server/api/custom-assets/sql-view/:id",
+      "description": "Retrieves the custom asset SQL view by providing the asset ID of the custom asset.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/:id/comments" : {
+      "url": "/catalog-server/api/assets/:id/comments",
+      "description": "Retrieves the comments for a specific asset by providing the asset ID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/:id/relatedAssets" : {
+      "url": "/catalog-server/api/assets/:id/relatedAssets",
+      "description": "Retrieves the related assets for a specific asset by providing the asset ID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/:id/childAssets" : {
+      "url": "/catalog-server/api/assets/:id/childAssets",
+      "description": "Retrieves the child assets for a specific asset by providing the asset ID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/:id/tags" : {
+      "url": "/catalog-server/api/assets/:id/tags",
+      "description": "Retrieves the tags for a specific asset by providing the asset ID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/:id/labels" : {
+      "url": "/catalog-server/api/assets/:id/labels",
+      "description": "Retrieves the labels for a specific asset by providing the asset ID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/:id/profile/:reqId" : {
+      "url": "/catalog-server/api/assets/:id/profile/:reqId",
+      "description": "Retrieves the profile for a specific asset by providing the asset ID and the request ID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/byUid/:uid/profile/config" : {
+      "url": "/catalog-server/api/assets/byUid/:uid/profile/config",
+      "description": "Retrieves the profile configuration for a specific asset by providing the asset UID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/torch-pipeline/api/assets/:assetId/lineage" : {
+      "url": "/torch-pipeline/api/assets/:assetId/lineage",
+      "description": "Retrieves the lineage for a specific asset by providing the asset ID.",
+      "query_params": {
+        "sublevellineage" : {
+          "type": "boolean",
+          "description": "Whether to include sublevel lineage in the response."
+        }
+      },
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/:id/udf-variables" : {
+      "url": "/catalog-server/api/assets/:id/udf-variables",
+      "description": "Retrieves the UDF variables for a specific asset by providing the asset ID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/:id/udf-variables/:variableId" : {
+      "url": "/catalog-server/api/assets/:id/udf-variables/:variableId",
+      "description": "Retrieves the UDF variable for a specific asset by providing the asset ID and the variable ID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/byUid/:uid/udf-variables" : {
+      "url": "/catalog-server/api/assets/byUid/:uid/udf-variables",
+      "description": "Retrieves the UDF variables for a specific asset by providing the asset UID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/catalog-server/api/assets/byUid/:uid/udf-variables/:variableId" : {
+      "url": "/catalog-server/api/assets/byUid/:uid/udf-variables/:variableId",
+      "description": "Retrieves the UDF variable for a specific asset by providing the asset UID and the variable ID.",
+      "query_params": {},
+      "response_type": "json"
+    },     
     "/catalog-server/api/assets/discover": {
       "url": "/catalog-server/api/assets/discover",
       "description": "Retrieve a list of assets based on specified query parameters",
@@ -334,6 +520,194 @@
           "description": "Whether to only include enabled rules."
         }
       },
+      "response_type": "json"
+    },
+    "/torch-pipeline/api/pipelines/summary" : {
+      "url": "/torch-pipeline/api/pipelines/summary",
+      "description": "Retrieves the summary for a specific pipeline by providing the pipeline ID.",
+      "query_params": {
+        "page" : {
+          "type": "integer",
+          "description": "The page number to retrieve."
+        },
+        "size" : {
+          "type": "integer",
+          "description": "The number of pipelines to include per page."
+        }
+      },
+      "response_type": "json"
+    },
+    "/torch-pipeline/api/pipelines/:identity" : {
+      "url": "/torch-pipeline/api/pipelines/:identity",
+      "description": "Retrieves the pipeline by providing the pipeline identity.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/torch-pipeline/api/pipelines/:pipelineId/graph" : {
+      "url": "/torch-pipeline/api/pipelines/:pipelineId/graph",
+      "description": "Retrieves the graph for a specific pipeline by providing the pipeline ID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/torch-pipeline/api/tags" : {
+      "url": "/torch-pipeline/api/tags",
+      "description": "Retrieves the tags for a specific pipeline by providing the pipeline ID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/torch-pipeline/api/pipelines/:pipelineId/run" : {
+      "url": "/torch-pipeline/api/pipelines/:pipelineId/run",
+      "description": "Retrieves the run for a specific pipeline by providing the pipeline ID.",
+      "query_params": {
+        "page" : {
+          "type": "integer",
+          "description": "The page number to retrieve."
+        },
+        "size" : {
+          "type": "integer",
+          "description": "The number of runs to include per page."
+        }
+      },
+      "response_type": "json"
+    },
+    "/admin/api/groups" : {
+      "url": "/admin/api/groups",
+      "description": "Retrieves the groups.",
+      "query_params": {
+        "first" : {
+          "type": "integer",
+          "description": "The first group to retrieve."
+        },
+        "last" : {
+          "type": "integer",
+          "description": "The last group to retrieve."
+        },
+        "search" : { 
+          "type": "string",
+          "description": "The search string to filter the groups."
+        }
+       },
+      "response_type": "json"
+    },
+    "/admin/api/groups/list" : {
+      "url": "/admin/api/groups/list",
+      "description": "Retrieves the list of groups.",
+      "query_params": {
+        "first" : {
+          "type": "integer",
+          "description": "The first group to retrieve."
+        },
+        "last" : {
+          "type": "integer",
+          "description": "The last group to retrieve."
+        },
+        "search" : { 
+          "type": "string",
+          "description": "The search string to filter the groups."
+        }
+      },
+      "response_type": "json"
+    },
+    "/admin/api/groups/:groupId" : {
+      "url": "/admin/api/groups/:groupId",
+      "description": "Retrieves the group by providing the group ID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/admin/api/users" : {
+      "url": "/admin/api/users",
+      "description": "Retrieves the users.",
+      "query_params": {
+        "searchString" : {
+          "type": "string",
+          "description": "The search string to filter the users."
+        },
+        "ids" : {
+          "type": "string",
+          "description": "Comma-separated list of user IDs."
+        },
+        "minimum" : {
+          "type": "integer",
+          "description": "Specifies the minimum value for a numeric attribute of users (e.g., a minimum number of roles or groups)"
+        },
+        "first" : {
+          "type": "integer",
+          "description": "The first user to retrieve."
+        },
+        "last" : {
+          "type": "integer",
+          "description": "The last user to retrieve."
+        },
+        "enabled" : {
+          "type": "boolean",
+          "description": "Whether to only include enabled users."
+        }
+      },
+      "response_type": "json"
+    },
+    "/admin/api/users/list" : {
+      "url": "/admin/api/users/list",
+      "description": "list of users within the system, providing essential details to facilitate user review and management.",
+      "query_params": {
+        "searchString" : {
+          "type": "string",
+          "description": "The search string to filter the users."
+        },
+        "ids" : {
+          "type": "string",
+          "description": "Comma-separated list of user IDs."
+        },
+        "minimum" : {
+          "type": "integer",
+          "description": "Specifies the minimum value for a numeric attribute of users (e.g., a minimum number of roles or groups)"
+        },
+        "first" : {
+          "type": "integer",
+          "description": "The first user to retrieve."
+        },
+        "last" : {
+          "type": "integer",
+          "description": "The last user to retrieve."
+        },
+        "enabled" : {
+          "type": "boolean",
+          "description": "Whether to only include enabled users."
+        }
+      },
+      "response_type": "json"
+    },
+    "/admin/api/users/:userId" : {
+      "url": "/admin/api/users/:userId",
+      "description": "Retrieves the user by providing the user ID.",
+      "query_params": {},
+      "response_type": "json"
+    },
+    "/authz/api/v1/users/permissions" : {
+      "url": "/authz/api/v1/users/permissions",
+      "description": "Retrieves the permissions for a specific user by providing the user ID.",
+      "query_params": {
+        "clientId" : {
+          "type": "string",
+          "description": "The client ID to filter the permissions by."
+        }
+      },
+      "response_type": "json"
+    },
+    "/admin/api/users/count" : {
+      "url": "/admin/api/users/count",
+      "description": "Retrieves the total number of users that match a given search string.",
+      "query_params": {
+        "searchString" : {
+          "type": "string",
+          "description": "The search string to filter the users."
+        }
+      },
+      "response_type": "json"
+    },
+    "/authz/api/v1/users/:userId/roles" : {
+      "url": "/authz/api/v1/users/:userId/roles",
+      "description": "Retrieves the roles for a specific user by providing the user ID.",
+      "query_params": {},
       "response_type": "json"
     }
   }

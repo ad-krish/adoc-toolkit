@@ -1,31 +1,32 @@
 """Get command implementation."""
 
 import json
-import shlex
-from pathlib import Path
+import os
+import re
 from typing import Any, Optional, Union
 
 from rich.console import Console
 from rich.table import Table
 
-from ...config import get_config_manager
 from ...http import ADOCHTTPClient
-from ...models import APIReference, CompletionItem, GetCommandArgs
+from ...http.formatter import ResponseFormatter
+from ...http.http_config import ResponseType
+from ...models import APIReference, CompletionItem
+from ...config import get_config_manager
 from .base import Command
 
 
 class GetCommand(Command):
-    """Make GET HTTP requests to ADOC API endpoints."""
+    """Get command for making HTTP GET requests."""
 
     def __init__(self, http_client: Optional[ADOCHTTPClient] = None):
-        """Initialize GetCommand.
-
+        """Initialize the get command.
+        
         Args:
             http_client: HTTP client for making requests
         """
-        self.http_client = http_client
+        self.http_client = http_client or ADOCHTTPClient()
         self.console = Console()
-        self._api_reference_cache = None
 
     @property
     def name(self) -> str:
@@ -33,86 +34,147 @@ class GetCommand(Command):
 
     @property
     def description(self) -> str:
-        return "Make GET HTTP requests to ADOC API endpoints"
+        return "Make HTTP GET requests to ADOC API endpoints"
 
     @property
     def aliases(self) -> list[str]:
-        return ["fetch", "request"]
+        return ["g"]
 
     def get_help(self) -> str:
-        return f"""\
-{self.name}: {self.description}
-
-Usage: {self.name} <url> [query-params]
-
-Options:
-  --help [url]            Show this help message, optionally for a specific URL
-
-Description:
-  Makes GET HTTP requests to ADOC API endpoints.
-  Requires an environment to be set using 'use <environment-name>'.
-  URLs are defined in config/adoc-toolkit-api-reference.json.
-  Query parameters are specified as key=value pairs.
-
-  Use '{self.name} --help <url>' to see available parameters for a URL.
-
-Examples:
-  {self.name} /catalog-server/api/assets/search name=Snowflake
-  {self.name} /catalog-server/api/assets/search name=Snowflake ids=1234567890
-
-Note: Set an environment first with 'use <environment-name>' before making requests.
-"""
+        """Get detailed help for get command."""
+        help_text = f"{self.name}: {self.description}\n"
+        help_text += "Usage: get <url> [path-params] [query-params]\n\n"
+        help_text += "Examples:\n"
+        help_text += "  get /catalog-server/api/assets/search\n"
+        help_text += "  get /catalog-server/api/assets/:asset-id/metadata asset-id=123\n"
+        help_text += "  get /catalog-server/api/assets/search ?name=test ?page=1\n"
+        help_text += "  get /catalog-server/api/assets/:asset-id/metadata asset-id=123 include_history=true\n\n"
+        help_text += "Path Parameters:\n"
+        help_text += "  - Use :param-name in URLs (e.g., :asset-id)\n"
+        help_text += "  - Provide values as param-name=value\n"
+        help_text += "  - If not provided, you'll be prompted interactively\n\n"
+        help_text += "Query Parameters:\n"
+        help_text += "  - Prefix with ? (e.g., ?name=value)\n"
+        help_text += "  - Or provide as key=value pairs\n"
+        return help_text
 
     def _load_api_reference(self) -> Optional[APIReference]:
-        """Load API reference from JSON file."""
-        if self._api_reference_cache is not None:
-            return self._api_reference_cache
-
-        config_path = Path("config/adoc-toolkit-api-reference.json")
-
-        if not config_path.exists():
-            return None
-
+        """Load API reference from configuration file."""
         try:
-            with open(config_path) as f:
+            config_path = os.path.join(
+                os.path.dirname(__file__), "..", "..", "..", "config", 
+                "adoc-toolkit-api-reference.json"
+            )
+            with open(config_path, "r") as f:
                 data = json.load(f)
-                self._api_reference_cache = APIReference.model_validate(data)
-                return self._api_reference_cache
+            return APIReference.model_validate(data)
         except Exception as e:
             self.console.print(f"Error loading API reference: {e}", style="red")
             return None
 
     def _parse_query_params(self, args: list[str]) -> dict[str, Any]:
-        """Parse query parameters from command arguments.
-
-        Args:
-            args: Command arguments after endpoint name
-
-        Returns:
-            Dictionary of query parameters
-        """
-        params = {}
-
+        """Parse query parameters from command arguments."""
+        query_params = {}
+        
         for arg in args:
-            if "=" in arg:
-                key, value = arg.split("=", 1)
-                key = key.strip()
-                value = value.strip()
-
-                # Try to convert to appropriate type
-                if value.lower() in ("true", "false"):
-                    params[key] = value.lower() == "true"
-                elif value.isdigit():
-                    params[key] = int(value)
-                elif value.replace(".", "").isdigit() and value.count(".") == 1:
-                    params[key] = float(value)
+            if arg.startswith("?"):
+                # Remove the ? prefix
+                param_str = arg[1:]
+                if "=" in param_str:
+                    key, value = param_str.split("=", 1)
+                    # Convert value to appropriate type
+                    if value.lower() == "true":
+                        query_params[key] = True
+                    elif value.lower() == "false":
+                        query_params[key] = False
+                    elif value.isdigit():
+                        query_params[key] = int(value)
+                    else:
+                        query_params[key] = value
                 else:
-                    params[key] = value
-            else:
-                # Single value without =, treat as boolean flag
-                params[arg] = True
+                    # Boolean parameter (e.g., ?verbose)
+                    query_params[param_str] = True
+            elif "=" in arg and not arg.startswith("?"):
+                # Check if this is a path parameter (no ? prefix)
+                key, value = arg.split("=", 1)
+                # We'll handle path parameters separately
+                pass
+        
+        return query_params
 
-        return params
+    def _parse_path_params(self, args: list[str]) -> dict[str, str]:
+        """Parse path parameters from command arguments."""
+        path_params = {}
+        
+        for arg in args:
+            if "=" in arg and not arg.startswith("?"):
+                key, value = arg.split("=", 1)
+                path_params[key] = value
+        
+        return path_params
+
+    def _extract_path_parameters(self, url: str) -> list[str]:
+        """Extract path parameter names from a URL.
+        
+        Args:
+            url: URL with potential path parameters
+            
+        Returns:
+            List of path parameter names found in the URL
+        """
+        # Find all :param-name patterns
+        pattern = r':([^/]+)'
+        return re.findall(pattern, url)
+
+    def _replace_path_parameters(self, url: str, path_params: dict[str, str]) -> str:
+        """Replace path parameters in a URL with actual values.
+        
+        Args:
+            url: URL with path parameters
+            path_params: Dictionary of parameter names to values
+            
+        Returns:
+            URL with path parameters replaced
+        """
+        result = url
+        for param_name, param_value in path_params.items():
+            placeholder = f":{param_name}"
+            result = result.replace(placeholder, str(param_value))
+        return result
+
+    def _prompt_for_missing_path_params(
+        self, 
+        url: str, 
+        provided_params: dict[str, str]
+    ) -> dict[str, str]:
+        """Prompt user for missing path parameters.
+        
+        Args:
+            url: URL with path parameters
+            provided_params: Already provided path parameters
+            
+        Returns:
+            Dictionary of all path parameters (provided + prompted)
+        """
+        path_params = self._extract_path_parameters(url)
+        missing_params = {}
+        
+        for param_name in path_params:
+            if param_name not in provided_params:
+                # Prompt user for the parameter value
+                self.console.print(f"\nValue for {param_name}:", style="yellow")
+                
+                # Get user input
+                user_input = input("Enter value (or press Enter to cancel): ").strip()
+                
+                if not user_input:
+                    # User cancelled
+                    return {}
+                
+                missing_params[param_name] = user_input
+        
+        # Combine provided and missing parameters
+        return {**provided_params, **missing_params}
 
     def _show_endpoint_help(self, url_path: str) -> None:
         """Show detailed help for a specific URL.
@@ -143,6 +205,13 @@ Note: Set an environment first with 'use <environment-name>' before making reque
         table.add_row("Description", endpoint.description)
         table.add_row("Response Type", endpoint.response_type)
 
+        # Check for path parameters
+        path_params = self._extract_path_parameters(url_path)
+        if path_params:
+            table.add_row("Path Parameters", "")
+            for param in path_params:
+                table.add_row(f"  {param}", f"Path parameter: {param}")
+
         if endpoint.query_params:
             table.add_row("Query Parameters", "")
             for param_name, param in endpoint.query_params.items():
@@ -164,453 +233,229 @@ Note: Set an environment first with 'use <environment-name>' before making reque
             self.console.print("Could not load API reference", style="red")
             return
 
-        table = Table(title="Available URLs")
-        table.add_column("URL", style="cyan")
-        table.add_column("Description", style="green")
-
-        for url, endpoint in api_ref.endpoints.items():
-            table.add_row(url, endpoint.description)
-
-        self.console.print(table)
+        self.console.print("Available URLs:", style="bold")
+        for url in api_ref.endpoints.keys():
+            endpoint = api_ref.endpoints[url]
+            self.console.print(f"  {url}")
+            self.console.print(f"    {endpoint.description}")
 
     def execute(self, args: list[str]) -> bool:
-        """Execute the get command."""
-        # Handle --help flag
-        if args and args[0] == "--help":
-            if len(args) > 1:
-                # Show help for specific endpoint
-                self._show_endpoint_help(args[1])
-            else:
-                # Show general help
-                print(self.get_help())
-                self._show_endpoints_list()
-            return True
-
+        """Execute the get command.
+        
+        Args:
+            args: Command arguments
+            
+        Returns:
+            True if command executed successfully, False otherwise
+        """
         if not args:
-            self.console.print("Error: URL required", style="red")
-            self.console.print("Usage: get <url> [query-params]", style="yellow")
-            self.console.print("Type 'get --help' for more information", style="yellow")
+            self.console.print("Usage: get <url> [path-params] [query-params]", style="red")
+            self.console.print("Use 'get --help' for more information")
             return True
 
+        # Handle help flag
+        if args[0] == "--help":
+            print(self.get_help())
+            return True
+
+        # Parse URL path
         url_path = args[0]
-        query_params = self._parse_query_params(args[1:]) if len(args) > 1 else {}
-
-        # Validate arguments
-        try:
-            GetCommandArgs(endpoint=url_path, query_params=query_params)
-        except Exception as e:
-            self.console.print(f"Error: {e}", style="red")
-            return True
+        
+        # Check if URL has path parameters
+        path_params_in_url = self._extract_path_parameters(url_path)
+        
+        # Parse remaining arguments
+        remaining_args = args[1:]
+        query_params = {}
+        path_params = {}
+        
+        for arg in remaining_args:
+            if arg.startswith("?"):
+                # Query parameter
+                param_str = arg[1:]
+                if "=" in param_str:
+                    key, value = param_str.split("=", 1)
+                    # Convert value to appropriate type
+                    if value.lower() == "true":
+                        query_params[key] = True
+                    elif value.lower() == "false":
+                        query_params[key] = False
+                    elif value.isdigit():
+                        query_params[key] = int(value)
+                    else:
+                        query_params[key] = value
+                else:
+                    # Boolean parameter (e.g., ?verbose)
+                    query_params[param_str] = True
+            elif "=" in arg and not arg.startswith("?"):
+                # Check if this is a path parameter
+                key, value = arg.split("=", 1)
+                if key in path_params_in_url:
+                    path_params[key] = value
+                else:
+                    # Treat as query parameter
+                    if value.lower() == "true":
+                        query_params[key] = True
+                    elif value.lower() == "false":
+                        query_params[key] = False
+                    elif value.isdigit():
+                        query_params[key] = int(value)
+                    else:
+                        query_params[key] = value
 
         # Load API reference
         api_ref = self._load_api_reference()
         if not api_ref:
-            self.console.print("Error: Could not load API reference", style="red")
-            return True
+            return False
 
         # Check if URL exists in API reference
         if url_path not in api_ref.endpoints:
-            self.console.print(f"Error: Unknown URL '{url_path}'", style="red")
-            self.console.print("Available URLs:", style="yellow")
-            for url in api_ref.endpoints.keys():
-                self.console.print(f"  {url}", style="yellow")
+            self.console.print(f"Unknown URL: {url_path}", style="red")
+            self.console.print("Use 'get --help' to see available URLs")
             return True
 
         endpoint = api_ref.endpoints[url_path]
-
-        # Validate query parameters against endpoint definition
-        for param_name, param_value in query_params.items():
-            if param_name not in endpoint.query_params:
-                self.console.print(
-                    f"Warning: Unknown parameter '{param_name}' for URL '{url_path}'",
-                    style="yellow",
-                )
-                continue
-
-            param_def = endpoint.query_params[param_name]
-            if param_def.options and param_value not in param_def.options:
-                self.console.print(
-                    f"Warning: Invalid value '{param_value}' for parameter "
-                    f"'{param_name}'",
-                    style="yellow",
-                )
-                self.console.print(
-                    f"Valid options: {', '.join(param_def.options)}", style="yellow"
-                )
+        
+        # Handle path parameters
+        if path_params_in_url:
+            # Prompt for missing path parameters
+            all_path_params = self._prompt_for_missing_path_params(url_path, path_params)
+            
+            if not all_path_params:
+                # User cancelled
+                self.console.print("Request cancelled by user", style="yellow")
+                return True
+            
+            # Replace path parameters in URL
+            final_url = self._replace_path_parameters(endpoint.url, all_path_params)
+        else:
+            final_url = endpoint.url
 
         # Make the HTTP request
         try:
-            if not self.http_client:
-                self.console.print("Error: HTTP client not available", style="red")
-                return True
-
-            response = self.http_client.get(endpoint.url, params=query_params)
-
-            # Display response
-            if response.is_success:
+            response = self.http_client.get(final_url, params=query_params)
+            
+            if response.is_success:                                
+                # Get response type from configuration
+                config_manager = get_config_manager()
+                response_type_str = config_manager.get("http.response.type")
+                if response_type_str is None:
+                    response_type_str = "json"  # Default fallback
+                
+                # Convert string to ResponseType enum
                 try:
-                    data = response.json()
-
-                    # Get response type from configuration
-                    config_manager = get_config_manager()
-                    response_type = config_manager.get("http.response.type")
-
-                    # Use response formatter
-                    from adoc_toolkit.http.formatter import ResponseFormatter
-
-                    formatter = ResponseFormatter(self.console)
-
-                    # Format and print response
-                    formatter.print_response(
-                        data=data,
-                        response_type=response_type,
-                        title="",
-                    )
+                    response_type = ResponseType(response_type_str.lower())
                 except ValueError:
-                    # Not JSON, show as text
-                    self.console.print(response.text)
+                    # Fallback to JSON if invalid response type
+                    response_type = ResponseType.JSON
+                
+                # Create response formatter
+                formatter = ResponseFormatter(self.console)
+                
+                # Check if response is JSON by looking at content-type header or trying to parse as JSON
+                content_type = response.headers.get('content-type', '').lower()
+                is_json_response = 'json' in content_type or 'application/json' in content_type
+                
+                if is_json_response:
+                    try:
+                        data = response.json()
+                        self.console.print("Response:", style="bold")
+                        formatter.print_response(data, response_type)
+                    except Exception as e:
+                        self.console.print(f"Error parsing JSON response: {e}", style="red")
+                        self.console.print("Raw response:")
+                        self.console.print(response.text)
+                else:
+                    # Try to parse as JSON anyway in case content-type is not set correctly
+                    try:
+                        data = response.json()
+                        self.console.print("Response:", style="bold")
+                        formatter.print_response(data, response_type)
+                    except Exception:
+                        # If JSON parsing fails, show as text
+                        self.console.print("Response:")
+                        self.console.print(response.text)
             else:
-                self.console.print(
-                    f"Request failed with status {response.status_code}", style="red"
-                )
+                self.console.print("❌ Request failed", style="red")
+                self.console.print(f"Status: {response.status_code}")
+                self.console.print(f"URL: {response.request_info.url}")
                 if response.text:
-                    self.console.print(response.text, style="red")
-                return True
-
+                    self.console.print("Error response:")
+                    self.console.print(response.text)
+                    
         except Exception as e:
-            error_msg = str(e)
-            if "No environment selected" in error_msg:
-                self.console.print("Error: No environment selected", style="red")
-                self.console.print(
-                    "Please set an environment first using:", style="yellow"
-                )
-                self.console.print("  use <environment-name>", style="yellow")
-                self.console.print("Available environments:", style="yellow")
-                self.console.print("  cs-india", style="yellow")
-                self.console.print("  training", style="yellow")
-                self.console.print("  se-demo", style="yellow")
-            else:
-                self.console.print(f"Error making request: {e}", style="red")
-            return True
+            self.console.print(f"❌ Error making request: {e}", style="red")
+            return False
 
         return True
+
+    def _get_already_provided_params(self, args: list[str]) -> set[str]:
+        """Extract already provided path parameters from command arguments.
+        
+        Args:
+            args: Command arguments
+            
+        Returns:
+            Set of parameter names that have already been provided
+        """
+        provided_params = set()
+        for arg in args:
+            if '=' in arg and not arg.startswith('?'):
+                param_name = arg.split('=')[0]
+                provided_params.add(param_name)
+        return provided_params
 
     def get_completions(
         self, current_input: str, cursor_position: int
     ) -> list[Union[str, CompletionItem]]:
-        """Get auto-completion suggestions for URLs and parameters with descriptions."""
+        """Get auto-completion suggestions.
+        
+        Args:
+            current_input: Current input string (full document text)
+            cursor_position: Current cursor position
+            
+        Returns:
+            List of completion suggestions
+        """
+        # Load API reference
         api_ref = self._load_api_reference()
         if not api_ref:
             return []
 
-        # Parse the input to get the current argument being typed
-        try:
-            parts = shlex.split(current_input[:cursor_position])
-        except ValueError:
-            # Handle unmatched quotes
-            parts = current_input[:cursor_position].split()
-
-        if not parts or parts[0] != self.name:
+        # Parse current input
+        parts = current_input.split()
+        
+        # If we don't have at least "get" command, return empty
+        if len(parts) < 1:
             return []
-
-        # If we're typing the first argument after "get"
-        if len(parts) == 2:
-            current_arg = parts[1]
-
-            # If the current argument contains a ?, it means we're typing
-            # query parameters
-            if "?" in current_arg:
-                # Find the endpoint that matches this URL
-                base_url = current_arg.split("?", 1)[0]
-                matching_endpoint = None
-                for endpoint_key, endpoint in api_ref.endpoints.items():
-                    if base_url == endpoint_key:
-                        matching_endpoint = endpoint
-                        break
-
-                if matching_endpoint:
-                    # Extract the part after ? for parameter completion
-                    query_part = current_arg.split("?", 1)[1]
-
-                    # Handle multiple parameters separated by &
-                    if "&" in query_part:
-                        # Get the last parameter being typed
-                        last_param = query_part.split("&")[-1]
-                        if "=" not in last_param:
-                            # We're typing a parameter name after &
-                            param_names = list(matching_endpoint.query_params.keys())
-                            if last_param:
-                                completions = [
-                                    CompletionItem(
-                                        text=param,
-                                        description=matching_endpoint.query_params[
-                                            param
-                                        ].description,
-                                    )
-                                    for param in param_names
-                                    if param.startswith(last_param)
-                                ]
-                            else:
-                                completions = [
-                                    CompletionItem(
-                                        text=param,
-                                        description=matching_endpoint.query_params[
-                                            param
-                                        ].description,
-                                    )
-                                    for param in param_names
-                                ]
-                            return completions
-                        else:
-                            # We're typing a parameter value after &
-                            param_name, param_value = last_param.split("=", 1)
-                            if param_name in matching_endpoint.query_params:
-                                param_def = matching_endpoint.query_params[param_name]
-                                if param_def.options:
-                                    if param_value:
-                                        completions = [
-                                            CompletionItem(
-                                                text=option,
-                                                description=f"Value for {param_name} "
-                                                f"parameter",
-                                            )
-                                            for option in param_def.options
-                                            if option.startswith(param_value)
-                                        ]
-                                    else:
-                                        completions = [
-                                            CompletionItem(
-                                                text=option,
-                                                description=f"Value for {param_name} "
-                                                f"parameter",
-                                            )
-                                            for option in param_def.options
-                                        ]
-                                    return completions
-                    elif "=" not in query_part:
-                        # We're typing a parameter name
-                        param_names = list(matching_endpoint.query_params.keys())
-                        if query_part:
-                            completions = [
-                                CompletionItem(
-                                    text=param,
-                                    description=matching_endpoint.query_params[
-                                        param
-                                    ].description,
-                                )
-                                for param in param_names
-                                if param.startswith(query_part)
-                            ]
-                        else:
-                            completions = [
-                                CompletionItem(
-                                    text=param,
-                                    description=matching_endpoint.query_params[
-                                        param
-                                    ].description,
-                                )
-                                for param in param_names
-                            ]
-                            return completions
-                    else:
-                        # We're typing a parameter value
-                        param_name, param_value = query_part.split("=", 1)
-                        if param_name in matching_endpoint.query_params:
-                            param_def = matching_endpoint.query_params[param_name]
-                            if param_def.options:
-                                if param_value:
-                                    completions = [
-                                        CompletionItem(
-                                            text=option,
-                                            description=f"Value for {param_name} "
-                                            f"parameter",
-                                        )
-                                        for option in param_def.options
-                                        if option.startswith(param_value)
-                                    ]
-                                else:
-                                    completions = [
-                                        CompletionItem(
-                                            text=option,
-                                            description=f"Value for {param_name} "
-                                            f"parameter",
-                                        )
-                                        for option in param_def.options
-                                    ]
-                                return completions
-
-            # Check if we're at the end of input with a space (indicating
-            # parameter completion)
-            if current_input.endswith(" "):
-                # Find the endpoint that matches this URL
-                for endpoint_key, endpoint in api_ref.endpoints.items():
-                    if current_arg == endpoint_key:
-                        # Return all param names for this endpoint with descriptions
-                        return [
-                            CompletionItem(
-                                text=param,
-                                description=endpoint.query_params[param].description,
-                            )
-                            for param in endpoint.query_params.keys()
-                        ]
-
-            # Regular URL completion with descriptions
-            url_keys = list(api_ref.endpoints.keys())
-
-            # Filter URLs that start with the current argument
-            if current_arg:
-                completions = [
-                    CompletionItem(
-                        text=url, description=api_ref.endpoints[url].description
-                    )
-                    for url in url_keys
-                    if url.startswith(current_arg)
-                ]
-            else:
-                completions = [
-                    CompletionItem(
-                        text=url, description=api_ref.endpoints[url].description
-                    )
-                    for url in url_keys
-                ]
-
-            return completions
-
-        # If we're typing query parameters
-        if len(parts) >= 2:
-            url_path = parts[1]
-
-            # Find the endpoint that matches this URL
-            matching_endpoint = None
-            # Strip query parameters for endpoint matching
-            base_url = url_path.split("?", 1)[0]
-            for endpoint_key, endpoint in api_ref.endpoints.items():
-                if base_url == endpoint_key:
-                    matching_endpoint = endpoint
-                    break
-
-            if matching_endpoint:
-                # Check if we're at the end of input with a space (indicating
-                # parameter completion)
-                if current_input.endswith(" "):
-                    # Return all param names for this endpoint with descriptions
-                    return [
-                        CompletionItem(
-                            text=param,
-                            description=matching_endpoint.query_params[
-                                param
-                            ].description,
-                        )
-                        for param in matching_endpoint.query_params.keys()
-                    ]
-
-                # Check if we're typing URL query parameters (after ?)
-                if "?" in url_path:
-                    # Extract the part after ? for parameter completion
-                    query_part = url_path.split("?", 1)[1]
-                    if "=" not in query_part:
-                        # We're typing a parameter name
-                        param_names = list(matching_endpoint.query_params.keys())
-                        if query_part:
-                            completions = [
-                                CompletionItem(
-                                    text=param,
-                                    description=matching_endpoint.query_params[
-                                        param
-                                    ].description,
-                                )
-                                for param in param_names
-                                if param.startswith(query_part)
-                            ]
-                        else:
-                            completions = [
-                                CompletionItem(
-                                    text=param,
-                                    description=matching_endpoint.query_params[
-                                        param
-                                    ].description,
-                                )
-                                for param in param_names
-                            ]
-                        return completions
-                    # We're typing a parameter value
-                    param_name, param_value = query_part.split("=", 1)
-                    if param_name in matching_endpoint.query_params:
-                        param_def = matching_endpoint.query_params[param_name]
-                        if param_def.options:
-                            if param_value:
-                                completions = [
-                                    CompletionItem(
-                                        text=option,
-                                        description=f"Value for {param_name} parameter",
-                                    )
-                                    for option in param_def.options
-                                    if option.startswith(param_value)
-                                ]
-                            else:
-                                completions = [
-                                    CompletionItem(
-                                        text=option,
-                                        description=f"Value for {param_name} parameter",
-                                    )
-                                    for option in param_def.options
-                                ]
-                            return completions
-
-                # Get current word being typed
-                current_word = ""
-                if len(parts) > 2:
-                    current_word = parts[-1]
-
-                # If we're typing a parameter name (before =)
-                if "=" not in current_word:
-                    param_names = list(matching_endpoint.query_params.keys())
-                    if current_word:
-                        completions = [
-                            CompletionItem(
-                                text=param,
-                                description=matching_endpoint.query_params[
-                                    param
-                                ].description,
-                            )
-                            for param in param_names
-                            if param.startswith(current_word)
-                        ]
-                    else:
-                        completions = [
-                            CompletionItem(
-                                text=param,
-                                description=matching_endpoint.query_params[
-                                    param
-                                ].description,
-                            )
-                            for param in param_names
-                        ]
-                    return completions
-
-                # If we're typing a parameter value (after =)
-                if "=" in current_word:
-                    param_name, param_value = current_word.split("=", 1)
-                    if param_name in matching_endpoint.query_params:
-                        param_def = matching_endpoint.query_params[param_name]
-                        if param_def.options:
-                            if param_value:
-                                completions = [
-                                    CompletionItem(
-                                        text=option,
-                                        description=f"Value for {param_name} parameter",
-                                    )
-                                    for option in param_def.options
-                                    if option.startswith(param_value)
-                                ]
-                            else:
-                                completions = [
-                                    CompletionItem(
-                                        text=option,
-                                        description=f"Value for {param_name} parameter",
-                                    )
-                                    for option in param_def.options
-                                ]
-                            return completions
-
-        return []
+        
+        # If we only have "get", return all available endpoints
+        if len(parts) == 1:
+            return list(api_ref.endpoints.keys())
+        
+        # Get the URL part (second argument)
+        url_part = parts[1]
+        
+        # If URL doesn't start with "/", return empty
+        if not url_part.startswith("/"):
+            return []
+        
+        # Get already provided parameters from remaining args
+        already_provided = self._get_already_provided_params(parts[2:])
+        
+        # Check if we have a complete URL and are at the end of the input
+        # This indicates we should show path parameters
+        if len(parts) >= 2 and url_part in api_ref.endpoints:
+            # Check if cursor is at or near the end of the input (after the URL)
+            # Allow for small differences due to trailing spaces
+            if cursor_position >= len(current_input) - 2:
+                params = self._extract_path_parameters(url_part)
+                return [param for param in params if param not in already_provided]
+        
+        # Otherwise, complete the URL path
+        matching_urls = [
+            url for url in api_ref.endpoints.keys() 
+            if url.startswith(url_part)
+        ]
+        
+        return matching_urls
