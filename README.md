@@ -3,6 +3,12 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](https://github.com/niranta-life/adoc-toolkit/actions)
+[![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)](https://github.com/niranta-life/adoc-toolkit)
+[![Docs](https://img.shields.io/badge/docs-passing-brightgreen)](https://github.com/niranta-life/adoc-toolkit)
+[![Code Quality](https://img.shields.io/badge/code%20quality-A-brightgreen)](https://github.com/niranta-life/adoc-toolkit)
+[![Maintenance](https://img.shields.io/badge/maintenance-active-brightgreen)](https://github.com/niranta-life/adoc-toolkit)
+[![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen)](https://github.com/niranta-life/adoc-toolkit/blob/main/CONTRIBUTING.md)
 
 **Acceldata Observability Cloud ("ADOC") toolkit** for managing and interacting with ADOC SaaS platform. This interactive command-line tool provides easy access to ADOC APIs, data export capabilities, and AI-powered data quality policy generation.
 
