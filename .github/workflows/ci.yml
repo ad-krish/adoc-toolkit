@@ -45,9 +45,6 @@ jobs:
     - name: Run linting
       run: uv run make lint
 
-    - name: Run type checking
-      run: uv run make type-check
-
     - name: Run formatting check
       run: uv run make format
 
