@@ -116,7 +116,7 @@
   },
   "llm": {
     "vendor": {
-      "value": "gemini",
+      "value": "grok",
       "description": "LLM vendor to use for AI operations",
       "type": "string",
       "options": [
@@ -142,11 +142,10 @@
       "description": "Model name for the selected LLM vendor",
       "type": "string",
       "options": [
-        "gemini-1.5-pro",
-        "gemini-1.5-flash",
-        "gemini-1.0-pro"
+        "grok-beta",
+        "grok-2"
       ],
-      "default": "gemini-1.5-pro"
+      "default": "grok-beta"
     },
     "temperature": {
       "value": 0.8,

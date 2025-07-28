@@ -89,9 +89,9 @@ class TestHumanResponseFormatting:
         test_data = {"name": "test", "value": 123}
         result = self.formatter._format_human(test_data)
 
-        assert "Error: Prompt file not found" in result
-        assert "JSON Data:" in result
+        assert "⚠️  Human-readable formatting unavailable: Prompt file not found" in result
         assert '"name": "test"' in result
+        assert '"value": 123' in result
 
     @patch("pathlib.Path.exists")
     @patch("builtins.open")
@@ -116,9 +116,9 @@ class TestHumanResponseFormatting:
         test_data = {"name": "test", "value": 123}
         result = self.formatter._format_human(test_data)
 
-        assert "Error: No LLM API key configured" in result
-        assert "JSON Data:" in result
+        assert "⚠️  Human-readable formatting unavailable: No LLM API key configured" in result
         assert '"name": "test"' in result
+        assert '"value": 123' in result
 
     @patch("pathlib.Path.exists")
     @patch("builtins.open")
@@ -152,10 +152,9 @@ class TestHumanResponseFormatting:
         test_data = {"name": "test", "value": 123}
         result = self.formatter._format_human(test_data)
 
-        assert "Error converting to human-readable format" in result
-        assert "LLM API error" in result
-        assert "JSON Data:" in result
+        assert "⚠️  Human-readable formatting failed: LLM API error" in result
         assert '"name": "test"' in result
+        assert '"value": 123' in result
 
     def test_format_human_json_serialization(self):
         """Test that human formatting properly serializes JSON data."""

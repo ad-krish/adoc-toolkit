@@ -124,14 +124,9 @@ class TestGetCommand:
             mock_print.assert_any_call("Unknown URL: /unknown", style="red")
 
     @patch.object(GetCommand, '_load_api_reference')
-    @patch('adoc_toolkit.cli.commands.get_command.get_config_manager')
-    def test_execute_successful_request(self, mock_get_config_manager, mock_load_api):
+    @patch('adoc_toolkit.http.formatter.ResponseFormatter.print_response_with_config')
+    def test_execute_successful_request(self, mock_print_response, mock_load_api):
         """Test successful request execution."""
-        # Mock config manager
-        mock_config_manager = Mock()
-        mock_config_manager.get.return_value = "json"
-        mock_get_config_manager.return_value = mock_config_manager
-        
         # Mock API reference
         mock_api_ref = Mock()
         mock_api_ref.endpoints = {
@@ -160,14 +155,9 @@ class TestGetCommand:
             self.http_client.get.assert_called_once_with("/test", params={})
 
     @patch.object(GetCommand, '_load_api_reference')
-    @patch('adoc_toolkit.cli.commands.get_command.get_config_manager')
-    def test_execute_with_query_params(self, mock_get_config_manager, mock_load_api):
+    @patch('adoc_toolkit.http.formatter.ResponseFormatter.print_response_with_config')
+    def test_execute_with_query_params(self, mock_print_response, mock_load_api):
         """Test execution with query parameters."""
-        # Mock config manager
-        mock_config_manager = Mock()
-        mock_config_manager.get.return_value = "json"
-        mock_get_config_manager.return_value = mock_config_manager
-        
         # Mock API reference
         mock_api_ref = Mock()
         mock_api_ref.endpoints = {
@@ -435,14 +425,9 @@ class TestGetCommand:
         assert "/test2" in completions
 
     @patch.object(GetCommand, '_load_api_reference')
-    @patch('adoc_toolkit.cli.commands.get_command.get_config_manager')
-    def test_execute_honors_response_type_config(self, mock_get_config_manager, mock_load_api):
+    @patch('adoc_toolkit.http.formatter.ResponseFormatter.print_response_with_config')
+    def test_execute_honors_response_type_config(self, mock_print_response, mock_load_api):
         """Test that get command honors http.response.type configuration."""
-        # Mock config manager with different response types
-        mock_config_manager = Mock()
-        mock_config_manager.get.return_value = "table"  # Set to table format
-        mock_get_config_manager.return_value = mock_config_manager
-        
         # Mock API reference
         mock_api_ref = Mock()
         mock_api_ref.endpoints = {
@@ -465,12 +450,8 @@ class TestGetCommand:
         mock_response.text = '{"data": {"test": "value", "nested": {"key": "value"}}}'
         self.http_client.get.return_value = mock_response
         
-        with patch.object(self.command.console, 'print') as mock_print:
-            result = self.command.execute(["/test"])
-            assert result is True
-            
-            # Verify that the config manager was called to get response type
-            mock_config_manager.get.assert_called_with("http.response.type")
-            
-            # Verify that the response was processed (print was called)
-            assert mock_print.called
+        result = self.command.execute(["/test"])
+        assert result is True
+        
+        # Verify that the response formatter was called
+        assert mock_print_response.called

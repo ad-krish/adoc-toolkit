@@ -102,7 +102,7 @@ class TestGetCommandPathParams:
         mock_response.is_success = True
         mock_response.status_code = 200
         mock_response.url = "/catalog-server/api/assets/123/metadata"
-        mock_response.content_type = "application/json"
+        mock_response.headers = {"content-type": "application/json"}
         mock_response.json.return_value = {"data": "test"}
         mock_response.text = '{"data": "test"}'
         self.http_client.get.return_value = mock_response
@@ -124,17 +124,18 @@ class TestGetCommandPathParams:
         with patch.object(self.command, '_load_api_reference', return_value=api_ref):
             with patch.object(self.command, '_prompt_for_missing_path_params', return_value={"asset-id": "123"}):
                 with patch.object(self.command.console, 'print'):
-                    result = self.command.execute([
-                        "/catalog-server/api/assets/:asset-id/metadata",
-                        "asset-id=123"
-                    ])
-                    assert result is True
+                    with patch('adoc_toolkit.http.formatter.ResponseFormatter.print_response_with_config'):
+                        result = self.command.execute([
+                            "/catalog-server/api/assets/:asset-id/metadata",
+                            "asset-id=123"
+                        ])
+                        assert result is True
 
-                    # Verify the correct URL was called
-                    self.http_client.get.assert_called_once_with(
-                        "/catalog-server/api/assets/123/metadata",
-                        params={}
-                    )
+                        # Verify the correct URL was called
+                        self.http_client.get.assert_called_once_with(
+                            "/catalog-server/api/assets/123/metadata",
+                            params={}
+                        )
 
     def test_execute_with_missing_path_params(self):
         """Test executing get command with missing path parameters."""
