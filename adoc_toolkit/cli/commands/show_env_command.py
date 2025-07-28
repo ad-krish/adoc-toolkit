@@ -1,6 +1,7 @@
 """Show environment command implementation."""
 
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from .base import Command
 
@@ -9,7 +10,7 @@ class ShowEnvCommand(Command):
     """Show current environment configuration with masked credentials."""
 
     def __init__(
-        self, environment_info_callback: Optional[Callable[[], dict[str, Any]]] = None
+        self, environment_info_callback: Callable[[], dict[str, Any]] | None = None
     ) -> None:
         """Initialize ShowEnvCommand.
 

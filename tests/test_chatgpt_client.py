@@ -1,9 +1,11 @@
 """Tests for ChatGPT LLM client."""
 
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+
 from adoc_toolkit.llm.client import ChatGPTLLMClient
-from adoc_toolkit.models import LLMRequest, LLMResponse, ChatGPTRequest
+from adoc_toolkit.models import ChatGPTRequest, LLMResponse
 
 
 class TestChatGPTLLMClient:
@@ -100,7 +102,7 @@ class TestChatGPTLLMClient:
             additional_params={"top_p": 0.9},
         )
 
-        response = self.client.generate_response(request)
+        self.client.generate_response(request)
 
         # Verify OpenAI was called with custom parameters
         call_args = mock_openai.ChatCompletion.create.call_args

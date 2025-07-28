@@ -1,7 +1,7 @@
 """Tracing utilities for command operations."""
 
 import threading
-from typing import Any, Optional
+from typing import Any
 
 from ..logs import LogLevel, get_logger, trace_operation
 
@@ -58,7 +58,7 @@ def reset_trace_depth() -> None:
 
 
 def format_trace_message(
-    operation: str, command_prefix: Optional[str] = None, **details: Any
+    operation: str, command_prefix: str | None = None, **details: Any
 ) -> tuple[str, dict[str, Any]]:
     """Format trace message with nesting indicators.
 
@@ -86,7 +86,7 @@ def format_trace_message(
 
 
 def trace_if_enabled(
-    operation: str, command_prefix: Optional[str] = None, **details: Any
+    operation: str, command_prefix: str | None = None, **details: Any
 ) -> None:
     """Trace operation only if TRACE level is enabled.
 

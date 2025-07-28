@@ -1,11 +1,11 @@
 """Tests for get command."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
+
 from rich.console import Console
 
 from adoc_toolkit.cli.commands.get_command import GetCommand
-from adoc_toolkit.models import APIReference, APIEndpoint, QueryParameter
+from adoc_toolkit.models import APIEndpoint, APIReference, QueryParameter
 
 
 class TestGetCommand:
@@ -360,7 +360,9 @@ class TestGetCommand:
             response_type="json",
         )
         mock_api_ref.endpoints = {
-            "/catalog-server/api/assets/:asset-id/users/:user-id/permissions": mock_endpoint
+            "/catalog-server/api/assets/:asset-id/users/:user-id/permissions": (
+                mock_endpoint
+            )
         }
         mock_load_api.return_value = mock_api_ref
 
@@ -383,13 +385,16 @@ class TestGetCommand:
             response_type="json",
         )
         mock_api_ref.endpoints = {
-            "/catalog-server/api/assets/:asset-id/users/:user-id/permissions": mock_endpoint
+            "/catalog-server/api/assets/:asset-id/users/:user-id/permissions": (
+                mock_endpoint
+            )
         }
         mock_load_api.return_value = mock_api_ref
 
         # Test path parameter completion when one parameter is already provided
         completions = self.command.get_completions(
-            "get /catalog-server/api/assets/:asset-id/users/:user-id/permissions asset-id=123 ",
+            "get /catalog-server/api/assets/:asset-id/users/:user-id/permissions "
+            "asset-id=123 ",
             85,
         )
         assert len(completions) == 1

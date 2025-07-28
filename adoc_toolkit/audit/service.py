@@ -16,8 +16,8 @@ class AuditLogger:
 
     def __init__(self) -> None:
         """Initialize audit logger."""
-        self._logger: Optional[logging.Logger] = None
-        self._current_logfile: Optional[str] = None
+        self._logger: logging.Logger | None = None
+        self._current_logfile: str | None = None
         self._setup_logger()
 
     @classmethod
@@ -100,9 +100,9 @@ class AuditLogger:
         self,
         method: str,
         url: str,
-        headers: Optional[dict[str, str]] = None,
-        user_id: Optional[str] = None,
-        ip_address: Optional[str] = None,
+        headers: dict[str, str] | None = None,
+        user_id: str | None = None,
+        ip_address: str | None = None,
     ) -> None:
         """Log HTTP request audit entry.
 
@@ -134,9 +134,9 @@ class AuditLogger:
         self,
         command_object: str,
         operation_type: str,
-        details: Optional[dict[str, Any]] = None,
-        user_id: Optional[str] = None,
-        ip_address: Optional[str] = None,
+        details: dict[str, Any] | None = None,
+        user_id: str | None = None,
+        ip_address: str | None = None,
     ) -> None:
         """Log a general operation audit entry.
 
@@ -164,7 +164,7 @@ class AuditLogger:
 
         self.log_entry(entry)
 
-    def _get_local_ip(self) -> Optional[str]:
+    def _get_local_ip(self) -> str | None:
         """Get local IP address.
 
         Returns:
@@ -194,9 +194,9 @@ def audit_enabled() -> bool:
 def log_http_request(
     method: str,
     url: str,
-    headers: Optional[dict[str, str]] = None,
-    user_id: Optional[str] = None,
-    ip_address: Optional[str] = None,
+    headers: dict[str, str] | None = None,
+    user_id: str | None = None,
+    ip_address: str | None = None,
 ) -> None:
     """Convenience function to log HTTP request."""
     get_audit_logger().log_http_request(method, url, headers, user_id, ip_address)
@@ -205,9 +205,9 @@ def log_http_request(
 def log_operation(
     command_object: str,
     operation_type: str,
-    details: Optional[dict[str, Any]] = None,
-    user_id: Optional[str] = None,
-    ip_address: Optional[str] = None,
+    details: dict[str, Any] | None = None,
+    user_id: str | None = None,
+    ip_address: str | None = None,
 ) -> None:
     """Convenience function to log general operation."""
     get_audit_logger().log_operation(

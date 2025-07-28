@@ -1,7 +1,6 @@
 """LLM configuration model."""
 
 from enum import Enum
-from typing import Optional, Dict, List
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -21,17 +20,17 @@ class LLMConfig(BaseModel):
     vendor: LLMVendor = Field(
         default=LLMVendor.GEMINI, description="LLM vendor to use for AI operations"
     )
-    apikey: Optional[str] = Field(
+    apikey: str | None = Field(
         default=None, description="API key for the selected LLM vendor"
     )
-    model: Optional[str] = Field(
+    model: str | None = Field(
         default=None, description="Model name for the selected LLM vendor"
     )
     temperature: float = Field(
         default=0.2, description="Temperature for LLM response generation (0.0 to 2.0)"
     )
     # Configurable model options - can be overridden from config file
-    model_options: Optional[Dict[str, List[str]]] = Field(
+    model_options: dict[str, list[str]] | None = Field(
         default=None, description="Available models for each vendor (configurable)"
     )
 
@@ -43,7 +42,7 @@ class LLMConfig(BaseModel):
 
     @field_validator("apikey")
     @classmethod
-    def validate_apikey(cls, v: Optional[str]) -> Optional[str]:
+    def validate_apikey(cls, v: str | None) -> str | None:
         """Validate API key format."""
         if v is not None and not v.strip():
             return None
@@ -53,7 +52,7 @@ class LLMConfig(BaseModel):
     @classmethod
     def validate_temperature(cls, v: float) -> float:
         """Validate temperature is within valid range."""
-        if not isinstance(v, (int, float)):
+        if not isinstance(v, int | float):
             raise ValueError("Temperature must be a number")
         if v < 0.0 or v > 2.0:
             raise ValueError("Temperature must be between 0.0 and 2.0")
@@ -61,7 +60,7 @@ class LLMConfig(BaseModel):
 
     @field_validator("model")
     @classmethod
-    def validate_model(cls, v: Optional[str], info) -> Optional[str]:
+    def validate_model(cls, v: str | None, info) -> str | None:
         """Validate model based on vendor."""
         if v is None:
             # Set default model based on vendor
@@ -122,7 +121,7 @@ class LLMConfig(BaseModel):
         }
         return default_model_options.get(self.vendor, ["gemini-1.5-pro"])
 
-    def get_all_model_options(self) -> Dict[str, List[str]]:
+    def get_all_model_options(self) -> dict[str, list[str]]:
         """Get all model options for all vendors."""
         if self.model_options:
             return self.model_options

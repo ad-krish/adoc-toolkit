@@ -1,7 +1,7 @@
 """Tests for find-asset command."""
 
-import pytest
 from unittest.mock import Mock, patch
+
 from adoc_toolkit.cli.commands.find_asset_command import FindAssetCommand
 
 
@@ -66,7 +66,7 @@ class TestFindAssetCommand:
 
         self.http_client.get.return_value = mock_response
 
-        with patch("builtins.print") as mock_print:
+        with patch("builtins.print"):
             result = self.command.execute(["test_database"])
             assert result is True
 
@@ -120,7 +120,7 @@ class TestFindAssetCommand:
 
     def test_display_results_with_multiple_assets(self):
         """Test displaying multiple search results."""
-        from adoc_toolkit.models import AssetSearchResponse, Asset, AssetType
+        from adoc_toolkit.models import Asset, AssetSearchResponse, AssetType
 
         response_data = AssetSearchResponse(
             assets=[
@@ -147,7 +147,7 @@ class TestFindAssetCommand:
 
     def test_display_results_with_long_values(self):
         """Test displaying results with long values that need truncation."""
-        from adoc_toolkit.models import AssetSearchResponse, Asset, AssetType
+        from adoc_toolkit.models import Asset, AssetSearchResponse, AssetType
 
         response_data = AssetSearchResponse(
             assets=[

@@ -1,7 +1,6 @@
 """Tests for history command."""
 
 import json
-import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -524,7 +523,7 @@ def test_parse_executions_args() -> None:
     assert cmd._parse_executions_args(["--executions", "100"]) == 100
 
     # Test invalid page sizes (should use default)
-    with patch("builtins.print") as mock_print:
+    with patch("builtins.print"):
         assert cmd._parse_executions_args(["--executions", "15"]) == 25
         assert cmd._parse_executions_args(["--executions", "200"]) == 25
         assert cmd._parse_executions_args(["--executions", "abc"]) == 25
@@ -532,7 +531,11 @@ def test_parse_executions_args() -> None:
 
 def test_command_truncation() -> None:
     """Test that long commands are truncated in display."""
-    long_command = "export-execution-metrics --output-type csv --output-dir /very/long/path/to/directory --output-filename very-long-filename-template"
+    long_command = (
+        "export-execution-metrics --output-type csv "
+        "--output-dir /very/long/path/to/directory "
+        "--output-filename very-long-filename-template"
+    )
 
     execution = CommandExecution(
         command=long_command,
@@ -736,7 +739,7 @@ def test_execution_pagination_all_pages() -> None:
     with patch.object(
         cmd, "_wait_for_keypress", side_effect=[True, True, False]
     ) as mock_wait:
-        with patch("builtins.print") as mock_print:
+        with patch("builtins.print"):
             result = cmd.execute(["--executions", "25"])
             assert result is True
 

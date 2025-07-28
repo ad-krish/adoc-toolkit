@@ -1,6 +1,6 @@
 """Command response models."""
 
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -10,17 +10,17 @@ class CommandResponse(BaseModel):
 
     success: bool = Field(description="Whether the command executed successfully")
     message: str = Field(description="Response message")
-    data: Optional[dict[str, Any]] = Field(default=None, description="Response data")
+    data: dict[str, Any] | None = Field(default=None, description="Response data")
 
 
 class CompletionItem(BaseModel):
     """Model for auto-completion items with descriptions."""
 
     text: str = Field(description="Completion text to insert")
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None, description="Description to display in completion menu"
     )
-    display_text: Optional[str] = Field(
+    display_text: str | None = Field(
         default=None,
         description="Text to display in completion menu (if different from text)",
     )

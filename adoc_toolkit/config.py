@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -13,7 +13,7 @@ from .models.llm_config import LLMConfig
 class ConfigManager:
     """Manages persistent configuration settings for ADOC Toolkit."""
 
-    def __init__(self, config_file: Optional[Path] = None) -> None:
+    def __init__(self, config_file: Path | None = None) -> None:
         """Initialize configuration manager.
 
         Args:
@@ -24,7 +24,7 @@ class ConfigManager:
         self._config = ConfigurationData()
         self._load_config()
 
-    def _resolve_config_file(self, config_file: Optional[Path]) -> Path:
+    def _resolve_config_file(self, config_file: Path | None) -> Path:
         """Resolve the configuration file path.
 
         Args:
@@ -280,7 +280,7 @@ class ConfigManager:
         # Fall back to regular get
         return self._config.get(key)
 
-    def get_with_metadata(self, key: str) -> Optional[ConfigItem]:
+    def get_with_metadata(self, key: str) -> ConfigItem | None:
         """Get a configuration value with metadata by dot-notation key.
 
         Args:
@@ -532,10 +532,10 @@ class ConfigManager:
 
 
 # Global configuration manager instance - will be initialized when needed
-config_manager: Optional[ConfigManager] = None
+config_manager: ConfigManager | None = None
 
 
-def get_config_manager(config_file: Optional[Path] = None) -> ConfigManager:
+def get_config_manager(config_file: Path | None = None) -> ConfigManager:
     """Get or create the global configuration manager instance.
 
     Args:
@@ -550,7 +550,7 @@ def get_config_manager(config_file: Optional[Path] = None) -> ConfigManager:
     return config_manager
 
 
-def reset_config_manager(config_file: Optional[Path] = None) -> ConfigManager:
+def reset_config_manager(config_file: Path | None = None) -> ConfigManager:
     """Reset the global configuration manager with a new config file.
 
     Args:

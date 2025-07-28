@@ -5,7 +5,7 @@ import threading
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 # get_config_manager imported locally to avoid circular import
 from .log_config import LogConfig, LogLevel
@@ -25,7 +25,7 @@ class TimedRotatingHandler(logging.Handler):
         self.filename = filename
         self.rotate_minutes = rotate_minutes
         self.base_filename = filename
-        self.current_handler: Optional[logging.FileHandler] = None
+        self.current_handler: logging.FileHandler | None = None
         self.last_rotation = datetime.now()
         self.lock: threading.Lock = threading.Lock()
         self._setup_handler()
@@ -132,8 +132,8 @@ class TracerLogger:
 
     def __init__(self) -> None:
         """Initialize tracer logger."""
-        self._logger: Optional[logging.Logger] = None
-        self._current_config: Optional[LogConfig] = None
+        self._logger: logging.Logger | None = None
+        self._current_config: LogConfig | None = None
         self._setup_logger()
 
     @classmethod
@@ -322,7 +322,7 @@ class TracerLogger:
         self.trace(operation, **details)
 
     def trace_http_request(
-        self, method: str, url: str, status_code: Optional[int] = None, **details: Any
+        self, method: str, url: str, status_code: int | None = None, **details: Any
     ) -> None:
         """Trace HTTP request."""
         status_info = f" -> {status_code}" if status_code else ""
@@ -337,7 +337,7 @@ class TracerLogger:
         )
 
     def trace_error(
-        self, operation: str, error: Union[str, Exception], **details: Any
+        self, operation: str, error: str | Exception, **details: Any
     ) -> None:
         """Trace errors."""
         error_msg = str(error)
@@ -376,7 +376,7 @@ def trace_operation(operation: str, **details: Any) -> None:
 
 
 def trace_http_request(
-    method: str, url: str, status_code: Optional[int] = None, **details: Any
+    method: str, url: str, status_code: int | None = None, **details: Any
 ) -> None:
     """Convenience function to trace HTTP request."""
     get_logger().trace_http_request(method, url, status_code, **details)
@@ -389,7 +389,7 @@ def trace_config_change(
     get_logger().trace_config_change(key, old_value, new_value, **details)
 
 
-def trace_error(operation: str, error: Union[str, Exception], **details: Any) -> None:
+def trace_error(operation: str, error: str | Exception, **details: Any) -> None:
     """Convenience function to trace error."""
     get_logger().trace_error(operation, error, **details)
 

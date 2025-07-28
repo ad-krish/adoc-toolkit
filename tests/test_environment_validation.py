@@ -1,8 +1,8 @@
 """Tests for environment configuration validation."""
 
-import pytest
 from pathlib import Path
-from unittest.mock import patch, mock_open
+from unittest.mock import mock_open, patch
+
 from adoc_toolkit.cli.environment_validator import EnvironmentValidator
 
 

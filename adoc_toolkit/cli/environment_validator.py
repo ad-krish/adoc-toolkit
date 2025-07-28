@@ -2,7 +2,7 @@
 
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from urllib.parse import urlparse
 
 import yaml
@@ -14,8 +14,8 @@ class EnvironmentValidationError(Exception):
     def __init__(
         self,
         message: str,
-        line_number: Optional[int] = None,
-        field_path: Optional[str] = None,
+        line_number: int | None = None,
+        field_path: str | None = None,
     ):
         self.message = message
         self.line_number = line_number
@@ -33,19 +33,19 @@ class EnvironmentValidator:
             config_path: Path to the environments.yaml file
         """
         self.config_path = config_path
-        self._file_lines: Optional[List[str]] = None
+        self._file_lines: list[str] | None = None
 
-    def _load_file_lines(self) -> List[str]:
+    def _load_file_lines(self) -> list[str]:
         """Load the file lines for line number reporting."""
         if self._file_lines is None:
             try:
-                with open(self.config_path, "r") as f:
+                with open(self.config_path) as f:
                     self._file_lines = f.readlines()
             except Exception:
                 self._file_lines = []
         return self._file_lines
 
-    def _find_line_number(self, field_path: str, value: str) -> Optional[int]:
+    def _find_line_number(self, field_path: str, value: str) -> int | None:
         """Find the line number for a specific field and value.
 
         Args:
@@ -79,7 +79,7 @@ class EnvironmentValidator:
 
         return None
 
-    def validate_config(self) -> Tuple[bool, List[str]]:
+    def validate_config(self) -> tuple[bool, list[str]]:
         """Validate the environment configuration.
 
         Returns:
@@ -98,7 +98,7 @@ class EnvironmentValidator:
 
         # Try to load YAML
         try:
-            with open(self.config_path, "r") as f:
+            with open(self.config_path) as f:
                 config_data = yaml.safe_load(f)
         except yaml.YAMLError as e:
             line_number = getattr(e, "line", None)
@@ -142,7 +142,7 @@ class EnvironmentValidator:
 
         return len(errors) == 0, errors
 
-    def _validate_structure(self, config_data: Any) -> List[str]:
+    def _validate_structure(self, config_data: Any) -> list[str]:
         """Validate the basic structure of the configuration."""
         errors = []
 
@@ -156,17 +156,17 @@ class EnvironmentValidator:
 
         if "environments" not in config_data:
             errors.append(
-                f"❌ Missing required section:\n"
-                f"   The 'environments' section is required but not found.\n"
-                f"   Add this section to your configuration:\n"
-                f"   ```yaml\n"
-                f"   environments:\n"
-                f"     your-env-name:\n"
-                f"       name: your-env-name\n"
-                f"       base_url: https://your-instance.acceldata.app\n"
-                f"       access_key: YOUR_ADOC_ACCESS_KEY\n"
-                f"       secret_key: YOUR_ADOC_SECRET_KEY\n"
-                f"   ```"
+                "❌ Missing required section:\n"
+                "   The 'environments' section is required but not found.\n"
+                "   Add this section to your configuration:\n"
+                "   ```yaml\n"
+                "   environments:\n"
+                "     your-env-name:\n"
+                "       name: your-env-name\n"
+                "       base_url: https://your-instance.acceldata.app\n"
+                "       access_key: YOUR_ADOC_ACCESS_KEY\n"
+                "       secret_key: YOUR_ADOC_SECRET_KEY\n"
+                "   ```"
             )
             return errors
 
@@ -181,24 +181,25 @@ class EnvironmentValidator:
 
         if not environments:
             errors.append(
-                f"❌ No environments defined:\n"
-                f"   The 'environments' section is empty.\n"
-                f"   Please add at least one environment to the 'environments' section.\n"
-                f"   Example:\n"
-                f"   ```yaml\n"
-                f"   environments:\n"
-                f"     dev:\n"
-                f"       name: dev\n"
-                f"       base_url: https://dev.acceldata.app\n"
-                f"       access_key: DEV123456789\n"
-                f"       secret_key: DEVSECRET123456789\n"
-                f"   ```"
+                "❌ No environments defined:\n"
+                "   The 'environments' section is empty.\n"
+                "   Please add at least one environment to the 'environments' "
+                "section.\n"
+                "   Example:\n"
+                "   ```yaml\n"
+                "   environments:\n"
+                "     dev:\n"
+                "       name: dev\n"
+                "       base_url: https://dev.acceldata.app\n"
+                "       access_key: DEV123456789\n"
+                "       secret_key: DEVSECRET123456789\n"
+                "   ```"
             )
             return errors
 
         return errors
 
-    def _validate_environments(self, environments: Dict[str, Any]) -> List[str]:
+    def _validate_environments(self, environments: dict[str, Any]) -> list[str]:
         """Validate each environment configuration."""
         errors = []
 
@@ -208,7 +209,7 @@ class EnvironmentValidator:
 
         return errors
 
-    def _validate_single_environment(self, env_name: str, env_config: Any) -> List[str]:
+    def _validate_single_environment(self, env_name: str, env_config: Any) -> list[str]:
         """Validate a single environment configuration."""
         errors = []
 
@@ -249,8 +250,8 @@ class EnvironmentValidator:
         return errors
 
     def _validate_environment_fields(
-        self, env_name: str, env_config: Dict[str, Any]
-    ) -> List[str]:
+        self, env_name: str, env_config: dict[str, Any]
+    ) -> list[str]:
         """Validate individual fields of an environment."""
         errors = []
 
@@ -259,7 +260,8 @@ class EnvironmentValidator:
             line_num = self._find_line_number(f"environments.{env_name}", env_name)
             errors.append(
                 f"❌ Invalid environment name '{env_name}':\n"
-                f"   Environment names can only contain letters, numbers, hyphens, and underscores.\n"
+                f"   Environment names can only contain letters, numbers, hyphens, "
+                f"and underscores.\n"
                 f"   Please use a name like 'dev', 'staging', or 'production'."
                 + (f"\n   Line: {line_num}" if line_num else "")
             )
@@ -356,10 +358,10 @@ class EnvironmentValidator:
                 )
                 errors.append(
                     f"❌ Invalid 'access_key' in environment '{env_name}':\n"
-                    f"   Access key should contain only uppercase letters and numbers.\n"
+                    f"   Access key should contain only uppercase letters and "
+                    f"numbers.\n"
                     f"   Current: '{access_key}'\n"
                     f"   Example: 'ABC123456789'"
-                    + (f"\n   Line: {line_num}" if line_num else "")
                 )
             elif len(access_key) < 8:
                 line_num = self._find_line_number(
@@ -392,10 +394,10 @@ class EnvironmentValidator:
                 )
                 errors.append(
                     f"❌ Invalid 'secret_key' in environment '{env_name}':\n"
-                    f"   Secret key should contain only uppercase letters and numbers.\n"
+                    f"   Secret key should contain only uppercase letters and "
+                    f"numbers.\n"
                     f"   Current: '{secret_key}'\n"
                     f"   Example: 'SECRET123456789'"
-                    + (f"\n   Line: {line_num}" if line_num else "")
                 )
             elif len(secret_key) < 8:
                 line_num = self._find_line_number(
@@ -411,7 +413,7 @@ class EnvironmentValidator:
 
         return errors
 
-    def _validate_default_environment(self, config_data: Dict[str, Any]) -> List[str]:
+    def _validate_default_environment(self, config_data: dict[str, Any]) -> list[str]:
         """Validate the default_environment field."""
         errors = []
 
@@ -433,7 +435,8 @@ class EnvironmentValidator:
                 line_num = self._find_line_number("default_environment", default_env)
                 errors.append(
                     f"❌ Invalid 'default_environment':\n"
-                    f"   Environment '{default_env}' does not exist in the environments list.\n"
+                    f"   Environment '{default_env}' does not exist in the "
+                    f"environments list.\n"
                     f"   Available environments: {list(environments.keys())}"
                     + (f"\n   Line: {line_num}" if line_num else "")
                 )
@@ -441,7 +444,7 @@ class EnvironmentValidator:
         return errors
 
 
-def validate_environments_at_startup() -> Tuple[bool, List[str]]:
+def validate_environments_at_startup() -> tuple[bool, list[str]]:
     """Validate environments.yaml at startup.
 
     Returns:
@@ -452,7 +455,7 @@ def validate_environments_at_startup() -> Tuple[bool, List[str]]:
     return validator.validate_config()
 
 
-def load_default_environment() -> Optional[Tuple[str, Dict[str, Any]]]:
+def load_default_environment() -> tuple[str, dict[str, Any]] | None:
     """Load the default environment from environments.yaml.
 
     Returns:
@@ -464,7 +467,7 @@ def load_default_environment() -> Optional[Tuple[str, Dict[str, Any]]]:
         return None
 
     try:
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             config_data = yaml.safe_load(f)
 
         if not config_data or not isinstance(config_data, dict):

@@ -3,9 +3,8 @@
 import csv
 import io
 import json
-import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from rich.console import Console
 from rich.table import Table
@@ -16,7 +15,7 @@ from .http_config import ResponseType
 class ResponseFormatter:
     """Formats HTTP responses for console output."""
 
-    def __init__(self, console: Optional[Console] = None):
+    def __init__(self, console: Console | None = None):
         """Initialize response formatter.
 
         Args:
@@ -28,7 +27,7 @@ class ResponseFormatter:
         self,
         data: Any,
         response_type: ResponseType = ResponseType.JSON,
-        title: Optional[str] = None,
+        title: str | None = None,
     ) -> str:
         """Format response data according to the specified type.
 
@@ -67,16 +66,25 @@ class ResponseFormatter:
             # Load the system prompt
             prompt_file = Path("config/prompts/json_to_human_system.txt")
             if not prompt_file.exists():
-                warning = f"⚠️  Human-readable formatting unavailable: Prompt file not found at {prompt_file}\n"
-                warning += "   To enable human-readable responses, ensure the prompt file exists.\n"
+                warning = (
+                    f"⚠️  Human-readable formatting unavailable: Prompt file not "
+                    f"found at {prompt_file}\n"
+                )
+                warning += (
+                    "   To enable human-readable responses, ensure the prompt file "
+                    "exists.\n"
+                )
                 warning += "   Falling back to JSON format.\n\n"
                 return warning + json_data
 
-            with open(prompt_file, "r", encoding="utf-8") as f:
+            with open(prompt_file, encoding="utf-8") as f:
                 system_prompt = f.read().strip()
 
             # Create user prompt with the JSON data
-            user_prompt = f"Please convert the following JSON API response to human-readable format:\n\n{json_data}"
+            user_prompt = (
+                f"Please convert the following JSON API response to "
+                f"human-readable format:\n\n{json_data}"
+            )
 
             # Get LLM client and configuration
             from ..config import get_config_manager
@@ -100,7 +108,10 @@ class ResponseFormatter:
                 temperature = 0.2
 
             if not api_key:
-                warning = f"⚠️  Human-readable formatting unavailable: No LLM API key configured.\n"
+                warning = (
+                    "⚠️  Human-readable formatting unavailable: No LLM API key "
+                    "configured.\n"
+                )
                 warning += "   To enable human-readable responses, set your API key:\n"
                 warning += "   set-config llm.apikey <your-api-key>\n"
                 warning += "   Falling back to JSON format.\n\n"
@@ -156,7 +167,7 @@ class ResponseFormatter:
             # Fallback for non-serializable data
             return str(data)
 
-    def _format_table(self, data: Any, title: Optional[str] = None) -> str:
+    def _format_table(self, data: Any, title: str | None = None) -> str:
         """Format data as a Rich table with intelligent flattening.
 
         Args:
@@ -207,7 +218,7 @@ class ResponseFormatter:
                         item_prefix = f"{current_path}[{i}]"
                         item_flattened = self._flatten_dict(item, item_prefix)
                         flattened.extend(item_flattened)
-                elif all(isinstance(v, (str, int, float, bool)) for v in value):
+                elif all(isinstance(v, str | int | float | bool) for v in value):
                     # Simple list of primitives
                     flattened.append((current_path, value))
                 else:
@@ -220,7 +231,7 @@ class ResponseFormatter:
         return flattened
 
     def _format_dict_as_table(
-        self, data: dict[str, Any], title: Optional[str] = None
+        self, data: dict[str, Any], title: str | None = None
     ) -> str:
         """Format dictionary as table with intelligent flattening.
 
@@ -238,7 +249,7 @@ class ResponseFormatter:
         flattened_data = self._flatten_dict(data)
 
         for key_path, value in flattened_data:
-            if isinstance(value, (dict, list)):
+            if isinstance(value, dict | list):
                 # Format complex nested structures as JSON
                 value_str = json.dumps(value, ensure_ascii=False, indent=None)
                 # Truncate if too long
@@ -256,7 +267,7 @@ class ResponseFormatter:
         return capture.get()
 
     def _format_list_as_table(
-        self, data: list[Any], title: Optional[str] = None
+        self, data: list[Any], title: str | None = None
     ) -> str:
         """Format list as table with intelligent flattening.
 
@@ -278,7 +289,7 @@ class ResponseFormatter:
             return self._format_simple_list_as_table(data, title)
 
     def _format_dict_list_as_table(
-        self, data: list[dict[str, Any]], title: Optional[str] = None
+        self, data: list[dict[str, Any]], title: str | None = None
     ) -> str:
         """Format list of dictionaries as table with intelligent flattening.
 
@@ -305,7 +316,7 @@ class ResponseFormatter:
             return self._format_dict_list_horizontally(data, title)
 
     def _format_dict_list_vertically(
-        self, data: list[dict[str, Any]], title: Optional[str] = None
+        self, data: list[dict[str, Any]], title: str | None = None
     ) -> str:
         """Format list of dictionaries vertically (one row per item per key).
 
@@ -325,7 +336,7 @@ class ResponseFormatter:
             flattened_item = self._flatten_dict(item)
 
             for key_path, value in flattened_item:
-                if isinstance(value, (dict, list)):
+                if isinstance(value, dict | list):
                     value_str = json.dumps(value, ensure_ascii=False, indent=None)
                     if len(value_str) > 37:
                         value_str = value_str[:34] + "..."
@@ -341,7 +352,7 @@ class ResponseFormatter:
         return capture.get()
 
     def _format_dict_list_horizontally(
-        self, data: list[dict[str, Any]], title: Optional[str] = None
+        self, data: list[dict[str, Any]], title: str | None = None
     ) -> str:
         """Format list of dictionaries horizontally (one row per item).
 
@@ -369,7 +380,7 @@ class ResponseFormatter:
             row_values = []
             for col in columns:
                 value = item.get(col, "")
-                if isinstance(value, (dict, list)):
+                if isinstance(value, dict | list):
                     value_str = json.dumps(value, ensure_ascii=False, indent=None)
                     if len(value_str) > 17:
                         value_str = value_str[:14] + "..."
@@ -385,7 +396,7 @@ class ResponseFormatter:
         return capture.get()
 
     def _format_simple_list_as_table(
-        self, data: list[Any], title: Optional[str] = None
+        self, data: list[Any], title: str | None = None
     ) -> str:
         """Format simple list as table.
 
@@ -401,7 +412,7 @@ class ResponseFormatter:
         table.add_column("Value", style="white", width=60)
 
         for i, item in enumerate(data):
-            if isinstance(item, (dict, list)):
+            if isinstance(item, dict | list):
                 value_str = json.dumps(item, ensure_ascii=False, indent=None)
                 if len(value_str) > 57:
                     value_str = value_str[:54] + "..."
@@ -416,7 +427,7 @@ class ResponseFormatter:
             plain_console.print(table)
         return capture.get()
 
-    def _format_csv(self, data: Any, title: Optional[str] = None) -> str:
+    def _format_csv(self, data: Any, title: str | None = None) -> str:
         """Format data as CSV with intelligent flattening.
 
         Args:
@@ -437,7 +448,7 @@ class ResponseFormatter:
             writer.writerow(["Key", "Value"])
             flattened_data = self._flatten_dict(data)
             for key_path, value in flattened_data:
-                if isinstance(value, (dict, list)):
+                if isinstance(value, dict | list):
                     value_str = json.dumps(value, ensure_ascii=False)
                 else:
                     value_str = str(value)
@@ -452,7 +463,7 @@ class ResponseFormatter:
                 for i, item in enumerate(data):
                     flattened_item = self._flatten_dict(item)
                     for key_path, value in flattened_item:
-                        if isinstance(value, (dict, list)):
+                        if isinstance(value, dict | list):
                             value_str = json.dumps(value, ensure_ascii=False)
                         else:
                             value_str = str(value)
@@ -461,7 +472,7 @@ class ResponseFormatter:
                 # Simple list
                 writer.writerow(["Index", "Value"])
                 for i, item in enumerate(data):
-                    if isinstance(item, (dict, list)):
+                    if isinstance(item, dict | list):
                         value_str = json.dumps(item, ensure_ascii=False)
                     else:
                         value_str = str(item)
@@ -477,7 +488,7 @@ class ResponseFormatter:
         self,
         data: Any,
         response_type: ResponseType = ResponseType.JSON,
-        title: Optional[str] = None,
+        title: str | None = None,
     ) -> None:
         """Print formatted response to console.
 
@@ -492,7 +503,7 @@ class ResponseFormatter:
     def print_response_with_config(
         self,
         data: Any,
-        title: Optional[str] = None,
+        title: str | None = None,
     ) -> None:
         """Print formatted response using configuration-based response type.
 

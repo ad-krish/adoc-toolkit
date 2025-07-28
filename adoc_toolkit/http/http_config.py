@@ -1,7 +1,6 @@
 """HTTP configuration model."""
 
 from enum import Enum
-from typing import Optional
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator
@@ -30,7 +29,7 @@ class HTTPConfig(BaseModel):
 
     timeout: int = Field(default=120, description="Request timeout in seconds")
     retries: int = Field(default=3, description="Number of retry attempts")
-    proxy: Optional[str] = Field(default=None, description="HTTP proxy URL")
+    proxy: str | None = Field(default=None, description="HTTP proxy URL")
     response: HTTPResponseConfig = Field(
         default_factory=HTTPResponseConfig, description="Response configuration"
     )
@@ -67,7 +66,7 @@ class HTTPConfig(BaseModel):
 
     @field_validator("proxy")
     @classmethod
-    def validate_proxy(cls, v: Optional[str]) -> Optional[str]:
+    def validate_proxy(cls, v: str | None) -> str | None:
         """Validate proxy URL format."""
         if v is None or v.lower() == "none":
             return None

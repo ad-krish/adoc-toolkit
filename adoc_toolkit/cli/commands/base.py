@@ -1,7 +1,6 @@
 """Base command class for ADOC toolkit commands."""
 
 from abc import ABC, abstractmethod
-from typing import Union
 
 from ...models import CompletionItem
 
@@ -51,7 +50,7 @@ class Command(ABC):
 
     def get_completions(
         self, current_input: str, cursor_position: int
-    ) -> list[Union[str, CompletionItem]]:
+    ) -> list[str | CompletionItem]:
         """Get auto-completion suggestions for this command.
 
         Args:

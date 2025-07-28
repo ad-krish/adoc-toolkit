@@ -1,7 +1,8 @@
 """Tracing decorators for command methods."""
 
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, TypeVar
 
 from ..logs import trace_operation
 from .utils import (
@@ -28,14 +29,14 @@ def _safe_len(obj: Any) -> int:
         if hasattr(obj, "__len__"):
             length = len(obj)
             # Ensure it's actually an integer
-            return int(length) if isinstance(length, (int, float)) else 0
+            return int(length) if isinstance(length, int | float) else 0
         return 0
     except (TypeError, AttributeError, ValueError):
         return 0
 
 
 def trace_method(
-    operation_name: str = "", command_prefix: Optional[str] = None
+    operation_name: str = "", command_prefix: str | None = None
 ) -> Callable[[F], F]:
     """Decorator to trace method calls with nested indentation.
 

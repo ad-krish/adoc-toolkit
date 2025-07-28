@@ -1,8 +1,6 @@
 """Integration tests for human-readable response formatting."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-from pathlib import Path
+from unittest.mock import Mock, patch
 
 from adoc_toolkit.http.formatter import ResponseFormatter
 from adoc_toolkit.http.http_config import ResponseType
@@ -156,7 +154,7 @@ class TestHumanResponseIntegration:
             mock_get_client.return_value = mock_client
 
             test_data = {"status": "success", "data": []}
-            result = self.formatter._format_human(test_data)
+            self.formatter._format_human(test_data)
 
             # Verify that default values were used
             mock_get_client.assert_called_once_with("gemini", self.console)

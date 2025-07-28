@@ -1,8 +1,7 @@
 """Find asset command implementation."""
 
-from typing import Any, Callable, Optional, Union
 
-from ...models import CompletionItem, AssetSearchResponse, Asset
+from ...models import AssetSearchResponse
 from ...tracing.mixins import TraceableMixin
 from .base import Command
 

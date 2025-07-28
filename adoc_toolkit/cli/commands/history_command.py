@@ -1,7 +1,7 @@
 """History command implementation."""
 
 import sys
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from ...models import CommandExecution
 from .base import Command
@@ -12,9 +12,9 @@ class HistoryCommand(Command):
 
     def __init__(
         self,
-        get_history_callback: Optional[Callable[[], list[str]]] = None,
-        recall_callback: Optional[Callable[[str], None]] = None,
-        get_executions_callback: Optional[Callable[[], list[CommandExecution]]] = None,
+        get_history_callback: Callable[[], list[str]] | None = None,
+        recall_callback: Callable[[str], None] | None = None,
+        get_executions_callback: Callable[[], list[CommandExecution]] | None = None,
     ):
         """Initialize HistoryCommand.
 
@@ -145,11 +145,13 @@ class HistoryCommand(Command):
             return False
 
         print(
-            f"\nExecution History (showing {start_idx + 1}-{end_idx} of {len(executions)}):"
+            f"\nExecution History (showing {start_idx + 1}-{end_idx} of "
+            f"{len(executions)}):"
         )
         print("-" * 120)
         print(
-            f"{'#':<3} {'Command':<40} {'Status':<8} {'Duration':<12} {'Start Time':<19} {'End Time':<19}"
+            f"{'#':<3} {'Command':<40} {'Status':<8} {'Duration':<12} "
+            f"{'Start Time':<19} {'End Time':<19}"
         )
         print("-" * 120)
 
@@ -164,7 +166,8 @@ class HistoryCommand(Command):
 
             print(
                 f"{execution_num:<3} {display_command:<40} {execution.status:<8} "
-                f"{execution.formatted_duration:<12} {execution.formatted_start_time:<19} "
+                f"{execution.formatted_duration:<12} "
+                f"{execution.formatted_start_time:<19} "
                 f"{execution.formatted_end_time:<19}"
             )
 
@@ -172,7 +175,8 @@ class HistoryCommand(Command):
         if has_more:
             remaining = min(page_size, len(executions) - end_idx)
             print(
-                f"\nPress any key to show next {remaining} executions, <escape> to exit..."
+                f"\nPress any key to show next {remaining} executions, "
+                f"<escape> to exit..."
             )
 
         return has_more
@@ -200,7 +204,8 @@ class HistoryCommand(Command):
                             page_size = requested_size
                         else:
                             print(
-                                f"Warning: Invalid page size {requested_size}. Valid sizes: 10, 25, 50, 100. Using default: 25"
+                                f"Warning: Invalid page size {requested_size}. "
+                                f"Valid sizes: 10, 25, 50, 100. Using default: 25"
                             )
                     except ValueError:
                         # Next argument isn't a number, use default
@@ -310,7 +315,8 @@ class HistoryCommand(Command):
             exec_index = parts.index("--executions")
             if exec_index == 1:  # "history --executions"
                 if len(parts) == 2:
-                    # "history --executions " case (trailing space) - return all page sizes
+                    # "history --executions " case (trailing space) -
+                    # return all page sizes
                     if current_input.endswith(" "):
                         return ["10", "25", "50", "100"]
                 elif len(parts) == 3:

@@ -1,8 +1,7 @@
 """Pydantic models for execution metrics data."""
 
 from datetime import datetime
-from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -16,30 +15,30 @@ class PolicyExecution(BaseModel):
     policy_type: str = Field(description="Type of policy (DATA_QUALITY, EQUALITY)")
     execution_id: str = Field(description="Unique identifier for the execution")
     execution_status: str = Field(description="Status of the execution")
-    result_status: Optional[str] = Field(default=None, description="Result status")
-    score: Optional[dict[str, Any]] = Field(
+    result_status: str | None = Field(default=None, description="Result status")
+    score: dict[str, Any] | None = Field(
         default=None, description="Quality score data"
     )
-    rows: Optional[dict[str, Any]] = Field(default=None, description="Row count data")
-    failed_rows: Optional[dict[str, Any]] = Field(
+    rows: dict[str, Any] | None = Field(default=None, description="Row count data")
+    failed_rows: dict[str, Any] | None = Field(
         default=None, description="Failed row data"
     )
-    success_rules: Optional[dict[str, Any]] = Field(
+    success_rules: dict[str, Any] | None = Field(
         default=None, description="Successful rule counts"
     )
-    failure_rules: Optional[dict[str, Any]] = Field(
+    failure_rules: dict[str, Any] | None = Field(
         default=None, description="Failed rule counts"
     )
-    start_timestamp: Optional[datetime] = Field(
+    start_timestamp: datetime | None = Field(
         default=None, description="Execution start time"
     )
-    start_ts: Optional[int] = Field(
+    start_ts: int | None = Field(
         default=None, description="Start timestamp (milliseconds)"
     )
-    end_timestamp: Optional[datetime] = Field(
+    end_timestamp: datetime | None = Field(
         default=None, description="Execution end time"
     )
-    end_ts: Optional[int] = Field(
+    end_ts: int | None = Field(
         default=None, description="End timestamp (milliseconds)"
     )
 
@@ -53,7 +52,7 @@ class PolicyExecution(BaseModel):
         "score", "rows", "failed_rows", "success_rules", "failure_rules", mode="before"
     )
     @classmethod
-    def validate_optional_dict_fields(cls, v: Any) -> Optional[dict[str, Any]]:
+    def validate_optional_dict_fields(cls, v: Any) -> dict[str, Any] | None:
         """Handle fields that can be either dict or simple values."""
         if v is None:
             return None
@@ -82,34 +81,34 @@ class ExecutionDetail(BaseModel):
     """Model for detailed execution result data."""
 
     item_id: str = Field(description="Item identifier")
-    item_column_name: Optional[str] = Field(default=None, description="Column name")
+    item_column_name: str | None = Field(default=None, description="Column name")
     item_ver: int = Field(description="Item version")
-    pde_name: Optional[str] = Field(default=None, description="PDE name")
-    pde: Optional[str] = Field(default=None, description="PDE label")
-    item_measurement_type: Optional[str] = Field(
+    pde_name: str | None = Field(default=None, description="PDE name")
+    pde: str | None = Field(default=None, description="PDE label")
+    item_measurement_type: str | None = Field(
         default=None, description="Measurement type"
     )
-    rule_item_id: Optional[str] = Field(
+    rule_item_id: str | None = Field(
         default=None, description="Rule item identifier"
     )
-    rule_strategy: Optional[str] = Field(
+    rule_strategy: str | None = Field(
         default=None, description="Rule threshold strategy"
     )
-    rule_lower_threshold: Optional[float] = Field(
+    rule_lower_threshold: float | None = Field(
         default=None, description="Rule lower threshold"
     )
-    rule_upper_threshold: Optional[float] = Field(
+    rule_upper_threshold: float | None = Field(
         default=None, description="Rule upper threshold"
     )
-    result: Optional[str] = Field(default=None, description="Execution result")
-    rows_scanned: Optional[int] = Field(
+    result: str | None = Field(default=None, description="Execution result")
+    rows_scanned: int | None = Field(
         default=None, description="Number of rows scanned"
     )
-    rows_failed: Optional[int] = Field(
+    rows_failed: int | None = Field(
         default=None, description="Number of failed rows"
     )
     exec_id: str = Field(description="Execution identifier")
-    end_ts: Optional[int] = Field(default=None, description="End timestamp")
+    end_ts: int | None = Field(default=None, description="End timestamp")
 
     @field_validator("item_id", "exec_id", mode="before")
     @classmethod
@@ -119,7 +118,7 @@ class ExecutionDetail(BaseModel):
 
     @field_validator("rule_item_id", mode="before")
     @classmethod
-    def validate_optional_id_fields(cls, v: Any) -> Optional[str]:
+    def validate_optional_id_fields(cls, v: Any) -> str | None:
         """Convert integer IDs to strings, handling None values."""
         if v is None:
             return None
@@ -134,12 +133,12 @@ class PolicyDetail(BaseModel):
     policy_type: str = Field(description="Type of policy")
     id: str = Field(description="Item identifier")
     rule_version: int = Field(description="Rule version")
-    column_name: Optional[str] = Field(default=None, description="Column name")
-    pde_value: Optional[str] = Field(default=None, description="PDE value")
-    table_asset_id: Optional[str] = Field(
+    column_name: str | None = Field(default=None, description="Column name")
+    pde_value: str | None = Field(default=None, description="PDE value")
+    table_asset_id: str | None = Field(
         default=None, description="Table asset identifier"
     )
-    table_asset_name: Optional[str] = Field(
+    table_asset_name: str | None = Field(
         default=None, description="Table asset name"
     )
 
@@ -151,7 +150,7 @@ class PolicyDetail(BaseModel):
 
     @field_validator("table_asset_id", mode="before")
     @classmethod
-    def validate_optional_id_fields(cls, v: Any) -> Optional[str]:
+    def validate_optional_id_fields(cls, v: Any) -> str | None:
         """Convert integer IDs to strings, handling None values."""
         if v is None:
             return None
@@ -165,27 +164,27 @@ class ExecutionMetricsRecord(BaseModel):
     policy_id: str = Field(description="Policy identifier")
     rule_version: int = Field(description="Rule version")
     exec_id: str = Field(description="Execution identifier")
-    table_asset_name: Optional[str] = Field(
+    table_asset_name: str | None = Field(
         default=None, description="Table asset name"
     )
-    item_column_name: Optional[str] = Field(default=None, description="Column name")
-    pde: Optional[str] = Field(default=None, description="PDE value")
-    item_measurement_type: Optional[str] = Field(
+    item_column_name: str | None = Field(default=None, description="Column name")
+    pde: str | None = Field(default=None, description="PDE value")
+    item_measurement_type: str | None = Field(
         default=None, description="Measurement type"
     )
-    rule_strategy: Optional[str] = Field(default=None, description="Rule strategy")
-    rule_lower_threshold: Optional[float] = Field(
+    rule_strategy: str | None = Field(default=None, description="Rule strategy")
+    rule_lower_threshold: float | None = Field(
         default=None, description="Lower threshold"
     )
-    rule_upper_threshold: Optional[float] = Field(
+    rule_upper_threshold: float | None = Field(
         default=None, description="Upper threshold"
     )
     item_id: str = Field(description="Item identifier")
-    result: Optional[str] = Field(default=None, description="Result value")
-    rows_scanned: Optional[int] = Field(default=None, description="Rows scanned")
-    rows_failed: Optional[int] = Field(default=None, description="Rows failed")
-    end_ts: Optional[int] = Field(default=None, description="End timestamp")
-    execution_date: Optional[datetime] = Field(
+    result: str | None = Field(default=None, description="Result value")
+    rows_scanned: int | None = Field(default=None, description="Rows scanned")
+    rows_failed: int | None = Field(default=None, description="Rows failed")
+    end_ts: int | None = Field(default=None, description="End timestamp")
+    execution_date: datetime | None = Field(
         default=None, description="Execution date"
     )
     execution_status: str = Field(description="Execution status")
@@ -195,10 +194,10 @@ class ExecutionMetricsRecord(BaseModel):
 class LastRunInfo(BaseModel):
     """Model for tracking last run information."""
 
-    last_run_timestamp: Optional[int] = Field(
+    last_run_timestamp: int | None = Field(
         default=None, description="Last run timestamp in milliseconds"
     )
-    last_run_datetime: Optional[datetime] = Field(
+    last_run_datetime: datetime | None = Field(
         default=None, description="Last run datetime"
     )
     total_records_processed: int = Field(
@@ -207,7 +206,7 @@ class LastRunInfo(BaseModel):
 
     @field_validator("last_run_timestamp")
     @classmethod
-    def validate_timestamp(cls, v: Optional[int]) -> Optional[int]:
+    def validate_timestamp(cls, v: int | None) -> int | None:
         """Validate timestamp is positive."""
         if v is not None and v < 0:
             raise ValueError("Timestamp must be non-negative")
@@ -218,11 +217,11 @@ class ExecutionMetricsArgs(BaseModel):
     """Model for export-execution-metrics command arguments."""
 
     output_type: str = Field(default="csv", description="Output format")
-    output_dir: Optional[str] = Field(default=None, description="Output directory")
-    output_filename: Optional[str] = Field(
+    output_dir: str | None = Field(default=None, description="Output directory")
+    output_filename: str | None = Field(
         default=None, description="Output filename template"
     )
-    backload: Optional[str] = Field(
+    backload: str | None = Field(
         default=None,
         description="Backload option for first run (e.g., -30d, 2024-01-15)",
     )
@@ -258,7 +257,8 @@ class ExecutionMetricsArgs(BaseModel):
         invalid_types = [pt for pt in v if pt.upper() not in valid_types]
         if invalid_types:
             raise ValueError(
-                f"Invalid policy types: {invalid_types}. Valid types: {sorted(valid_types)}"
+                f"Invalid policy types: {invalid_types}. "
+                f"Valid types: {sorted(valid_types)}"
             )
 
         # Convert to uppercase for consistency

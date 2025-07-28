@@ -2,10 +2,9 @@
 
 import json
 import shlex
-import sys
-from functools import reduce
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Optional, Callable, Any, Iterator
+from typing import Any
 
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import Completer, Completion
@@ -16,10 +15,6 @@ from rich.text import Text
 
 from ..http import ADOCHTTPClient
 from ..models import CompletionItem
-from .environment_validator import (
-    validate_environments_at_startup,
-    load_default_environment,
-)
 from .commands import (
     Command,
     ExitCommand,
@@ -33,6 +28,10 @@ from .commands import (
     ShowEnvCommand,
     TextToDQPolicyCommand,
     UseCommand,
+)
+from .environment_validator import (
+    load_default_environment,
+    validate_environments_at_startup,
 )
 
 
@@ -145,7 +144,7 @@ def create_history_data(history: list[str], max_history: int) -> dict[str, Any]:
     }
 
 
-def validate_history_data(history_data: dict[str, Any]) -> Optional[list[str]]:
+def validate_history_data(history_data: dict[str, Any]) -> list[str] | None:
     """Validate and extract history list from loaded data.
 
     Args:
@@ -230,7 +229,7 @@ def save_history_to_file(
 
 
 def create_environment_info(
-    environment: Optional[str], config: Optional[dict]
+    environment: str | None, config: dict | None
 ) -> dict[str, str]:
     """Create environment info dictionary using pure function.
 
@@ -252,7 +251,7 @@ def create_environment_info(
     }
 
 
-def create_prompt_text(environment: Optional[str]) -> str:
+def create_prompt_text(environment: str | None) -> str:
     """Create prompt text using pure function.
 
     Args:
@@ -295,7 +294,7 @@ def create_status_message(response) -> tuple[str, str]:
     return status_msg, style
 
 
-def extract_error_message(response) -> Optional[str]:
+def extract_error_message(response) -> str | None:
     """Extract error message from response using pure function.
 
     Args:
@@ -491,7 +490,7 @@ class ADOCCompleter(Completer):
 class InteractiveProcessor:
     """Interactive command processor with prompt_toolkit integration."""
 
-    def __init__(self, config_file: Optional[str] = None):
+    def __init__(self, config_file: str | None = None):
         # Initialize configuration manager with specified config file
         from ..config import reset_config_manager
 
@@ -505,8 +504,8 @@ class InteractiveProcessor:
         self.history = InMemoryHistory()
 
         # Environment state
-        self.current_environment: Optional[str] = None
-        self.current_environment_config: Optional[dict] = None
+        self.current_environment: str | None = None
+        self.current_environment_config: dict | None = None
 
         # Command history tracking (separate from prompt_toolkit history)
         self.command_history: list[str] = []
@@ -521,7 +520,7 @@ class InteractiveProcessor:
             "q",
             "hist",
         }
-        self._pending_recall_command: Optional[str] = None
+        self._pending_recall_command: str | None = None
 
         # History file management
         self._history_file = Path.home() / ".adoc-toolkit-history"
@@ -557,7 +556,8 @@ class InteractiveProcessor:
             self.console.print("\n" + "=" * 50, style="red")
             self.console.print(
                 "❌ Please fix the configuration errors above before continuing.\n"
-                "   The toolkit will start, but you may encounter issues with environment commands.\n"
+                "   The toolkit will start, but you may encounter issues with "
+                "environment commands.\n"
                 "   See docs/environment-setup.md for detailed setup instructions.",
                 style="red",
             )

@@ -1,6 +1,6 @@
 """Configuration data model."""
 
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -18,7 +18,7 @@ class ConfigItem(BaseModel):
         description="Human-readable description of the configuration"
     )
     type: str = Field(description="Data type of the configuration")
-    options: Optional[list[Any]] = Field(
+    options: list[Any] | None = Field(
         default=None, description="Valid options for this configuration"
     )
     default: Any = Field(description="Default value for this configuration")
@@ -59,7 +59,7 @@ class ConfigurationData(BaseModel):
 
         return obj
 
-    def get_with_metadata(self, key: str) -> Optional[ConfigItem]:
+    def get_with_metadata(self, key: str) -> ConfigItem | None:
         """Get configuration value with metadata by dot-notation key."""
         parts = key.split(".")
         obj = self

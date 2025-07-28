@@ -1,6 +1,5 @@
 """Export execution metrics command implementation."""
 
-import json
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -23,7 +22,8 @@ def parse_backload_option(backload_str: str) -> datetime:
     """Parse backload option string into a datetime.
 
     Args:
-        backload_str: Backload string like "-30d", "-10d", "2024-01-15", "2024-01-15T10:30:00"
+        backload_str: Backload string like "-30d", "-10d", "2024-01-15",
+            "2024-01-15T10:30:00"
 
     Returns:
         Parsed datetime object
@@ -73,7 +73,8 @@ def parse_backload_option(backload_str: str) -> datetime:
 
                 return parsed_date
             except ValueError as e:
-                # If this is a validation error (not a format parsing error), re-raise it
+                # If this is a validation error (not a format parsing error),
+                # re-raise it
                 if "60 days ago" in str(e) or "future" in str(e):
                     raise
                 # Otherwise, continue trying other formats
@@ -86,7 +87,7 @@ def parse_backload_option(backload_str: str) -> datetime:
         )
 
     except Exception as e:
-        raise ValueError(f"Error parsing backload option: {e}")
+        raise ValueError(f"Error parsing backload option: {e}") from e
 
 
 def parse_execution_metrics_args(args: list[str]) -> dict[str, Any]:
@@ -389,7 +390,10 @@ class ExportExecutionMetricsCommand(Command, TraceableMixin):
 
     @property
     def description(self) -> str:
-        return "Export execution metrics data to CSV or Parquet format with incremental processing"
+        return (
+            "Export execution metrics data to CSV or Parquet format "
+            "with incremental processing"
+        )
 
     @property
     def aliases(self) -> list[str]:
@@ -403,15 +407,18 @@ Usage: {self.name} [OPTIONS]
 Options:
   --output-type TYPE      Output format: csv, parquet (default: csv)
   --output-dir DIR        Output directory (default: ./output/execution-metrics/)
-  --output-filename NAME  Output filename template (default: execution-metrics-%d-%m-%y-%h-%M)
+  --output-filename NAME  Output filename template (default:
+                         execution-metrics-%d-%m-%y-%h-%M)
                          Variables: %y=year, %m=month, %d=day, %h=hour, %M=minute
                          Environment name is automatically added as suffix
-  --backload OPTION       Backload option to override tracking file (e.g. -30d, -10d, 2024-01-15)
+  --backload OPTION       Backload option to override tracking file (e.g. -30d, -10d,
+                         2024-01-15)
                          Supports: -Nd (1-60 days), date formats, datetime strings
                          Maximum: 60 days ago. Always overrides existing tracking file.
-  --policy-types TYPES    Comma-separated policy types to export 
+  --policy-types TYPES    Comma-separated policy types to export
                          (default: DATA_QUALITY,EQUALITY)
-                         Available: DATA_QUALITY, EQUALITY, DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT
+                         Available: DATA_QUALITY, EQUALITY, DATA_DRIFT, PROFILE_ANOMALY,
+                         SCHEMA_DRIFT
   --help                  Show this help message
 
 Description:
@@ -419,13 +426,15 @@ Description:
   - Policy executions for specified policy types (default: DATA_QUALITY, EQUALITY)
   - Detailed rule-level performance for DQ policies
   - Asset information and threshold configurations
-  
+
   Supports incremental processing by tracking the last run timestamp in a file.
   Only processes executions that occurred after the last run.
-  
+
   Backload Behavior:
-  - If --backload is specified, always uses that as the start time (ignores tracking file)
-  - If no --backload, uses tracking file if exists, otherwise defaults to 30 days ago (-30d)
+  - If --backload is specified, always uses that as the start time
+    (ignores tracking file)
+  - If no --backload, uses tracking file if exists, otherwise defaults to 30 days ago
+    (-30d)
   - Without --backload, subsequent runs use the timestamp from the previous run
 
   Combines the data and exports to specified format with configurable filename.
@@ -437,16 +446,19 @@ Description:
   - For Parquet format: uv add pyarrow
 
 Examples:
-  {self.name}                                         # Export to CSV with env suffix (uses tracking file or -30d default)
-  {self.name} --backload -10d                         # Override tracking file: backload from 10 days ago
-  {self.name} --backload 2024-01-15                   # Override tracking file: start from specific date
-  {self.name} --backload "2024-01-15T10:30:00"        # Override tracking file: start from specific datetime
-  {self.name} --policy-types DATA_QUALITY             # Export only DATA_QUALITY policies
-  {self.name} --policy-types DATA_QUALITY,DATA_DRIFT  # Export DATA_QUALITY and DATA_DRIFT policies
-  {self.name} --policy-types DATA_DRIFT,PROFILE_ANOMALY,SCHEMA_DRIFT  # Export drift and anomaly policies
-  {self.name} --output-type parquet                   # Export to Parquet format
-  {self.name} --output-dir ./reports                  # Save to reports directory
-  {self.name} --output-filename "exec-metrics-%y%m%d" # Custom filename template
+  {self.name}  # Export to CSV with env suffix (uses tracking file or -30d default)
+  {self.name} --backload -10d  # Override tracking file: backload from 10 days ago
+  {self.name} --backload 2024-01-15  # Override tracking file: start from specific date
+  {self.name} --backload "2024-01-15T10:30:00"  # Override tracking file:
+  # start from specific datetime
+  {self.name} --policy-types DATA_QUALITY  # Export only DATA_QUALITY policies
+  {self.name} --policy-types DATA_QUALITY,DATA_DRIFT  # Export DATA_QUALITY and
+  # DATA_DRIFT policies
+  {self.name} --policy-types DATA_DRIFT,PROFILE_ANOMALY,SCHEMA_DRIFT  # Export drift and
+  # anomaly policies
+  {self.name} --output-type parquet  # Export to Parquet format
+  {self.name} --output-dir ./reports  # Save to reports directory
+  {self.name} --output-filename "exec-metrics-%y%m%d"  # Custom filename template
 """
 
     @trace_method("command_execute", "export_execution_metrics")
@@ -493,7 +505,8 @@ Examples:
         environment_info = self._get_environment_info()
         if not environment_info or not environment_info.get("environment"):
             console.print(
-                "Error: No environment selected. Use 'use <environment>' command to set an environment first.",
+                "Error: No environment selected. Use 'use <environment>' command to "
+                "set an environment first.",
                 style="red",
             )
             return True
@@ -618,7 +631,8 @@ Examples:
                 service.save_last_run_info(tracking_file, new_last_run_info)
 
             console.print(
-                f"✅ Successfully exported {len(df)} execution metrics records to {output_path}",
+                f"✅ Successfully exported {len(df)} execution metrics records to "
+                f"{output_path}",
                 style="green",
             )
             console.print(

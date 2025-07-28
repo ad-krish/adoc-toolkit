@@ -1,7 +1,8 @@
 """Use command implementation."""
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional, Union
+from typing import Any
 
 import yaml
 
@@ -14,7 +15,7 @@ class UseCommand(Command):
 
     def __init__(
         self,
-        environment_callback: Optional[Callable[[str, dict[str, Any]], None]] = None,
+        environment_callback: Callable[[str, dict[str, Any]], None] | None = None,
     ):
         """Initialize UseCommand.
 
@@ -56,7 +57,7 @@ class UseCommand(Command):
 
         return help_text
 
-    def _load_config(self) -> Optional[dict[str, Any]]:
+    def _load_config(self) -> dict[str, Any] | None:
         """Load environment configuration from YAML file."""
         if self._config_cache is not None:
             return self._config_cache
@@ -71,7 +72,7 @@ class UseCommand(Command):
                 config_data = yaml.safe_load(f)
                 self._config_cache = config_data
                 return self._config_cache
-        except Exception as e:
+        except Exception:
             return None
 
     def execute(self, args: list[str]) -> bool:
@@ -116,7 +117,7 @@ class UseCommand(Command):
 
     def get_completions(
         self, current_input: str, cursor_position: int
-    ) -> list[Union[str, CompletionItem]]:
+    ) -> list[str | CompletionItem]:
         """Get auto-completion suggestions for environment names with descriptions."""
         config = self._load_config()
         if not config or "environments" not in config:

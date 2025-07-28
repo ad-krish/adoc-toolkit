@@ -1,19 +1,17 @@
 """Service for handling execution metrics data fetching and processing."""
 
-import json
 import decimal
+import json
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Optional
-from queue import Queue
+from typing import Any
 
-import pandas as pd
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from ...http import ADOCHTTPClient, HTTPError
+from ...http import ADOCHTTPClient
 from ...logs import log_error, log_info
 from ...models import (
     ExecutionDetail,
@@ -39,7 +37,7 @@ def safe_get(data: dict[str, Any], key: str, default: Any = None) -> Any:
     return data.get(key, default) if data else default
 
 
-def convert_timestamp_to_datetime(timestamp: Optional[int]) -> Optional[datetime]:
+def convert_timestamp_to_datetime(timestamp: int | None) -> datetime | None:
     """Convert millisecond timestamp to datetime.
 
     Args:
@@ -56,7 +54,7 @@ def convert_timestamp_to_datetime(timestamp: Optional[int]) -> Optional[datetime
         return None
 
 
-def calculate_failed_rows(rows_scanned: Optional[int], result: Optional[str]) -> int:
+def calculate_failed_rows(rows_scanned: int | None, result: str | None) -> int:
     """Calculate number of failed rows based on scanned and result.
 
     Args:
@@ -192,21 +190,39 @@ def process_execution_details_parallel(
     try:
         progress.update(
             task_id,
-            description=f"Processing {execution.policy_type} execution {execution.execution_id}...",
+            description=(
+                f"Processing {execution.policy_type} execution "
+                f"{execution.execution_id}..."
+            ),
             advance=0,
         )
 
         # Build endpoint based on policy type
         if execution.policy_type == "DATA_QUALITY":
-            endpoint = f"/catalog-server/api/rules/data-quality/executions/{execution.execution_id}"
+            endpoint = (
+                f"/catalog-server/api/rules/data-quality/executions/"
+                f"{execution.execution_id}"
+            )
         elif execution.policy_type == "EQUALITY":
-            endpoint = f"/catalog-server/api/rules/equality/executions/{execution.execution_id}"
+            endpoint = (
+                f"/catalog-server/api/rules/equality/executions/"
+                f"{execution.execution_id}"
+            )
         elif execution.policy_type == "DATA_DRIFT":
-            endpoint = f"/catalog-server/api/rules/data-drift/executions/{execution.execution_id}"
+            endpoint = (
+                f"/catalog-server/api/rules/data-drift/executions/"
+                f"{execution.execution_id}"
+            )
         elif execution.policy_type == "PROFILE_ANOMALY":
-            endpoint = f"/catalog-server/api/rules/profile-anomaly/executions/{execution.execution_id}"
+            endpoint = (
+                f"/catalog-server/api/rules/profile-anomaly/executions/"
+                f"{execution.execution_id}"
+            )
         elif execution.policy_type == "SCHEMA_DRIFT":
-            endpoint = f"/catalog-server/api/rules/schema-drift/executions/{execution.execution_id}"
+            endpoint = (
+                f"/catalog-server/api/rules/schema-drift/executions/"
+                f"{execution.execution_id}"
+            )
         else:
             log_error(f"Unsupported policy type: {execution.policy_type}")
             return execution_details
@@ -267,7 +283,10 @@ def process_execution_details_parallel(
 
         progress.update(
             task_id,
-            description=f"Processed {execution.policy_type} execution: {len(execution_details)} details",
+            description=(
+                f"Processed {execution.policy_type} execution: "
+                f"{len(execution_details)} details"
+            ),
             advance=1,
         )
 
@@ -299,21 +318,39 @@ def process_policy_details_parallel(
     try:
         progress.update(
             task_id,
-            description=f"Processing {execution.policy_type} policy details {execution.policy_id}...",
+            description=(
+                f"Processing {execution.policy_type} policy details "
+                f"{execution.policy_id}..."
+            ),
             advance=0,
         )
 
         # Build endpoint based on policy type
         if execution.policy_type == "DATA_QUALITY":
-            endpoint = f"/catalog-server/api/rules/data-quality/{execution.policy_id}?version={execution.policy_version}"
+            endpoint = (
+                f"/catalog-server/api/rules/data-quality/{execution.policy_id}"
+                f"?version={execution.policy_version}"
+            )
         elif execution.policy_type == "EQUALITY":
-            endpoint = f"/catalog-server/api/rules/equality/{execution.policy_id}?version={execution.policy_version}"
+            endpoint = (
+                f"/catalog-server/api/rules/equality/{execution.policy_id}"
+                f"?version={execution.policy_version}"
+            )
         elif execution.policy_type == "DATA_DRIFT":
-            endpoint = f"/catalog-server/api/rules/data-drift/{execution.policy_id}?version={execution.policy_version}"
+            endpoint = (
+                f"/catalog-server/api/rules/data-drift/{execution.policy_id}"
+                f"?version={execution.policy_version}"
+            )
         elif execution.policy_type == "PROFILE_ANOMALY":
-            endpoint = f"/catalog-server/api/rules/profile-anomaly/{execution.policy_id}?version={execution.policy_version}"
+            endpoint = (
+                f"/catalog-server/api/rules/profile-anomaly/{execution.policy_id}"
+                f"?version={execution.policy_version}"
+            )
         elif execution.policy_type == "SCHEMA_DRIFT":
-            endpoint = f"/catalog-server/api/rules/schema-drift/{execution.policy_id}?version={execution.policy_version}"
+            endpoint = (
+                f"/catalog-server/api/rules/schema-drift/{execution.policy_id}"
+                f"?version={execution.policy_version}"
+            )
         else:
             log_error(f"Unsupported policy type: {execution.policy_type}")
             return policy_details
@@ -360,7 +397,10 @@ def process_policy_details_parallel(
 
         progress.update(
             task_id,
-            description=f"Processed {execution.policy_type} policy: {len(policy_details)} details",
+            description=(
+                f"Processed {execution.policy_type} policy: "
+                f"{len(policy_details)} details"
+            ),
             advance=1,
         )
 
@@ -456,20 +496,38 @@ def process_execution_details(
             try:
                 progress.update(
                     task_id,
-                    description=f"Processing {execution.policy_type} execution {processed_count + 1}...",
+                    description=(
+                        f"Processing {execution.policy_type} execution "
+                        f"{processed_count + 1}..."
+                    ),
                 )
 
                 # Build endpoint based on policy type
                 if execution.policy_type == "DATA_QUALITY":
-                    endpoint = f"/catalog-server/api/rules/data-quality/executions/{execution.execution_id}"
+                    endpoint = (
+                        f"/catalog-server/api/rules/data-quality/executions/"
+                        f"{execution.execution_id}"
+                    )
                 elif execution.policy_type == "EQUALITY":
-                    endpoint = f"/catalog-server/api/rules/equality/executions/{execution.execution_id}"
+                    endpoint = (
+                        f"/catalog-server/api/rules/equality/executions/"
+                        f"{execution.execution_id}"
+                    )
                 elif execution.policy_type == "DATA_DRIFT":
-                    endpoint = f"/catalog-server/api/rules/data-drift/executions/{execution.execution_id}"
+                    endpoint = (
+                        f"/catalog-server/api/rules/data-drift/executions/"
+                        f"{execution.execution_id}"
+                    )
                 elif execution.policy_type == "PROFILE_ANOMALY":
-                    endpoint = f"/catalog-server/api/rules/profile-anomaly/executions/{execution.execution_id}"
+                    endpoint = (
+                        f"/catalog-server/api/rules/profile-anomaly/executions/"
+                        f"{execution.execution_id}"
+                    )
                 elif execution.policy_type == "SCHEMA_DRIFT":
-                    endpoint = f"/catalog-server/api/rules/schema-drift/executions/{execution.execution_id}"
+                    endpoint = (
+                        f"/catalog-server/api/rules/schema-drift/executions/"
+                        f"{execution.execution_id}"
+                    )
                 else:
                     log_error(f"Unsupported policy type: {execution.policy_type}")
                     continue
@@ -478,7 +536,8 @@ def process_execution_details(
 
                 if not response.is_success:
                     log_error(
-                        f"Failed to fetch execution details for {execution.execution_id}"
+                        f"Failed to fetch execution details for "
+                        f"{execution.execution_id}"
                     )
                     continue
 
@@ -543,7 +602,7 @@ def process_execution_details(
     return execution_details
 
 
-def fetch_asset_name(asset_id: str, http_client: ADOCHTTPClient) -> Optional[str]:
+def fetch_asset_name(asset_id: str, http_client: ADOCHTTPClient) -> str | None:
     """Fetch asset name from asset ID.
 
     Args:
@@ -601,20 +660,38 @@ def process_policy_details(
         try:
             progress.update(
                 task_id,
-                description=f"Processing {execution.policy_type} policy details {processed_count + 1}...",
+                description=(
+                    f"Processing {execution.policy_type} policy details "
+                    f"{processed_count + 1}..."
+                ),
             )
 
             # Build endpoint based on policy type
             if execution.policy_type == "DATA_QUALITY":
-                endpoint = f"/catalog-server/api/rules/data-quality/{execution.policy_id}?version={execution.policy_version}"
+                endpoint = (
+                    f"/catalog-server/api/rules/data-quality/{execution.policy_id}"
+                    f"?version={execution.policy_version}"
+                )
             elif execution.policy_type == "EQUALITY":
-                endpoint = f"/catalog-server/api/rules/equality/{execution.policy_id}?version={execution.policy_version}"
+                endpoint = (
+                    f"/catalog-server/api/rules/equality/{execution.policy_id}"
+                    f"?version={execution.policy_version}"
+                )
             elif execution.policy_type == "DATA_DRIFT":
-                endpoint = f"/catalog-server/api/rules/data-drift/{execution.policy_id}?version={execution.policy_version}"
+                endpoint = (
+                    f"/catalog-server/api/rules/data-drift/{execution.policy_id}"
+                    f"?version={execution.policy_version}"
+                )
             elif execution.policy_type == "PROFILE_ANOMALY":
-                endpoint = f"/catalog-server/api/rules/profile-anomaly/{execution.policy_id}?version={execution.policy_version}"
+                endpoint = (
+                    f"/catalog-server/api/rules/profile-anomaly/{execution.policy_id}"
+                    f"?version={execution.policy_version}"
+                )
             elif execution.policy_type == "SCHEMA_DRIFT":
-                endpoint = f"/catalog-server/api/rules/schema-drift/{execution.policy_id}?version={execution.policy_version}"
+                endpoint = (
+                    f"/catalog-server/api/rules/schema-drift/{execution.policy_id}"
+                    f"?version={execution.policy_version}"
+                )
             else:
                 log_error(f"Unsupported policy type: {execution.policy_type}")
                 continue
@@ -716,7 +793,8 @@ def merge_execution_data(
                 rows_failed=exec_detail.rows_failed,
                 end_ts=exec_detail.end_ts,
                 execution_date=convert_timestamp_to_datetime(exec_detail.end_ts),
-                execution_status="SUCCESSFUL",  # Only successful executions are processed
+                # Only successful executions are processed
+                execution_status="SUCCESSFUL",
                 policy_type=policy_detail.policy_type,
             )
             merged_records.append(record)
@@ -742,7 +820,7 @@ class ExecutionMetricsService(TraceableMixin):
 
     @trace_method("load_last_run_info", "execution_metrics_service")
     def load_last_run_info(
-        self, tracking_file: Path, backload_datetime: Optional[datetime] = None
+        self, tracking_file: Path, backload_datetime: datetime | None = None
     ) -> LastRunInfo:
         """Load last run information from tracking file.
 
@@ -780,7 +858,7 @@ class ExecutionMetricsService(TraceableMixin):
 
         # Load from tracking file
         try:
-            with open(tracking_file, "r", encoding="utf-8") as f:
+            with open(tracking_file, encoding="utf-8") as f:
                 data = json.load(f)
 
             return LastRunInfo(
@@ -839,7 +917,8 @@ class ExecutionMetricsService(TraceableMixin):
         Args:
             start_ts_marker: Timestamp marker for incremental processing
             progress: Progress tracker
-            policy_types: List of policy types to filter (default: DATA_QUALITY, EQUALITY)
+            policy_types: List of policy types to filter
+            (default: DATA_QUALITY, EQUALITY)
 
         Returns:
             List of ExecutionMetricsRecord models
@@ -1029,7 +1108,9 @@ class ExecutionMetricsService(TraceableMixin):
                         task_progress_id = progress_tasks[task_name]
                         progress.update(
                             task_progress_id,
-                            description=f"Thread {worker_id + 1}: Page {page_num + 1} complete",
+                            description=(
+                                f"Thread {worker_id + 1}: Page {page_num + 1} complete"
+                            ),
                             completed=True,
                         )
 
@@ -1039,7 +1120,9 @@ class ExecutionMetricsService(TraceableMixin):
                         task_progress_id = progress_tasks[task_name]
                         progress.update(
                             task_progress_id,
-                            description=f"Thread {worker_id + 1}: Error on page {page_num + 1}",
+                            description=(
+                                f"Thread {worker_id + 1}: Error on page {page_num + 1}"
+                            ),
                             completed=True,
                         )
                     finally:
@@ -1152,15 +1235,15 @@ class ExecutionMetricsService(TraceableMixin):
                 if futures:
                     # Wait for any future to complete
                     done_futures, not_done = [], []
-                    for future, worker_id, exec_idx in futures:
+                    for future, worker_id, _exec_idx in futures:
                         if future.done():
-                            done_futures.append((future, worker_id, exec_idx))
+                            done_futures.append((future, worker_id, _exec_idx))
                         else:
-                            not_done.append((future, worker_id, exec_idx))
+                            not_done.append((future, worker_id, _exec_idx))
 
                     futures = not_done
 
-                    for future, worker_id, exec_idx in done_futures:
+                    for future, worker_id, _exec_idx in done_futures:
                         try:
                             execution_details = future.result(timeout=30)
                             data_collector.extend(execution_details)
@@ -1170,7 +1253,10 @@ class ExecutionMetricsService(TraceableMixin):
                             task_progress_id = progress_tasks[task_name]
                             progress.update(
                                 task_progress_id,
-                                description=f"Exec Thread {worker_id + 1}: {len(execution_details)} details",
+                                description=(
+                                    f"Exec Thread {worker_id + 1}: "
+                                    f"{len(execution_details)} details"
+                                ),
                                 completed=True,
                             )
 
@@ -1315,15 +1401,15 @@ class ExecutionMetricsService(TraceableMixin):
                 if futures:
                     # Wait for any future to complete
                     done_futures, not_done = [], []
-                    for future, worker_id, policy_idx in futures:
+                    for future, worker_id, _policy_idx in futures:
                         if future.done():
-                            done_futures.append((future, worker_id, policy_idx))
+                            done_futures.append((future, worker_id, _policy_idx))
                         else:
-                            not_done.append((future, worker_id, policy_idx))
+                            not_done.append((future, worker_id, _policy_idx))
 
                     futures = not_done
 
-                    for future, worker_id, policy_idx in done_futures:
+                    for future, worker_id, _policy_idx in done_futures:
                         try:
                             policy_details = future.result(timeout=30)
                             data_collector.extend(policy_details)
@@ -1333,7 +1419,10 @@ class ExecutionMetricsService(TraceableMixin):
                             task_progress_id = progress_tasks[task_name]
                             progress.update(
                                 task_progress_id,
-                                description=f"Policy Thread {worker_id + 1}: {len(policy_details)} details",
+                                description=(
+                                    f"Policy Thread {worker_id + 1}: "
+                                    f"{len(policy_details)} details"
+                                ),
                                 completed=True,
                             )
 

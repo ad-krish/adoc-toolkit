@@ -1,9 +1,9 @@
 """Tests for human-readable response formatting."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
-import json
+from unittest.mock import Mock, patch
+
+import pytest
 
 from adoc_toolkit.http.formatter import ResponseFormatter
 from adoc_toolkit.http.http_config import ResponseType
@@ -175,7 +175,7 @@ class TestHumanResponseFormatting:
         with patch.object(self.formatter, "_format_human") as mock_human:
             mock_human.return_value = "Human readable text"
 
-            result = self.formatter.format_response(test_data, ResponseType.HUMAN)
+            self.formatter.format_response(test_data, ResponseType.HUMAN)
 
             # Verify the data was passed correctly
             mock_human.assert_called_once_with(test_data)
@@ -185,7 +185,7 @@ class TestHumanResponseFormatting:
         prompt_file = Path("config/prompts/json_to_human_system.txt")
 
         if prompt_file.exists():
-            with open(prompt_file, "r", encoding="utf-8") as f:
+            with open(prompt_file, encoding="utf-8") as f:
                 content = f.read()
 
             # Check for key elements in the prompt

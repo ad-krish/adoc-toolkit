@@ -1,12 +1,11 @@
 """Tests for custom LLM model options from config file."""
 
-import pytest
 import json
 import tempfile
 from pathlib import Path
 
-from adoc_toolkit.models.llm_config import LLMConfig, LLMVendor
 from adoc_toolkit.config import reset_config_manager
+from adoc_toolkit.models.llm_config import LLMVendor
 
 
 class TestCustomModelOptions:

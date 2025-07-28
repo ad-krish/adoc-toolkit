@@ -1,6 +1,7 @@
 """LLM-related Pydantic models."""
 
-from typing import Optional, Dict, Any, List
+from typing import Any
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -10,14 +11,14 @@ class LLMRequest(BaseModel):
     system_prompt: str = Field(description="System prompt for the LLM")
     user_prompt: str = Field(description="User prompt for the LLM")
     api_key: str = Field(description="API key for the LLM vendor")
-    model: Optional[str] = Field(default=None, description="Model name to use")
-    max_tokens: Optional[int] = Field(
+    model: str | None = Field(default=None, description="Model name to use")
+    max_tokens: int | None = Field(
         default=None, description="Maximum tokens for response"
     )
-    temperature: Optional[float] = Field(
+    temperature: float | None = Field(
         default=None, description="Temperature for response generation"
     )
-    additional_params: Optional[Dict[str, Any]] = Field(
+    additional_params: dict[str, Any] | None = Field(
         default_factory=dict, description="Additional vendor-specific parameters"
     )
 
@@ -28,13 +29,13 @@ class LLMResponse(BaseModel):
     content: str = Field(description="Response content from LLM")
     model_used: str = Field(description="Model that was used for generation")
     vendor: str = Field(description="LLM vendor that was used")
-    tokens_used: Optional[int] = Field(
+    tokens_used: int | None = Field(
         default=None, description="Number of tokens used"
     )
-    processing_time: Optional[float] = Field(
+    processing_time: float | None = Field(
         default=None, description="Processing time in seconds"
     )
-    metadata: Optional[Dict[str, Any]] = Field(
+    metadata: dict[str, Any] | None = Field(
         default_factory=dict, description="Additional response metadata"
     )
 
@@ -46,7 +47,7 @@ class GrokRequest(LLMRequest):
 
     @field_validator("model")
     @classmethod
-    def validate_model(cls, v: Optional[str]) -> Optional[str]:
+    def validate_model(cls, v: str | None) -> str | None:
         """Validate Grok model."""
         if v and v not in ["grok-beta", "grok-2"]:
             raise ValueError(f"Invalid Grok model: {v}")
@@ -58,7 +59,7 @@ class GeminiRequest(LLMRequest):
 
     @field_validator("model")
     @classmethod
-    def validate_model(cls, v: Optional[str]) -> Optional[str]:
+    def validate_model(cls, v: str | None) -> str | None:
         """Validate Gemini model."""
         valid_models = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
         if v and v not in valid_models:
@@ -75,7 +76,7 @@ class ClaudeRequest(LLMRequest):
 
     @field_validator("model")
     @classmethod
-    def validate_model(cls, v: Optional[str]) -> Optional[str]:
+    def validate_model(cls, v: str | None) -> str | None:
         """Validate Claude model."""
         valid_models = [
             "claude-3-5-sonnet-20241022",
@@ -120,10 +121,10 @@ class LLMClientConfig(BaseModel):
 
     vendor: str = Field(description="LLM vendor name")
     api_key: str = Field(description="API key for the vendor")
-    model: Optional[str] = Field(default=None, description="Default model to use")
-    timeout: Optional[int] = Field(default=None, description="Request timeout")
+    model: str | None = Field(default=None, description="Default model to use")
+    timeout: int | None = Field(default=None, description="Request timeout")
     max_retries: int = Field(default=3, description="Maximum retry attempts")
-    additional_config: Optional[Dict[str, Any]] = Field(
+    additional_config: dict[str, Any] | None = Field(
         default_factory=dict, description="Additional vendor-specific configuration"
     )
 
@@ -131,19 +132,19 @@ class LLMClientConfig(BaseModel):
 class PromptConfig(BaseModel):
     """Configuration for prompt management."""
 
-    system_prompt_file: Optional[str] = Field(
+    system_prompt_file: str | None = Field(
         default=None, description="Path to system prompt file"
     )
-    system_prompt_text: Optional[str] = Field(
+    system_prompt_text: str | None = Field(
         default=None, description="System prompt text"
     )
-    user_prompt_template: Optional[str] = Field(
+    user_prompt_template: str | None = Field(
         default=None, description="User prompt template"
     )
 
     @field_validator("system_prompt_file", "system_prompt_text")
     @classmethod
-    def validate_prompt_source(cls, v: Optional[str], info) -> Optional[str]:
+    def validate_prompt_source(cls, v: str | None, info) -> str | None:
         """Ensure at least one prompt source is provided."""
         if info.field_name == "system_prompt_text":
             return v

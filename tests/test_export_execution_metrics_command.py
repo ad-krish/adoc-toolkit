@@ -4,41 +4,41 @@ import json
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from adoc_toolkit.cli.commands.export_execution_metrics_command import (
-    ExportExecutionMetricsCommand,
-    parse_execution_metrics_args,
-    parse_backload_option,
-    generate_execution_metrics_filename,
-    check_execution_metrics_dependencies,
-    preprocess_execution_metrics_dataframe,
-    export_execution_metrics_to_format,
-    get_execution_metrics_completion_suggestions,
-)
 from adoc_toolkit.cli.commands.execution_metrics_service import (
     ExecutionMetricsService,
-    safe_get,
-    convert_timestamp_to_datetime,
-    calculate_failed_rows,
-    process_policy_executions,
-    merge_execution_data,
     ThreadSafeDataCollector,
+    calculate_failed_rows,
+    convert_timestamp_to_datetime,
     fetch_execution_page,
+    merge_execution_data,
     process_execution_details_parallel,
     process_policy_details_parallel,
+    process_policy_executions,
+    safe_get,
+)
+from adoc_toolkit.cli.commands.export_execution_metrics_command import (
+    ExportExecutionMetricsCommand,
+    check_execution_metrics_dependencies,
+    export_execution_metrics_to_format,
+    generate_execution_metrics_filename,
+    get_execution_metrics_completion_suggestions,
+    parse_backload_option,
+    parse_execution_metrics_args,
+    preprocess_execution_metrics_dataframe,
 )
 from adoc_toolkit.models import (
-    ExecutionMetricsArgs,
-    LastRunInfo,
-    PolicyExecution,
     ExecutionDetail,
-    PolicyDetail,
+    ExecutionMetricsArgs,
     ExecutionMetricsRecord,
+    LastRunInfo,
+    PolicyDetail,
+    PolicyExecution,
 )
 
 
@@ -351,7 +351,10 @@ class TestPureFunctions:
             parse_execution_metrics_args(["--policy-types", ""])
 
     def test_parse_execution_metrics_args_policy_types_empty_after_split(self):
-        """Test parsing arguments with policy types that become empty after splitting."""
+        """
+        Test parsing arguments with policy types that become empty after
+        splitting.
+        """
         with pytest.raises(ValueError, match="requires at least one policy type"):
             parse_execution_metrics_args(["--policy-types", " , , "])
 
@@ -1350,7 +1353,7 @@ class TestExecutionMetricsService:
             assert tracking_file.exists()
 
             # Verify content
-            with open(tracking_file, "r") as f:
+            with open(tracking_file) as f:
                 data = json.load(f)
 
             assert data["last_run_timestamp"] == 1703505600000
@@ -1475,10 +1478,14 @@ class TestExecutionMetricsService:
                 policy_types=["DATA_QUALITY", "EQUALITY"],
             )
 
-            # Verify that _fetch_policy_executions was called with the correct policy types
+            # Verify that _fetch_policy_executions was called with the correct
+            # policy types
             mock_fetch.assert_called_once()
             call_args = mock_fetch.call_args
-            assert call_args[0][3] == ["DATA_QUALITY", "EQUALITY"]  # policy_types
+            assert call_args[0][3] == [
+                "DATA_QUALITY",
+                "EQUALITY",
+            ]  # policy_types
 
             assert len(result) == 1
             assert result[0].policy_type == "DATA_QUALITY"
@@ -1558,11 +1565,12 @@ class TestExportExecutionMetricsCommand:
         """Test command execution with --help."""
         command = ExportExecutionMetricsCommand()
 
-        with patch("builtins.print") as mock_print:
+        with patch("builtins.print"):
             result = command.execute(["--help"])
 
             assert result is True  # Should continue
-            # Help should be printed (captured by Console, but we can verify execute completes)
+            # Help should be printed (captured by Console, but we can verify
+            # execute completes)
 
     def test_execute_invalid_args(self):
         """Test command execution with invalid arguments."""

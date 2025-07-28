@@ -1,11 +1,10 @@
 """Tests for text-to-dq-policy command."""
 
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-import os
 
 from adoc_toolkit.cli.commands.text_to_dq_policy_command import TextToDQPolicyCommand
-from adoc_toolkit.models.llm_config import LLMVendor
 from adoc_toolkit.llm import client as llm_client
 
 
@@ -191,7 +190,10 @@ class TestTextToDQPolicyCommand:
 
     def test_process_response_with_uids_multiple_policies(self):
         """Test processing response with UIDs and multiple policies."""
-        response_content = '[{"rule": {"enabled": true, "backingAsset": {"tableAssetId": "<uid>"}}}, {"rule": {"enabled": true, "backingAsset": {"tableAssetId": "<uid>"}}}]'
+        response_content = (
+            '[{"rule": {"enabled": true, "backingAsset": {"tableAssetId": "<uid>"}}}, '
+            '{"rule": {"enabled": true, "backingAsset": {"tableAssetId": "<uid>"}}}]'
+        )
         uids = ["12345", "67890"]
 
         # This should not raise an exception

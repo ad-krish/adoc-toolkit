@@ -2,7 +2,6 @@
 
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -96,7 +95,7 @@ class LogConfig(BaseModel):
     level: LogLevel = Field(
         default=LogLevel.INFO, description="Log level for application logging"
     )
-    filepath: Optional[str] = Field(
+    filepath: str | None = Field(
         default=None,
         description=(
             "Path to log file. If None, defaults to logs/adoc-toolkit-MM-dd-YYYY.log"
@@ -108,7 +107,7 @@ class LogConfig(BaseModel):
 
     @field_validator("filepath")
     @classmethod
-    def validate_filepath(cls, v: Optional[str]) -> Optional[str]:
+    def validate_filepath(cls, v: str | None) -> str | None:
         """Validate and normalize filepath."""
         if v is None or not v.strip():
             return None

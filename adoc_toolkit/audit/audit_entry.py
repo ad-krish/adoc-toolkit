@@ -2,7 +2,7 @@
 
 import json
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -13,17 +13,17 @@ class AuditEntry(BaseModel):
     timestamp: datetime = Field(
         default_factory=datetime.now, description="Timestamp of the audit event"
     )
-    ip_address: Optional[str] = Field(
+    ip_address: str | None = Field(
         default=None, description="IP address of the user/client"
     )
-    user_id: Optional[str] = Field(
+    user_id: str | None = Field(
         default=None, description="User ID performing the operation"
     )
     command_object: str = Field(description="Command or object being accessed")
     operation_type: str = Field(
         description="Type of operation (GET, POST, PUT, DELETE, etc.)"
     )
-    details: Optional[dict[str, Any]] = Field(
+    details: dict[str, Any] | None = Field(
         default=None, description="Additional operation details"
     )
 
@@ -56,9 +56,9 @@ class AuditEntry(BaseModel):
         cls,
         method: str,
         url: str,
-        headers: Optional[dict[str, str]] = None,
-        ip_address: Optional[str] = None,
-        user_id: Optional[str] = None,
+        headers: dict[str, str] | None = None,
+        ip_address: str | None = None,
+        user_id: str | None = None,
     ) -> "AuditEntry":
         """Create audit entry from HTTP request data.
 

@@ -1,9 +1,10 @@
 """Tests for LLM temperature configuration."""
 
+
 import pytest
-from unittest.mock import Mock, patch
+
 from adoc_toolkit.config import get_config_manager, reset_config_manager
-from adoc_toolkit.models.llm_config import LLMConfig, LLMVendor
+from adoc_toolkit.models.llm_config import LLMConfig
 
 
 class TestTemperatureConfig:
@@ -42,7 +43,8 @@ class TestTemperatureConfig:
             LLMConfig(temperature=2.1)
 
         # Invalid type - Pydantic handles this automatically
-        with pytest.raises(Exception):  # Pydantic validation error
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):  # Pydantic validation error
             LLMConfig(temperature="invalid")
 
     def test_config_manager_temperature_option(self):

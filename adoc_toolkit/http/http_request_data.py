@@ -1,6 +1,6 @@
 """HTTP request data model."""
 
-from typing import Any, Optional, Union
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -10,16 +10,16 @@ class HTTPRequestData(BaseModel):
 
     method: str = Field(description="HTTP method")
     endpoint: str = Field(description="API endpoint")
-    headers: Optional[dict[str, str]] = Field(
+    headers: dict[str, str] | None = Field(
         default=None, description="Request headers"
     )
-    params: Optional[dict[str, Any]] = Field(
+    params: dict[str, Any] | None = Field(
         default=None, description="Query parameters"
     )
-    data: Optional[Union[dict[str, Any], str, bytes]] = Field(
+    data: dict[str, Any] | str | bytes | None = Field(
         default=None, description="Request body data"
     )
-    file_path: Optional[str] = Field(
+    file_path: str | None = Field(
         default=None, description="Path to file for request body"
     )
 

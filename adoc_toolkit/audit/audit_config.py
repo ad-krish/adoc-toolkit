@@ -1,6 +1,5 @@
 """Audit configuration model."""
 
-from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -8,14 +7,14 @@ from pydantic import BaseModel, Field, field_validator
 class AuditConfig(BaseModel):
     """Audit logging configuration settings."""
 
-    logfile: Optional[str] = Field(
+    logfile: str | None = Field(
         default=None,
         description="Path to audit log file. If None, audit logging is disabled.",
     )
 
     @field_validator("logfile")
     @classmethod
-    def validate_logfile(cls, v: Optional[str]) -> Optional[str]:
+    def validate_logfile(cls, v: str | None) -> str | None:
         """Validate audit log file path."""
         if v is None or v.strip() == "":
             return None

@@ -3,7 +3,7 @@
 import json
 import os
 import re
-from typing import Any, Optional, Union
+from typing import Any
 
 from rich.console import Console
 from rich.table import Table
@@ -17,7 +17,7 @@ from .base import Command
 class GetCommand(Command):
     """Get command for making HTTP GET requests."""
 
-    def __init__(self, http_client: Optional[ADOCHTTPClient] = None):
+    def __init__(self, http_client: ADOCHTTPClient | None = None):
         """Initialize the get command.
 
         Args:
@@ -45,10 +45,9 @@ class GetCommand(Command):
         help_text += "Examples:\n"
         help_text += "  get /catalog-server/api/assets/search\n"
         help_text += (
-            "  get /catalog-server/api/assets/:asset-id/metadata asset-id=123\n"
+            "  get /catalog-server/api/assets/:asset-id/metadata asset-id=123 "
+            "include_history=true\n\n"
         )
-        help_text += "  get /catalog-server/api/assets/search ?name=test ?page=1\n"
-        help_text += "  get /catalog-server/api/assets/:asset-id/metadata asset-id=123 include_history=true\n\n"
         help_text += "Path Parameters:\n"
         help_text += "  - Use :param-name in URLs (e.g., :asset-id)\n"
         help_text += "  - Provide values as param-name=value\n"
@@ -58,7 +57,7 @@ class GetCommand(Command):
         help_text += "  - Or provide as key=value pairs\n"
         return help_text
 
-    def _load_api_reference(self) -> Optional[APIReference]:
+    def _load_api_reference(self) -> APIReference | None:
         """Load API reference from configuration file."""
         try:
             config_path = os.path.join(
@@ -69,7 +68,7 @@ class GetCommand(Command):
                 "config",
                 "adoc-toolkit-api-reference.json",
             )
-            with open(config_path, "r") as f:
+            with open(config_path) as f:
                 data = json.load(f)
             return APIReference.model_validate(data)
         except Exception as e:
@@ -345,7 +344,8 @@ class GetCommand(Command):
             formatter = ResponseFormatter(self.console)
 
             if response.is_success:
-                # Check if response is JSON by looking at content-type header or trying to parse as JSON
+                # Check if response is JSON by looking at content-type header or
+                # trying to parse as JSON
                 content_type = response.headers.get("content-type", "").lower()
                 is_json_response = (
                     "json" in content_type or "application/json" in content_type
@@ -362,7 +362,8 @@ class GetCommand(Command):
                         self.console.print("Raw response:")
                         self.console.print(response.text)
                 else:
-                    # Try to parse as JSON anyway in case content-type is not set correctly
+                    # Try to parse as JSON anyway in case content-type is not set
+                    # correctly
                     try:
                         data = response.json()
                         formatter.print_response_with_config(data)
@@ -404,7 +405,7 @@ class GetCommand(Command):
 
     def get_completions(
         self, current_input: str, cursor_position: int
-    ) -> list[Union[str, CompletionItem]]:
+    ) -> list[str | CompletionItem]:
         """Get auto-completion suggestions.
 
         Args:

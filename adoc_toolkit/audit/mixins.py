@@ -1,7 +1,8 @@
 """Auditable mixin and decorators for easy audit logging integration."""
 
 import functools
-from typing import Any, Callable, Optional, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from .service import get_audit_logger
 
@@ -14,11 +15,11 @@ class AuditableMixin:
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize auditable mixin."""
         super().__init__(*args, **kwargs)
-        self._audit_user_id: Optional[str] = None
-        self._audit_ip_address: Optional[str] = None
+        self._audit_user_id: str | None = None
+        self._audit_ip_address: str | None = None
 
     def set_audit_context(
-        self, user_id: Optional[str] = None, ip_address: Optional[str] = None
+        self, user_id: str | None = None, ip_address: str | None = None
     ) -> None:
         """Set audit context for this instance.
 
@@ -33,9 +34,9 @@ class AuditableMixin:
         self,
         command_object: str,
         operation_type: str,
-        details: Optional[dict[str, Any]] = None,
-        user_id: Optional[str] = None,
-        ip_address: Optional[str] = None,
+        details: dict[str, Any] | None = None,
+        user_id: str | None = None,
+        ip_address: str | None = None,
     ) -> None:
         """Log an audit operation for this instance.
 
@@ -66,9 +67,9 @@ class AuditableMixin:
         self,
         method: str,
         url: str,
-        headers: Optional[dict[str, str]] = None,
-        user_id: Optional[str] = None,
-        ip_address: Optional[str] = None,
+        headers: dict[str, str] | None = None,
+        user_id: str | None = None,
+        ip_address: str | None = None,
     ) -> None:
         """Log an HTTP request audit entry for this instance.
 
@@ -99,7 +100,7 @@ class AuditableMixin:
 def audit_operation(
     command_object: str,
     operation_type: str,
-    details: Optional[dict[str, Any]] = None,
+    details: dict[str, Any] | None = None,
     extract_args: bool = False,
 ) -> Callable[[F], F]:
     """Decorator to automatically audit operations.

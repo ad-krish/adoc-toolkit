@@ -1,6 +1,6 @@
 """Tracing mixins for command classes."""
 
-from typing import Any, Optional
+from typing import Any
 
 from .utils import reset_trace_depth, trace_if_enabled
 
@@ -25,7 +25,7 @@ class TraceableMixin:
     """
 
     @property
-    def trace_prefix(self) -> Optional[str]:
+    def trace_prefix(self) -> str | None:
         """Get the trace prefix for this command.
 
         Commands should override this to provide a meaningful prefix

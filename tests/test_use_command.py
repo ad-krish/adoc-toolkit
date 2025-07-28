@@ -2,7 +2,7 @@
 
 import tempfile
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 from unittest.mock import patch
 
 from adoc_toolkit.cli.commands.use_command import UseCommand
@@ -77,7 +77,7 @@ environments:
             mock_path.return_value = config_file
 
             callback_called = False
-            callback_args: Union[tuple[str, dict[str, Any]], None] = None
+            callback_args: tuple[str, dict[str, Any]] | None = None
 
             def mock_callback(env_name: str, env_config: dict[str, Any]) -> None:
                 nonlocal callback_called, callback_args

@@ -1,6 +1,5 @@
 """HTTP exceptions for ADOC API interactions."""
 
-from typing import Optional
 
 from .response import HTTPResponse
 
@@ -8,7 +7,7 @@ from .response import HTTPResponse
 class HTTPError(Exception):
     """Exception raised for HTTP-related errors."""
 
-    def __init__(self, message: str, response: Optional[HTTPResponse] = None):
+    def __init__(self, message: str, response: HTTPResponse | None = None):
         """Initialize HTTP error.
 
         Args:

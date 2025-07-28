@@ -1,6 +1,5 @@
 """Tests for find-asset command tracing functionality."""
 
-import pytest
 from unittest.mock import Mock
 
 from adoc_toolkit.cli.commands.find_asset_command import FindAssetCommand

@@ -9,13 +9,13 @@ import pytest
 
 from adoc_toolkit.cli.commands.export_metrics_command import (
     ExportMetricsCommand,
-    parse_command_args,
     check_output_dependencies,
+    export_dataframe_to_format,
     generate_filename_from_template,
+    get_completion_suggestions,
+    parse_command_args,
     preprocess_dataframe_for_format,
     process_metrics_data,
-    export_dataframe_to_format,
-    get_completion_suggestions,
 )
 from adoc_toolkit.http import HTTPError, HTTPResponse
 
@@ -694,7 +694,7 @@ class TestExportMetricsCommand:
                         ) as mock_generate_filename:
                             with patch("pathlib.Path.stat") as mock_stat:
                                 with patch("pathlib.Path.exists") as mock_exists:
-                                    with patch("pathlib.Path.mkdir") as mock_mkdir:
+                                    with patch("pathlib.Path.mkdir"):
                                         # Configure mocks
                                         mock_fetch.return_value = {
                                             "data": "test",
@@ -710,8 +710,13 @@ class TestExportMetricsCommand:
                                             "test_column_1",
                                             "test_column_2",
                                         ]
-                                        mock_df.head.return_value.to_string.return_value = "test data"
-                                        # Ensure the DataFrame constructor returns our mock
+                                        (
+                                            mock_df.head.return_value.to_string
+                                        ).return_value = (
+                                            "test data"
+                                        )
+                                        # Ensure the DataFrame constructor
+                                        # returns our mock
                                         mock_dataframe.return_value = mock_df
 
                                         # Mock filename generation
@@ -728,8 +733,16 @@ class TestExportMetricsCommand:
                                             "adoc_toolkit.cli.commands.export_metrics_command.Progress"
                                         ) as mock_progress:
                                             mock_progress_instance = Mock()
-                                            mock_progress.return_value.__enter__.return_value = mock_progress_instance
-                                            mock_progress_instance.add_task.return_value = "task_id"
+                                            (
+                                                mock_progress.return_value.__enter__
+                                            ).return_value = (
+                                                mock_progress_instance
+                                            )
+                                            (
+                                                mock_progress_instance.add_task
+                                            ).return_value = (
+                                                "task_id"
+                                            )
                                             mock_progress_instance.update = Mock()
 
                                             # Execute command

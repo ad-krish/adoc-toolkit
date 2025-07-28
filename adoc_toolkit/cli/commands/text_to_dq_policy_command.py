@@ -5,7 +5,7 @@ import re
 from functools import reduce
 from itertools import product
 from operator import methodcaller
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 from rich.console import Console
 
@@ -166,7 +166,7 @@ class TextToDQPolicyCommand(Command):
         """
         return list(filter(None, map(methodcaller("strip"), uids_str.split(","))))
 
-    def _validate_llm_config(self, llm_config) -> Optional[str]:
+    def _validate_llm_config(self, llm_config) -> str | None:
         """Validate LLM configuration and return error message if invalid.
 
         Args:

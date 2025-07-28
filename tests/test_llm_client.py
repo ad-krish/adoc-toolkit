@@ -1,7 +1,7 @@
-import pytest
+from typing import Any
 from unittest.mock import Mock, patch
-import os
-from typing import Dict, Any
+
+import pytest
 
 from adoc_toolkit.llm import client as llm_client
 from adoc_toolkit.models import LLMRequest, LLMResponse
@@ -171,7 +171,7 @@ def test_generate_with_processing_with_processor(dummy_console):
     c = llm_client.GrokLLMClient(dummy_console)
     processor_called = False
 
-    def test_processor(response: LLMResponse, kwargs: Dict[str, Any]):
+    def test_processor(response: LLMResponse, kwargs: dict[str, Any]):
         nonlocal processor_called
         processor_called = True
         assert isinstance(response, LLMResponse)

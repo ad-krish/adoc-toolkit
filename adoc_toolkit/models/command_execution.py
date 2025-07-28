@@ -1,7 +1,6 @@
 """Command execution tracking models."""
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -14,7 +13,7 @@ class CommandExecution(BaseModel):
     start_time: datetime = Field(description="When the command started")
     end_time: datetime = Field(description="When the command finished")
     duration_seconds: float = Field(description="Duration in seconds")
-    error_message: Optional[str] = Field(
+    error_message: str | None = Field(
         default=None, description="Error message if command failed"
     )
 
@@ -58,7 +57,7 @@ class ExecutionHistory(BaseModel):
         status: str,
         start_time: datetime,
         end_time: datetime,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
         max_executions: int = 500,
     ) -> None:
         """Add a new command execution record.

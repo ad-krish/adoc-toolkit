@@ -1,6 +1,6 @@
 """Set configuration command implementation."""
 
-from typing import Any, Union
+from typing import Any
 
 from rich.console import Console
 
@@ -63,13 +63,25 @@ class SetConfigCommand(Command):
         help_text += "    audit.logfile   - Path to audit log file (optional)\n\n"
 
         help_text += "  LLM Configuration:\n"
-        help_text += "    llm.vendor      - LLM vendor: claude, gemini, grok, chatgpt (default: gemini)\n"
+        help_text += (
+            "    llm.vendor      - LLM vendor: claude, gemini, grok, chatgpt "
+            "(default: gemini)\n"
+        )
         help_text += (
             "    llm.apikey      - API key for the selected LLM vendor (optional)\n"
         )
-        help_text += "    llm.model       - Model name for the selected LLM vendor (auto-set based on vendor)\n"
-        help_text += "    llm.temperature - Temperature for response generation: 0.0-2.0 (default: 0.2)\n"
-        help_text += "                     Note: Available models can be customized by editing the config file\n\n"
+        help_text += (
+            "    llm.model       - Model name for the selected LLM vendor "
+            "(auto-set based on vendor)\n"
+        )
+        help_text += (
+            "    llm.temperature - Temperature for response generation: 0.0-2.0 "
+            "(default: 0.2)\n"
+        )
+        help_text += (
+            "                     Note: Available models can be customized by "
+            "editing the config file\n\n"
+        )
 
         help_text += "Examples:\n"
         help_text += "  set-config http.timeout 60\n"
@@ -312,7 +324,7 @@ class SetConfigCommand(Command):
 
     def get_completions(
         self, current_input: str, cursor_position: int
-    ) -> list[Union[str, CompletionItem]]:
+    ) -> list[str | CompletionItem]:
         """Get auto-completion suggestions for set-config command with descriptions.
 
         Args:

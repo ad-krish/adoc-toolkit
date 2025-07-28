@@ -1,6 +1,5 @@
 """Environment information model."""
 
-from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -10,10 +9,10 @@ class EnvironmentInfo(BaseModel):
 
     name: str = Field(description="Environment name")
     base_url: str = Field(description="Base API URL")
-    access_key: Optional[str] = Field(
+    access_key: str | None = Field(
         default=None, description="Access key for authentication"
     )
-    secret_key: Optional[str] = Field(
+    secret_key: str | None = Field(
         default=None, description="Secret key for authentication"
     )
 

@@ -1,20 +1,24 @@
 """DQ Policy LLM Client for text-to-dq-policy command."""
 
 import os
-from typing import Optional, List, Callable, Dict, Any
+from collections.abc import Callable
+from typing import Any
 
-from ...models import LLMRequest, LLMResponse, DQPolicyPromptConfig
 from ...llm.client import BaseLLMClient
+from ...models import DQPolicyPromptConfig, LLMRequest, LLMResponse
 
 
 class DQPolicyLLMClient:
-    """DQ Policy specific LLM client that handles prompt management and response processing."""
+    """
+    DQ Policy specific LLM client that handles prompt management and
+    response processing.
+    """
 
     def __init__(
         self,
         llm_client: BaseLLMClient,
         console,
-        process_response_with_uids: Callable[[str, List[str]], None],
+        process_response_with_uids: Callable[[str, list[str]], None],
     ):
         self.llm_client = llm_client
         self.console = console
@@ -31,11 +35,12 @@ class DQPolicyLLMClient:
             "../../../config/prompts/text_to_dq_policy_system.txt",
         )
         try:
-            with open(prompt_path, "r", encoding="utf-8") as f:
+            with open(prompt_path, encoding="utf-8") as f:
                 return f.read()
         except FileNotFoundError:
             return (
-                "[ERROR: System prompt file not found at 'config/prompts/text_to_dq_policy_system.txt'. "
+                "[ERROR: System prompt file not found at "
+                "'config/prompts/text_to_dq_policy_system.txt'. "
                 "Please ensure the prompt file exists.]"
             )
         except Exception as e:
@@ -45,10 +50,10 @@ class DQPolicyLLMClient:
         """Get user prompt for DQ policy generation."""
         return self.prompt_config.user_prompt_template.format(text=text)
 
-    def _create_response_processor(self, uids: Optional[List[str]] = None):
+    def _create_response_processor(self, uids: list[str] | None = None):
         """Create response processor for DQ policy with UIDs."""
 
-        def processor(response: LLMResponse, kwargs: Dict[str, Any]):
+        def processor(response: LLMResponse, kwargs: dict[str, Any]):
             if uids:
                 self.process_response_with_uids(response.content, uids)
             else:
@@ -58,7 +63,7 @@ class DQPolicyLLMClient:
         return processor
 
     def generate_policy(
-        self, text: str, api_key: str, model: str, uids: Optional[List[str]] = None
+        self, text: str, api_key: str, model: str, uids: list[str] | None = None
     ) -> bool:
         """Generate DQ policy using the configured LLM client."""
         try:

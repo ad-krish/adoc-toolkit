@@ -1,25 +1,23 @@
 import os
 import time
-from typing import Callable, Optional, Dict, Any, Union, Tuple
 from abc import ABC, abstractmethod
-from functools import wraps, partial
-from operator import attrgetter
-import logging
+from collections.abc import Callable
+from functools import wraps
+from typing import Any
 
 from ..models import (
+    ChatGPTRequest,
+    ClaudeRequest,
+    GeminiRequest,
+    GrokRequest,
     LLMRequest,
     LLMResponse,
-    GrokRequest,
-    GeminiRequest,
-    ClaudeRequest,
-    ChatGPTRequest,
-    LLMClientConfig,
 )
 
 # Type aliases for functional programming
 Console = Any
-ProcessingResult = Tuple[bool, Optional[str]]
-ResponseProcessor = Callable[[LLMResponse, Dict[str, Any]], None]
+ProcessingResult = tuple[bool, str | None]
+ResponseProcessor = Callable[[LLMResponse, dict[str, Any]], None]
 
 
 def with_error_handling(func: Callable) -> Callable:
@@ -92,7 +90,7 @@ def extract_content(response: Any) -> str:
 
 
 def create_llm_response(
-    content: str, model: str, vendor: str, metadata: Dict[str, Any]
+    content: str, model: str, vendor: str, metadata: dict[str, Any]
 ) -> LLMResponse:
     """Pure function to create LLMResponse."""
     return LLMResponse(
@@ -122,7 +120,7 @@ def print_success_response(console: Console, content: str) -> None:
 
 
 def process_response_with_processor(
-    response: LLMResponse, processor: Optional[ResponseProcessor], request: LLMRequest
+    response: LLMResponse, processor: ResponseProcessor | None, request: LLMRequest
 ) -> None:
     """Pure function to process response with optional processor."""
     if processor:
@@ -136,7 +134,7 @@ def validate_request(request: LLMRequest, request_type: type) -> Any:
     return request_type.model_validate(request.model_dump())
 
 
-def create_vendor_client_map() -> Dict[str, Callable]:
+def create_vendor_client_map() -> dict[str, Callable]:
     """Pure function to create vendor client mapping."""
     return {
         "grok": GrokLLMClient,
@@ -146,7 +144,7 @@ def create_vendor_client_map() -> Dict[str, Callable]:
     }
 
 
-def get_client_class(vendor: str, client_map: Dict[str, Callable]) -> Callable:
+def get_client_class(vendor: str, client_map: dict[str, Callable]) -> Callable:
     """Pure function to get client class from vendor."""
     vendor_lower = vendor.lower()
     if vendor_lower not in client_map:
@@ -158,7 +156,7 @@ class BaseLLMClient(ABC):
     """Base class for LLM clients that can be used with any command."""
 
     def __init__(
-        self, console: Console, response_processor: Optional[ResponseProcessor] = None
+        self, console: Console, response_processor: ResponseProcessor | None = None
     ):
         self.console = console
         self.response_processor = response_processor
@@ -221,7 +219,7 @@ class GrokLLMClient(BaseLLMClient):
     def _generate_grok_response(self, request: LLMRequest) -> LLMResponse:
         """Pure function to generate Grok response."""
         from xai_sdk import Client
-        from xai_sdk.chat import user, system
+        from xai_sdk.chat import system, user
 
         # Validate request using pure function
         grok_request = validate_request(request, GrokRequest)
@@ -266,8 +264,8 @@ class GeminiLLMClient(BaseLLMClient):
     @with_error_handling
     def _generate_gemini_response(self, request: LLMRequest) -> LLMResponse:
         """Pure function to generate Gemini response."""
-        import google.generativeai as genai
         import google.api_core.exceptions
+        import google.generativeai as genai
 
         # Validate request using pure function
         gemini_request = validate_request(request, GeminiRequest)
@@ -287,9 +285,9 @@ class GeminiLLMClient(BaseLLMClient):
                 generation_config={"temperature": gemini_request.temperature or 0.2},
             )
         except google.api_core.exceptions.GoogleAPIError as e:
-            raise Exception(f"Gemini API error: {e}")
+            raise Exception(f"Gemini API error: {e}") from e
         except Exception as e:
-            raise Exception(f"Error calling Gemini: {e}")
+            raise Exception(f"Error calling Gemini: {e}") from e
 
         # Extract content using pure function
         content = extract_content(response)
@@ -345,7 +343,7 @@ class ClaudeLLMClient(BaseLLMClient):
                 temperature=claude_request.temperature or 0.2,
             )
         except Exception as e:
-            raise Exception(f"Claude API error: {e}")
+            raise Exception(f"Claude API error: {e}") from e
 
         # Extract content using pure function
         content = extract_content(response)
@@ -397,7 +395,7 @@ class ChatGPTLLMClient(BaseLLMClient):
                 **chatgpt_request.additional_params,
             )
         except Exception as e:
-            raise Exception(f"ChatGPT API error: {e}")
+            raise Exception(f"ChatGPT API error: {e}") from e
 
         # Extract content using pure function
         content = extract_content(response)
@@ -425,7 +423,7 @@ class ChatGPTLLMClient(BaseLLMClient):
 def get_llm_client(
     vendor: str,
     console: Console,
-    response_processor: Optional[ResponseProcessor] = None,
+    response_processor: ResponseProcessor | None = None,
 ) -> BaseLLMClient:
     """Get LLM client for the specified vendor."""
     client_map = create_vendor_client_map()
@@ -434,4 +432,8 @@ def get_llm_client(
 
 
 # Import DQPolicyLLMClient for backward compatibility
-from ..cli.commands.dq_policy_llm_client import DQPolicyLLMClient
+try:
+    from ..cli.commands.dq_policy_llm_client import DQPolicyLLMClient
+except ImportError:
+    # Handle case where the import fails (e.g., during testing)
+    DQPolicyLLMClient = None

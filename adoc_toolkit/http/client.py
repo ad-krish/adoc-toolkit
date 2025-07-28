@@ -1,8 +1,9 @@
 """HTTP client for ADOC API interactions."""
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional, Union
+from typing import Any
 
 import httpx
 from pydantic import ValidationError
@@ -52,8 +53,8 @@ class ADOCHTTPClient(_AuditMixin):
 
     def __init__(
         self,
-        environment_info_callback: Optional[Callable[[], dict[str, Any]]] = None,
-        response_handler: Optional[Callable[[HTTPResponse], Any]] = None,
+        environment_info_callback: Callable[[], dict[str, Any]] | None = None,
+        response_handler: Callable[[HTTPResponse], Any] | None = None,
     ):
         """Initialize ADOC HTTP client.
 
@@ -91,7 +92,7 @@ class ADOCHTTPClient(_AuditMixin):
         return {}
 
     def _build_headers(
-        self, additional_headers: Optional[dict[str, str]] = None
+        self, additional_headers: dict[str, str] | None = None
     ) -> dict[str, str]:
         """Build headers for the request.
 
@@ -175,9 +176,9 @@ class ADOCHTTPClient(_AuditMixin):
 
     def _prepare_data(
         self,
-        data: Optional[Union[dict[str, Any], str, bytes]] = None,
-        file_path: Optional[str] = None,
-    ) -> Optional[bytes]:
+        data: dict[str, Any] | str | bytes | None = None,
+        file_path: str | None = None,
+    ) -> bytes | None:
         """Prepare request data.
 
         Args:
@@ -211,10 +212,10 @@ class ADOCHTTPClient(_AuditMixin):
         self,
         method: str,
         endpoint: str,
-        data: Optional[Union[dict[str, Any], str, bytes]] = None,
-        headers: Optional[dict[str, str]] = None,
-        file_path: Optional[str] = None,
-        params: Optional[dict[str, Any]] = None,
+        data: dict[str, Any] | str | bytes | None = None,
+        headers: dict[str, str] | None = None,
+        file_path: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> HTTPResponse:
         """Make HTTP request with retry logic.
 
@@ -270,7 +271,7 @@ class ADOCHTTPClient(_AuditMixin):
         retryable_exceptions = (httpx.TimeoutException, httpx.ConnectError)
 
         with httpx.Client(**client_config) as client:
-            last_exception: Optional[HTTPError] = None
+            last_exception: HTTPError | None = None
             for attempt in range(retries + 1):
                 request_info["retries_attempted"] = attempt
                 try:
@@ -345,8 +346,8 @@ class ADOCHTTPClient(_AuditMixin):
     def get(
         self,
         endpoint: str,
-        headers: Optional[dict[str, str]] = None,
-        params: Optional[dict[str, Any]] = None,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
     ) -> HTTPResponse:
         """Make GET request.
 
@@ -363,10 +364,10 @@ class ADOCHTTPClient(_AuditMixin):
     def post(
         self,
         endpoint: str,
-        data: Optional[Union[dict[str, Any], str, bytes]] = None,
-        headers: Optional[dict[str, str]] = None,
-        file_path: Optional[str] = None,
-        params: Optional[dict[str, Any]] = None,
+        data: dict[str, Any] | str | bytes | None = None,
+        headers: dict[str, str] | None = None,
+        file_path: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> HTTPResponse:
         """Make POST request.
 
@@ -392,10 +393,10 @@ class ADOCHTTPClient(_AuditMixin):
     def put(
         self,
         endpoint: str,
-        data: Optional[Union[dict[str, Any], str, bytes]] = None,
-        headers: Optional[dict[str, str]] = None,
-        file_path: Optional[str] = None,
-        params: Optional[dict[str, Any]] = None,
+        data: dict[str, Any] | str | bytes | None = None,
+        headers: dict[str, str] | None = None,
+        file_path: str | None = None,
+        params: dict[str, Any] | None = None,
     ) -> HTTPResponse:
         """Make PUT request.
 
@@ -421,8 +422,8 @@ class ADOCHTTPClient(_AuditMixin):
     def delete(
         self,
         endpoint: str,
-        headers: Optional[dict[str, str]] = None,
-        params: Optional[dict[str, Any]] = None,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
     ) -> HTTPResponse:
         """Make DELETE request.
 

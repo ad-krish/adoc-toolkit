@@ -1,6 +1,5 @@
 """Show config command arguments model."""
 
-from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -8,7 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 class ShowConfigArgs(BaseModel):
     """Arguments for show config command."""
 
-    key: Optional[str] = Field(default=None, description="Configuration key to show")
+    key: str | None = Field(default=None, description="Configuration key to show")
     list_all: bool = Field(default=False, description="List all configuration")
 
     @model_validator(mode="after")

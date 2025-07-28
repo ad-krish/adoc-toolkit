@@ -1,11 +1,9 @@
 """Demonstration of path parameter functionality."""
 
-import pytest
 from unittest.mock import Mock, patch
-from rich.console import Console
 
 from adoc_toolkit.cli.commands.get_command import GetCommand
-from adoc_toolkit.models import APIReference, APIEndpoint
+from adoc_toolkit.models import APIEndpoint, APIReference
 
 
 class TestPathParamsDemo:
@@ -83,11 +81,13 @@ class TestPathParamsDemo:
             version="1.0",
             description="Demo API",
             endpoints={
-                "/catalog-server/api/assets/:asset-id/users/:user-id/permissions": APIEndpoint(
-                    url="/catalog-server/api/assets/:asset-id/users/:user-id/permissions",
-                    description="Get user permissions for asset",
-                    query_params={},
-                    response_type="json",
+                "/catalog-server/api/assets/:asset-id/users/:user-id/permissions": (
+                    APIEndpoint(
+                        url="/catalog-server/api/assets/:asset-id/users/:user-id/permissions",
+                        description="Get user permissions for asset",
+                        query_params={},
+                        response_type="json",
+                    )
                 )
             },
         )

@@ -22,8 +22,6 @@ Example usage:
     $ adoc-toolkit help <command>
 """
 
-from typing import Optional, Callable
-from functools import partial
 
 import click
 from rich.console import Console
@@ -49,7 +47,7 @@ def display_version() -> None:
     console.print(f"ADOC Toolkit version {__version__}")
 
 
-def create_processor(config: Optional[str]) -> InteractiveProcessor:
+def create_processor(config: str | None) -> InteractiveProcessor:
     """
     Create an InteractiveProcessor instance - pure function.
 
@@ -71,7 +69,7 @@ def create_processor(config: Optional[str]) -> InteractiveProcessor:
     return InteractiveProcessor(config_file=config)
 
 
-def run_processor(config: Optional[str]) -> None:
+def run_processor(config: str | None) -> None:
     """
     Run the interactive processor - pure function.
 
@@ -89,7 +87,7 @@ def run_processor(config: Optional[str]) -> None:
     create_processor(config).run()
 
 
-def execute_help_command(command: str, config: Optional[str]) -> None:
+def execute_help_command(command: str, config: str | None) -> None:
     """
     Execute help command for specific command - pure function.
 
@@ -125,7 +123,7 @@ def display_general_help() -> None:
     click.echo(ctx.get_help())
 
 
-def handle_help_command(command: Optional[str], config: Optional[str]) -> None:
+def handle_help_command(command: str | None, config: str | None) -> None:
     """
     Handle help command logic - pure function.
 
@@ -156,7 +154,7 @@ def handle_help_command(command: Optional[str], config: Optional[str]) -> None:
 @click.option("--config", "-c", type=click.Path(), help="Path to configuration file")
 @click.pass_context
 def cli(
-    ctx: click.Context, interactive: bool, version: bool, config: Optional[str]
+    ctx: click.Context, interactive: bool, version: bool, config: str | None
 ) -> None:
     """
     ADOC Toolkit - Acceldata Observability Cloud toolkit.
@@ -193,7 +191,7 @@ def cli(
 
 @cli.command()
 @click.option("--config", "-c", type=click.Path(), help="Path to configuration file")
-def interactive(config: Optional[str]) -> None:
+def interactive(config: str | None) -> None:
     """
     Start interactive mode.
 
@@ -213,7 +211,7 @@ def interactive(config: Optional[str]) -> None:
 @cli.command()
 @click.argument("command", required=False)
 @click.option("--config", "-c", type=click.Path(), help="Path to configuration file")
-def help(command: Optional[str] = None, config: Optional[str] = None) -> None:
+def help(command: str | None = None, config: str | None = None) -> None:
     """
     Show help for commands.
 
