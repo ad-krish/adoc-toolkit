@@ -26,10 +26,11 @@ environments:
 default_environment: "test-env"
 """
         
-        with patch("builtins.open", mock_open(read_data=valid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is True
-            assert len(errors) == 0
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=valid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is True
+                assert len(errors) == 0
 
     def test_missing_environments_section(self):
         """Test validation fails when environments section is missing."""
@@ -37,10 +38,11 @@ default_environment: "test-env"
 default_environment: "test-env"
 """
         
-        with patch("builtins.open", mock_open(read_data=invalid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert any("Missing required section" in error for error in errors)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=invalid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert any("Missing required section" in error for error in errors)
 
     def test_empty_environments_section(self):
         """Test validation fails when environments section is empty."""
@@ -48,10 +50,11 @@ default_environment: "test-env"
 environments: {}
 """
         
-        with patch("builtins.open", mock_open(read_data=invalid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert any("No environments defined" in error for error in errors)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=invalid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert any("No environments defined" in error for error in errors)
 
     def test_missing_required_fields(self):
         """Test validation fails when required fields are missing."""
@@ -63,10 +66,11 @@ environments:
     # Missing access_key and secret_key
 """
         
-        with patch("builtins.open", mock_open(read_data=invalid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert any("Missing required field" in error for error in errors)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=invalid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert any("Missing required field" in error for error in errors)
 
     def test_invalid_environment_name(self):
         """Test validation fails with invalid environment name."""
@@ -79,10 +83,11 @@ environments:
     secret_key: "SECRET123456789"
 """
         
-        with patch("builtins.open", mock_open(read_data=invalid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert any("Invalid environment name" in error for error in errors)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=invalid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert any("Invalid environment name" in error for error in errors)
 
     def test_invalid_base_url(self):
         """Test validation fails with invalid base URL."""
@@ -95,10 +100,11 @@ environments:
     secret_key: "SECRET123456789"
 """
         
-        with patch("builtins.open", mock_open(read_data=invalid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert any("must start with 'http://' or 'https://'" in error for error in errors)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=invalid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert any("must start with 'http://' or 'https://'" in error for error in errors)
 
     def test_invalid_access_key_format(self):
         """Test validation fails with invalid access key format."""
@@ -111,10 +117,11 @@ environments:
     secret_key: "SECRET123456789"
 """
         
-        with patch("builtins.open", mock_open(read_data=invalid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert any("should contain only uppercase letters and numbers" in error for error in errors)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=invalid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert any("should contain only uppercase letters and numbers" in error for error in errors)
 
     def test_short_access_key(self):
         """Test validation fails with short access key."""
@@ -127,10 +134,11 @@ environments:
     secret_key: "SECRET123456789"
 """
         
-        with patch("builtins.open", mock_open(read_data=invalid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert any("too short" in error for error in errors)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=invalid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert any("too short" in error for error in errors)
 
     def test_invalid_secret_key_format(self):
         """Test validation fails with invalid secret key format."""
@@ -143,10 +151,11 @@ environments:
     secret_key: "secret123"  # Lowercase not allowed
 """
         
-        with patch("builtins.open", mock_open(read_data=invalid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert any("should contain only uppercase letters and numbers" in error for error in errors)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=invalid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert any("should contain only uppercase letters and numbers" in error for error in errors)
 
     def test_short_secret_key(self):
         """Test validation fails with short secret key."""
@@ -159,10 +168,11 @@ environments:
     secret_key: "ABC"  # Too short
 """
         
-        with patch("builtins.open", mock_open(read_data=invalid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert any("too short" in error for error in errors)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=invalid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert any("too short" in error for error in errors)
 
     def test_name_mismatch(self):
         """Test validation fails when name field doesn't match environment key."""
@@ -175,10 +185,11 @@ environments:
     secret_key: "SECRET123456789"
 """
         
-        with patch("builtins.open", mock_open(read_data=invalid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert any("Name mismatch" in error for error in errors)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=invalid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert any("Name mismatch" in error for error in errors)
 
     def test_invalid_default_environment(self):
         """Test validation fails with invalid default environment."""
@@ -192,19 +203,21 @@ environments:
 default_environment: "non-existent-env"
 """
         
-        with patch("builtins.open", mock_open(read_data=invalid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert any("does not exist in the environments list" in error for error in errors)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=invalid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert any("does not exist in the environments list" in error for error in errors)
 
     def test_invalid_config_type(self):
         """Test validation fails when config is not a dictionary."""
         invalid_config_content = "not a dictionary"
         
-        with patch("builtins.open", mock_open(read_data=invalid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert any("must be a YAML object" in error for error in errors)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=invalid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert any("must be a YAML object" in error for error in errors)
 
     def test_invalid_environments_type(self):
         """Test validation fails when environments is not a dictionary."""
@@ -212,10 +225,11 @@ default_environment: "non-existent-env"
 environments: "not a dictionary"
 """
         
-        with patch("builtins.open", mock_open(read_data=invalid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert any("must be a YAML object" in error for error in errors)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=invalid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert any("must be a YAML object" in error for error in errors)
 
     def test_invalid_environment_config_type(self):
         """Test validation fails when environment config is not a dictionary."""
@@ -224,10 +238,11 @@ environments:
   test-env: "not a dictionary"
 """
         
-        with patch("builtins.open", mock_open(read_data=invalid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert any("must be a YAML object" in error for error in errors)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=invalid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert any("must be a YAML object" in error for error in errors)
 
     def test_invalid_field_types(self):
         """Test validation fails when field types are incorrect."""
@@ -240,19 +255,20 @@ environments:
     secret_key: "SECRET123456789"
 """
         
-        with patch("builtins.open", mock_open(read_data=invalid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert any("must be a string" in error for error in errors)
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=invalid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert any("must be a string" in error for error in errors)
 
-    @patch("builtins.open", mock_open(read_data="invalid yaml content"))
     @patch("pathlib.Path.exists", return_value=True)
     def test_yaml_parsing_error(self, mock_exists):
         """Test handling of YAML parsing errors."""
-        with patch("yaml.safe_load", side_effect=Exception("YAML parsing error")):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is False
-            assert len(errors) > 0
+        with patch("builtins.open", mock_open(read_data="invalid yaml content")):
+            with patch("yaml.safe_load", side_effect=Exception("YAML parsing error")):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is False
+                assert len(errors) > 0
 
     @patch("pathlib.Path.exists", return_value=False)
     def test_missing_config_file(self, mock_exists):
@@ -278,7 +294,8 @@ environments:
 default_environment: "dev"
 """
         
-        with patch("builtins.open", mock_open(read_data=valid_config_content)):
-            is_valid, errors = self.validator.validate_config()
-            assert is_valid is True
-            assert len(errors) == 0 
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=valid_config_content)):
+                is_valid, errors = self.validator.validate_config()
+                assert is_valid is True
+                assert len(errors) == 0 
