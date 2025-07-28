@@ -49,7 +49,9 @@ class PolicyExecution(BaseModel):
         """Convert integer IDs to strings."""
         return str(v)
 
-    @field_validator("score", "rows", "failed_rows", "success_rules", "failure_rules", mode="before")
+    @field_validator(
+        "score", "rows", "failed_rows", "success_rules", "failure_rules", mode="before"
+    )
     @classmethod
     def validate_optional_dict_fields(cls, v: Any) -> Optional[dict[str, Any]]:
         """Handle fields that can be either dict or simple values."""
@@ -221,11 +223,12 @@ class ExecutionMetricsArgs(BaseModel):
         default=None, description="Output filename template"
     )
     backload: Optional[str] = Field(
-        default=None, description="Backload option for first run (e.g., -30d, 2024-01-15)"
+        default=None,
+        description="Backload option for first run (e.g., -30d, 2024-01-15)",
     )
     policy_types: list[str] = Field(
-        default=["DATA_QUALITY", "EQUALITY"], 
-        description="Policy types to export (default: DATA_QUALITY, EQUALITY)"
+        default=["DATA_QUALITY", "EQUALITY"],
+        description="Policy types to export (default: DATA_QUALITY, EQUALITY)",
     )
     help: bool = Field(default=False, description="Show help")
 
@@ -244,17 +247,19 @@ class ExecutionMetricsArgs(BaseModel):
         """Validate policy types."""
         valid_types = {
             "DATA_QUALITY",
-            "EQUALITY", 
+            "EQUALITY",
             "DATA_DRIFT",
             "PROFILE_ANOMALY",
-            "SCHEMA_DRIFT"
+            "SCHEMA_DRIFT",
         }
         if not v:
             raise ValueError("At least one policy type must be specified")
-        
+
         invalid_types = [pt for pt in v if pt.upper() not in valid_types]
         if invalid_types:
-            raise ValueError(f"Invalid policy types: {invalid_types}. Valid types: {sorted(valid_types)}")
-        
+            raise ValueError(
+                f"Invalid policy types: {invalid_types}. Valid types: {sorted(valid_types)}"
+            )
+
         # Convert to uppercase for consistency
         return [pt.upper() for pt in v]

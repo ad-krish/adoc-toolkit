@@ -231,7 +231,7 @@ class TracerLogger:
                 log_path = log_config.get_effective_filepath()
                 log_dir = Path(log_path).parent
                 log_dir.mkdir(parents=True, exist_ok=True)
-                
+
                 # Retry creating the handler
                 handler = SizeAndTimeRotatingHandler(
                     filename=log_path,
@@ -239,16 +239,16 @@ class TracerLogger:
                     backupCount=5,
                     rotate_minutes=rotate_minutes,
                 )
-                
+
                 formatter = logging.Formatter(
                     "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
                     datefmt="%Y-%m-%d %H:%M:%S",
                 )
                 handler.setFormatter(formatter)
                 handler.setLevel(level_mapping[log_config.level])
-                
+
                 self._logger.addHandler(handler)
-                
+
             except Exception:
                 # If still failing, disable logging
                 self._logger = None

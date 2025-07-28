@@ -206,7 +206,9 @@ class TestPureFunctions:
         # Should not include types that don't start with D
         assert "EQUALITY" not in suggestions
 
-    def test_get_execution_metrics_completion_suggestions_policy_types_comma_separated(self):
+    def test_get_execution_metrics_completion_suggestions_policy_types_comma_separated(
+        self,
+    ):
         """Test completion suggestions for comma-separated policy types."""
         suggestions = get_execution_metrics_completion_suggestions(
             "export-execution-metrics --policy-types DATA_QUALITY,E", 50
@@ -217,17 +219,27 @@ class TestPureFunctions:
         # Should not include types that don't start with E after comma
         assert "DATA_QUALITY,DATA_DRIFT" not in suggestions
 
-    def test_get_execution_metrics_completion_suggestions_policy_types_all_options(self):
+    def test_get_execution_metrics_completion_suggestions_policy_types_all_options(
+        self,
+    ):
         """Test completion suggestions include all policy types."""
         suggestions = get_execution_metrics_completion_suggestions(
             "export-execution-metrics --policy-types ", 38
         )
 
-        expected_types = ["DATA_QUALITY", "EQUALITY", "DATA_DRIFT", "PROFILE_ANOMALY", "SCHEMA_DRIFT"]
+        expected_types = [
+            "DATA_QUALITY",
+            "EQUALITY",
+            "DATA_DRIFT",
+            "PROFILE_ANOMALY",
+            "SCHEMA_DRIFT",
+        ]
         for policy_type in expected_types:
             assert policy_type in suggestions
 
-    def test_get_execution_metrics_completion_suggestions_includes_policy_types_option(self):
+    def test_get_execution_metrics_completion_suggestions_includes_policy_types_option(
+        self,
+    ):
         """Test completion suggestions include --policy-types option."""
         suggestions = get_execution_metrics_completion_suggestions(
             "export-execution-metrics --policy", 30
@@ -239,7 +251,7 @@ class TestPureFunctions:
         """Test parsing relative day format."""
         result = parse_backload_option("-30d")
         expected = datetime.now() - timedelta(days=30)
-        
+
         # Allow small time difference due to execution time
         assert abs((result - expected).total_seconds()) < 1
 
@@ -255,20 +267,24 @@ class TestPureFunctions:
 
     def test_parse_backload_option_iso_date_valid(self):
         """Test parsing ISO date format."""
-        with patch("adoc_toolkit.cli.commands.export_execution_metrics_command.datetime") as mock_dt:
+        with patch(
+            "adoc_toolkit.cli.commands.export_execution_metrics_command.datetime"
+        ) as mock_dt:
             mock_dt.now.return_value = datetime(2024, 2, 15, 10, 0, 0)
             mock_dt.strptime = datetime.strptime
-            
+
             result = parse_backload_option("2024-01-15")
             expected = datetime(2024, 1, 15, 0, 0, 0)
             assert result == expected
 
     def test_parse_backload_option_iso_datetime_valid(self):
         """Test parsing ISO datetime format."""
-        with patch("adoc_toolkit.cli.commands.export_execution_metrics_command.datetime") as mock_dt:
+        with patch(
+            "adoc_toolkit.cli.commands.export_execution_metrics_command.datetime"
+        ) as mock_dt:
             mock_dt.now.return_value = datetime(2024, 2, 15, 10, 0, 0)
             mock_dt.strptime = datetime.strptime
-            
+
             result = parse_backload_option("2024-01-15T10:30:00")
             expected = datetime(2024, 1, 15, 10, 30, 0)
             assert result == expected
@@ -346,13 +362,20 @@ class TestPureFunctions:
 
     def test_parse_execution_metrics_args_combined_with_policy_types(self):
         """Test parsing arguments with policy types combined with other options."""
-        args = ["--policy-types", "DATA_QUALITY,DATA_DRIFT", "--output-type", "parquet", "--backload", "-7d"]
+        args = [
+            "--policy-types",
+            "DATA_QUALITY,DATA_DRIFT",
+            "--output-type",
+            "parquet",
+            "--backload",
+            "-7d",
+        ]
         result = parse_execution_metrics_args(args)
 
         expected = {
             "policy_types": ["DATA_QUALITY", "DATA_DRIFT"],
             "output_type": "parquet",
-            "backload": "-7d"
+            "backload": "-7d",
         }
         assert result == expected
 
@@ -498,7 +521,9 @@ class TestServiceUtilities:
         assert "Other Policy" in policy_names
 
         # Test with specific policy types including SCHEMA_DRIFT
-        result = process_policy_executions(executions_data, 0, ["DATA_QUALITY", "SCHEMA_DRIFT"])
+        result = process_policy_executions(
+            executions_data, 0, ["DATA_QUALITY", "SCHEMA_DRIFT"]
+        )
         assert len(result) == 2
         policy_names = [exec.policy_name for exec in result]
         assert "DQ Policy" in policy_names
@@ -538,14 +563,18 @@ class TestServiceUtilities:
         assert result[0].policy_name == "DQ Policy"
 
         # Test with DATA_QUALITY and EQUALITY
-        result = process_policy_executions(executions_data, 0, ["DATA_QUALITY", "EQUALITY"])
+        result = process_policy_executions(
+            executions_data, 0, ["DATA_QUALITY", "EQUALITY"]
+        )
         assert len(result) == 2
         policy_names = [exec.policy_name for exec in result]
         assert "DQ Policy" in policy_names
         assert "Equality Policy" in policy_names
 
         # Test with all supported types
-        result = process_policy_executions(executions_data, 0, ["DATA_QUALITY", "EQUALITY", "DATA_DRIFT"])
+        result = process_policy_executions(
+            executions_data, 0, ["DATA_QUALITY", "EQUALITY", "DATA_DRIFT"]
+        )
         assert len(result) == 3
         policy_names = [exec.policy_name for exec in result]
         assert "DQ Policy" in policy_names
@@ -586,21 +615,23 @@ class TestPydanticModels:
 
     def test_execution_metrics_args_valid_policy_types(self):
         """Test ExecutionMetricsArgs with valid policy types."""
-        args = ExecutionMetricsArgs(policy_types=["DATA_QUALITY", "EQUALITY", "DATA_DRIFT"])
-        
+        args = ExecutionMetricsArgs(
+            policy_types=["DATA_QUALITY", "EQUALITY", "DATA_DRIFT"]
+        )
+
         assert args.policy_types == ["DATA_QUALITY", "EQUALITY", "DATA_DRIFT"]
 
     def test_execution_metrics_args_policy_types_case_insensitive(self):
         """Test ExecutionMetricsArgs with case insensitive policy types."""
         args = ExecutionMetricsArgs(policy_types=["data_quality", "equality"])
-        
+
         # Should be converted to uppercase
         assert args.policy_types == ["DATA_QUALITY", "EQUALITY"]
 
     def test_execution_metrics_args_policy_types_default(self):
         """Test ExecutionMetricsArgs with default policy types."""
         args = ExecutionMetricsArgs()
-        
+
         assert args.policy_types == ["DATA_QUALITY", "EQUALITY"]
 
     def test_execution_metrics_args_invalid_policy_type(self):
@@ -610,7 +641,9 @@ class TestPydanticModels:
 
     def test_execution_metrics_args_empty_policy_types(self):
         """Test ExecutionMetricsArgs with empty policy types list."""
-        with pytest.raises(ValidationError, match="At least one policy type must be specified"):
+        with pytest.raises(
+            ValidationError, match="At least one policy type must be specified"
+        ):
             ExecutionMetricsArgs(policy_types=[])
 
     def test_execution_metrics_args_mixed_valid_invalid_policy_types(self):
@@ -682,7 +715,7 @@ class TestPydanticModels:
             execution_id="exec-456",
             execution_status="SUCCESSFUL",
             score=100.0,  # Simple float value
-            rows=6890,    # Simple int value
+            rows=6890,  # Simple int value
             failed_rows=0,  # Simple int value
             success_rules=4,  # Simple int value
             failure_rules=0,  # Simple int value
@@ -827,7 +860,7 @@ class TestThreadSafeDataCollector:
         collector = ThreadSafeDataCollector()
         collector.add("item1")
         collector.add("item2")
-        
+
         result = collector.get_all()
         assert len(result) == 2
         assert "item1" in result
@@ -837,7 +870,7 @@ class TestThreadSafeDataCollector:
         """Test extending ThreadSafeDataCollector with multiple items."""
         collector = ThreadSafeDataCollector()
         collector.extend(["item1", "item2", "item3"])
-        
+
         result = collector.get_all()
         assert len(result) == 3
         assert "item1" in result
@@ -849,9 +882,9 @@ class TestThreadSafeDataCollector:
         collector = ThreadSafeDataCollector()
         collector.add("item1")
         collector.add("item2")
-        
+
         assert len(collector.get_all()) == 2
-        
+
         collector.clear()
         assert len(collector.get_all()) == 0
 
@@ -859,10 +892,10 @@ class TestThreadSafeDataCollector:
         """Test that get_all returns a copy of the data."""
         collector = ThreadSafeDataCollector()
         collector.add("item1")
-        
+
         result1 = collector.get_all()
         result2 = collector.get_all()
-        
+
         # Modifying one result shouldn't affect the other
         result1.append("item2")
         assert len(result1) == 2
@@ -895,14 +928,14 @@ class TestParallelProcessingFunctions:
             ]
         }
         mock_client.get.return_value = mock_response
-        
+
         mock_progress = Mock()
         mock_task_id = "test_task"
-        
+
         page, executions, should_stop = fetch_execution_page(
             0, 100, ["DATA_QUALITY"], mock_client, mock_progress, mock_task_id
         )
-        
+
         assert page == 0
         assert len(executions) == 1
         assert should_stop is False
@@ -915,14 +948,14 @@ class TestParallelProcessingFunctions:
         mock_response.is_success = True
         mock_response.json.return_value = {"executions": []}
         mock_client.get.return_value = mock_response
-        
+
         mock_progress = Mock()
         mock_task_id = "test_task"
-        
+
         page, executions, should_stop = fetch_execution_page(
             0, 100, ["DATA_QUALITY"], mock_client, mock_progress, mock_task_id
         )
-        
+
         assert page == 0
         assert len(executions) == 0
         assert should_stop is True
@@ -934,14 +967,14 @@ class TestParallelProcessingFunctions:
         mock_response.is_success = False
         mock_response.status_code = 500
         mock_client.get.return_value = mock_response
-        
+
         mock_progress = Mock()
         mock_task_id = "test_task"
-        
+
         page, executions, should_stop = fetch_execution_page(
             0, 100, ["DATA_QUALITY"], mock_client, mock_progress, mock_task_id
         )
-        
+
         assert page == 0
         assert len(executions) == 0
         assert should_stop is False
@@ -957,7 +990,7 @@ class TestParallelProcessingFunctions:
             execution_status="SUCCESSFUL",
             end_ts=1703505700000,
         )
-        
+
         mock_client = Mock()
         mock_response = Mock()
         mock_response.is_success = True
@@ -980,14 +1013,14 @@ class TestParallelProcessingFunctions:
             ]
         }
         mock_client.get.return_value = mock_response
-        
+
         mock_progress = Mock()
         mock_task_id = "test_task"
-        
+
         result = process_execution_details_parallel(
             execution, mock_client, mock_progress, mock_task_id
         )
-        
+
         assert len(result) == 1
         assert result[0].item_id == "item-123"
         assert result[0].item_column_name == "test_column"
@@ -1003,15 +1036,15 @@ class TestParallelProcessingFunctions:
             execution_status="ERRORED",  # Not successful
             end_ts=1703505700000,
         )
-        
+
         mock_client = Mock()
         mock_progress = Mock()
         mock_task_id = "test_task"
-        
+
         result = process_execution_details_parallel(
             execution, mock_client, mock_progress, mock_task_id
         )
-        
+
         assert len(result) == 0  # Should return empty list for unsuccessful execution
 
     def test_process_policy_details_parallel_success(self):
@@ -1024,38 +1057,32 @@ class TestParallelProcessingFunctions:
             execution_id="exec-456",
             execution_status="SUCCESSFUL",
         )
-        
+
         mock_client = Mock()
         mock_response = Mock()
         mock_response.is_success = True
         mock_response.json.return_value = {
-            "rule": {
-                "backingAsset": {
-                    "tableAssetId": "asset-123"
-                }
-            },
+            "rule": {"backingAsset": {"tableAssetId": "asset-123"}},
             "details": {
                 "items": [
                     {
                         "id": "item-123",
                         "ruleVersion": 1,
                         "columnName": "test_column",
-                        "labels": [
-                            {"key": "PDE", "value": "test_pde"}
-                        ]
+                        "labels": [{"key": "PDE", "value": "test_pde"}],
                     }
                 ]
-            }
+            },
         }
         mock_client.get.return_value = mock_response
-        
+
         mock_progress = Mock()
         mock_task_id = "test_task"
-        
+
         result = process_policy_details_parallel(
             execution, mock_client, mock_progress, mock_task_id
         )
-        
+
         assert len(result) == 1
         assert result[0].id == "item-123"
         assert result[0].policy_type == "DATA_QUALITY"
@@ -1096,7 +1123,9 @@ class TestMergeExecutionData:
         record = result[0]
         assert record.policy_name == "Test Policy"
         assert record.policy_id == "policy-123"
-        assert record.policy_type == "DATA_QUALITY"  # Should use policy_type from PolicyDetail
+        assert (
+            record.policy_type == "DATA_QUALITY"
+        )  # Should use policy_type from PolicyDetail
         assert record.exec_id == "exec-456"
         assert record.table_asset_name == "test_table"
         assert record.execution_status == "SUCCESSFUL"
@@ -1146,12 +1175,12 @@ class TestMergeExecutionData:
         result = merge_execution_data(execution_details, policy_details)
 
         assert len(result) == 2
-        
+
         # Check first record (DATA_QUALITY)
         record1 = result[0]
         assert record1.policy_type == "DATA_QUALITY"
         assert record1.policy_name == "DQ Policy"
-        
+
         # Check second record (EQUALITY)
         record2 = result[1]
         assert record2.policy_type == "EQUALITY"
@@ -1202,12 +1231,18 @@ class TestMergeExecutionData:
             for i in range(1, 6)
         ]
 
-        policy_types = ["DATA_QUALITY", "EQUALITY", "DATA_DRIFT", "PROFILE_ANOMALY", "SCHEMA_DRIFT"]
+        policy_types = [
+            "DATA_QUALITY",
+            "EQUALITY",
+            "DATA_DRIFT",
+            "PROFILE_ANOMALY",
+            "SCHEMA_DRIFT",
+        ]
         policy_details = [
             PolicyDetail(
                 policy_name=f"Policy {i}",
                 policy_id=f"policy-{i}",
-                policy_type=policy_types[i-1],
+                policy_type=policy_types[i - 1],
                 id=f"item-{i}",
                 rule_version=1,
                 table_asset_name=f"table_{i}",
@@ -1218,7 +1253,7 @@ class TestMergeExecutionData:
         result = merge_execution_data(execution_details, policy_details)
 
         assert len(result) == 5
-        
+
         # Check that all policy types are correctly set
         result_policy_types = [record.policy_type for record in result]
         assert set(result_policy_types) == set(policy_types)
@@ -1325,7 +1360,7 @@ class TestExecutionMetricsService:
     def test_load_last_run_info_with_backload_datetime(self):
         """Test loading last run info with backload datetime for first run."""
         service = ExecutionMetricsService(Mock())
-        
+
         backload_datetime = datetime(2024, 1, 1, 12, 0, 0)
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1334,15 +1369,17 @@ class TestExecutionMetricsService:
 
             assert isinstance(result, LastRunInfo)
             assert result.last_run_datetime == backload_datetime
-            assert result.last_run_timestamp == int(backload_datetime.timestamp() * 1000)
+            assert result.last_run_timestamp == int(
+                backload_datetime.timestamp() * 1000
+            )
             assert result.total_records_processed == 0
 
     def test_load_last_run_info_backload_overrides_existing_file(self):
         """Test that backload always overrides tracking file when provided."""
         service = ExecutionMetricsService(Mock())
-        
+
         backload_datetime = datetime(2024, 1, 1, 12, 0, 0)
-        
+
         test_data = {
             "last_run_timestamp": 1703505600000,
             "last_run_datetime": "2023-12-25T10:00:00",
@@ -1359,15 +1396,21 @@ class TestExecutionMetricsService:
 
             # Should use backload datetime, not data from file
             assert result.last_run_datetime == backload_datetime
-            assert result.last_run_timestamp == int(backload_datetime.timestamp() * 1000)
+            assert result.last_run_timestamp == int(
+                backload_datetime.timestamp() * 1000
+            )
             assert result.total_records_processed == 0  # Reset to 0 for backload
         finally:
             tmp_path.unlink(missing_ok=True)
 
-    @patch("adoc_toolkit.cli.commands.execution_metrics_service.process_execution_details")
+    @patch(
+        "adoc_toolkit.cli.commands.execution_metrics_service.process_execution_details"
+    )
     @patch("adoc_toolkit.cli.commands.execution_metrics_service.process_policy_details")
     @patch("adoc_toolkit.cli.commands.execution_metrics_service.merge_execution_data")
-    def test_fetch_execution_metrics_with_policy_types(self, mock_merge, mock_policy_details, mock_exec_details):
+    def test_fetch_execution_metrics_with_policy_types(
+        self, mock_merge, mock_policy_details, mock_exec_details
+    ):
         """Test fetch_execution_metrics with different policy types."""
         # Mock the service methods
         mock_exec_details.return_value = [
@@ -1413,7 +1456,7 @@ class TestExecutionMetricsService:
         mock_progress.add_task.return_value = mock_task
 
         # Mock the _fetch_policy_executions method to return test data
-        with patch.object(service, '_fetch_policy_executions') as mock_fetch:
+        with patch.object(service, "_fetch_policy_executions") as mock_fetch:
             mock_fetch.return_value = [
                 PolicyExecution(
                     policy_name="Test Policy",
@@ -1429,7 +1472,7 @@ class TestExecutionMetricsService:
             result = service.fetch_execution_metrics(
                 start_ts_marker=0,
                 progress=mock_progress,
-                policy_types=["DATA_QUALITY", "EQUALITY"]
+                policy_types=["DATA_QUALITY", "EQUALITY"],
             )
 
             # Verify that _fetch_policy_executions was called with the correct policy types
@@ -1452,19 +1495,21 @@ class TestExecutionMetricsService:
         mock_progress.add_task.return_value = mock_task
 
         # Mock the _fetch_policy_executions method
-        with patch.object(service, '_fetch_policy_executions') as mock_fetch:
+        with patch.object(service, "_fetch_policy_executions") as mock_fetch:
             mock_fetch.return_value = []
-            
+
             # Test without specifying policy types (should use defaults)
             result = service.fetch_execution_metrics(
-                start_ts_marker=0,
-                progress=mock_progress
+                start_ts_marker=0, progress=mock_progress
             )
 
             # Verify that _fetch_policy_executions was called with default policy types
             mock_fetch.assert_called_once()
             call_args = mock_fetch.call_args
-            assert call_args[0][3] == ["DATA_QUALITY", "EQUALITY"]  # default policy types
+            assert call_args[0][3] == [
+                "DATA_QUALITY",
+                "EQUALITY",
+            ]  # default policy types
 
             assert result == []
 
@@ -1591,7 +1636,7 @@ class TestExportExecutionMetricsCommand:
             result = command.execute([])
 
             assert result is True  # Should return True to continue interactive session
-            
+
             # Should print error message about no environment
             mock_console.return_value.print.assert_called()
             call_args = mock_console.return_value.print.call_args_list
@@ -1603,7 +1648,9 @@ class TestExportExecutionMetricsCommand:
     def test_execute_environment_without_name(self):
         """Test command execution when environment info has no environment name."""
         # Mock environment callback to return info without environment name
-        callback = Mock(return_value={"base_url": "https://test.com"})  # Missing environment
+        callback = Mock(
+            return_value={"base_url": "https://test.com"}
+        )  # Missing environment
         command = ExportExecutionMetricsCommand(callback)
 
         with patch(
@@ -1612,7 +1659,7 @@ class TestExportExecutionMetricsCommand:
             result = command.execute([])
 
             assert result is True  # Should return True to continue interactive session
-            
+
             # Should print error message about no environment
             mock_console.return_value.print.assert_called()
             call_args = mock_console.return_value.print.call_args_list

@@ -187,15 +187,8 @@ class SetConfigCommand(Command):
         # Add each group to the table
         for category, items in grouped_configs.items():
             # Add category header row
-            table.add_row(
-                f"[bold]{category}[/bold]",
-                "",
-                "",
-                "",
-                "",
-                style="bold cyan"
-            )
-            
+            table.add_row(f"[bold]{category}[/bold]", "", "", "", "", style="bold cyan")
+
             # Add configuration items for this category
             for key, item in items.items():
                 # Format the value
@@ -229,7 +222,7 @@ class SetConfigCommand(Command):
             "LLM Configuration": {},
             "Logging Configuration": {},
             "Audit Configuration": {},
-            "Other Configuration": {}
+            "Other Configuration": {},
         }
 
         for key, item in config_items.items():

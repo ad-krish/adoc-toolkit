@@ -25,7 +25,7 @@ environments:
     secret_key: "SECRET123456789"
 default_environment: "test-env"
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=valid_config_content)):
                 is_valid, errors = self.validator.validate_config()
@@ -37,7 +37,7 @@ default_environment: "test-env"
         invalid_config_content = """
 default_environment: "test-env"
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=invalid_config_content)):
                 is_valid, errors = self.validator.validate_config()
@@ -49,7 +49,7 @@ default_environment: "test-env"
         invalid_config_content = """
 environments: {}
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=invalid_config_content)):
                 is_valid, errors = self.validator.validate_config()
@@ -65,7 +65,7 @@ environments:
     base_url: "https://test.acceldata.app"
     # Missing access_key and secret_key
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=invalid_config_content)):
                 is_valid, errors = self.validator.validate_config()
@@ -82,7 +82,7 @@ environments:
     access_key: "TEST123456789"
     secret_key: "SECRET123456789"
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=invalid_config_content)):
                 is_valid, errors = self.validator.validate_config()
@@ -99,12 +99,15 @@ environments:
     access_key: "TEST123456789"
     secret_key: "SECRET123456789"
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=invalid_config_content)):
                 is_valid, errors = self.validator.validate_config()
                 assert is_valid is False
-                assert any("must start with 'http://' or 'https://'" in error for error in errors)
+                assert any(
+                    "must start with 'http://' or 'https://'" in error
+                    for error in errors
+                )
 
     def test_invalid_access_key_format(self):
         """Test validation fails with invalid access key format."""
@@ -116,12 +119,15 @@ environments:
     access_key: "test123"  # Lowercase not allowed
     secret_key: "SECRET123456789"
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=invalid_config_content)):
                 is_valid, errors = self.validator.validate_config()
                 assert is_valid is False
-                assert any("should contain only uppercase letters and numbers" in error for error in errors)
+                assert any(
+                    "should contain only uppercase letters and numbers" in error
+                    for error in errors
+                )
 
     def test_short_access_key(self):
         """Test validation fails with short access key."""
@@ -133,7 +139,7 @@ environments:
     access_key: "ABC"  # Too short
     secret_key: "SECRET123456789"
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=invalid_config_content)):
                 is_valid, errors = self.validator.validate_config()
@@ -150,12 +156,15 @@ environments:
     access_key: "TEST123456789"
     secret_key: "secret123"  # Lowercase not allowed
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=invalid_config_content)):
                 is_valid, errors = self.validator.validate_config()
                 assert is_valid is False
-                assert any("should contain only uppercase letters and numbers" in error for error in errors)
+                assert any(
+                    "should contain only uppercase letters and numbers" in error
+                    for error in errors
+                )
 
     def test_short_secret_key(self):
         """Test validation fails with short secret key."""
@@ -167,7 +176,7 @@ environments:
     access_key: "TEST123456789"
     secret_key: "ABC"  # Too short
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=invalid_config_content)):
                 is_valid, errors = self.validator.validate_config()
@@ -184,7 +193,7 @@ environments:
     access_key: "TEST123456789"
     secret_key: "SECRET123456789"
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=invalid_config_content)):
                 is_valid, errors = self.validator.validate_config()
@@ -202,17 +211,20 @@ environments:
     secret_key: "SECRET123456789"
 default_environment: "non-existent-env"
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=invalid_config_content)):
                 is_valid, errors = self.validator.validate_config()
                 assert is_valid is False
-                assert any("does not exist in the environments list" in error for error in errors)
+                assert any(
+                    "does not exist in the environments list" in error
+                    for error in errors
+                )
 
     def test_invalid_config_type(self):
         """Test validation fails when config is not a dictionary."""
         invalid_config_content = "not a dictionary"
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=invalid_config_content)):
                 is_valid, errors = self.validator.validate_config()
@@ -224,7 +236,7 @@ default_environment: "non-existent-env"
         invalid_config_content = """
 environments: "not a dictionary"
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=invalid_config_content)):
                 is_valid, errors = self.validator.validate_config()
@@ -237,7 +249,7 @@ environments: "not a dictionary"
 environments:
   test-env: "not a dictionary"
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=invalid_config_content)):
                 is_valid, errors = self.validator.validate_config()
@@ -254,7 +266,7 @@ environments:
     access_key: "TEST123456789"
     secret_key: "SECRET123456789"
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=invalid_config_content)):
                 is_valid, errors = self.validator.validate_config()
@@ -293,9 +305,9 @@ environments:
     secret_key: "PRODSECRET123456789"
 default_environment: "dev"
 """
-        
+
         with patch("pathlib.Path.exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=valid_config_content)):
                 is_valid, errors = self.validator.validate_config()
                 assert is_valid is True
-                assert len(errors) == 0 
+                assert len(errors) == 0

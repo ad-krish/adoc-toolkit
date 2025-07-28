@@ -89,7 +89,9 @@ class TestHumanResponseFormatting:
         test_data = {"name": "test", "value": 123}
         result = self.formatter._format_human(test_data)
 
-        assert "⚠️  Human-readable formatting unavailable: Prompt file not found" in result
+        assert (
+            "⚠️  Human-readable formatting unavailable: Prompt file not found" in result
+        )
         assert '"name": "test"' in result
         assert '"value": 123' in result
 
@@ -116,7 +118,10 @@ class TestHumanResponseFormatting:
         test_data = {"name": "test", "value": 123}
         result = self.formatter._format_human(test_data)
 
-        assert "⚠️  Human-readable formatting unavailable: No LLM API key configured" in result
+        assert (
+            "⚠️  Human-readable formatting unavailable: No LLM API key configured"
+            in result
+        )
         assert '"name": "test"' in result
         assert '"value": 123' in result
 

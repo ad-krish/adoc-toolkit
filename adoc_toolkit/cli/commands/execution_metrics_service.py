@@ -79,27 +79,27 @@ def calculate_failed_rows(rows_scanned: Optional[int], result: Optional[str]) ->
 
 class ThreadSafeDataCollector:
     """Thread-safe data collector for parallel processing."""
-    
+
     def __init__(self):
         """Initialize the thread-safe data collector."""
         self._lock = threading.Lock()
         self._data = []
-    
+
     def add(self, item):
         """Add an item to the collection in a thread-safe manner."""
         with self._lock:
             self._data.append(item)
-    
+
     def extend(self, items):
         """Add multiple items to the collection in a thread-safe manner."""
         with self._lock:
             self._data.extend(items)
-    
+
     def get_all(self):
         """Get all collected data."""
         with self._lock:
             return self._data.copy()
-    
+
     def clear(self):
         """Clear all collected data."""
         with self._lock:
@@ -115,7 +115,7 @@ def fetch_execution_page(
     task_id: str,
 ) -> tuple[int, list[PolicyExecution], bool]:
     """Fetch a single page of policy executions.
-    
+
     Args:
         page: Page number to fetch
         exec_count: Number of executions per page
@@ -123,17 +123,13 @@ def fetch_execution_page(
         http_client: HTTP client for API calls
         progress: Progress tracker
         task_id: Progress task ID for this thread
-        
+
     Returns:
         Tuple of (page_number, list_of_executions, should_stop)
     """
     try:
-        progress.update(
-            task_id, 
-            description=f"Fetching page {page + 1}...",
-            advance=0
-        )
-        
+        progress.update(task_id, description=f"Fetching page {page + 1}...", advance=0)
+
         rule_types_param = ",".join(policy_types)
         endpoint = (
             f"/catalog-server/api/rules/executions"
@@ -141,29 +137,31 @@ def fetch_execution_page(
             "&executionStatus=SUCCESSFUL,ERRORED,ABORTED,WARNING"
             f"&ruleType={rule_types_param}"
         )
-        
+
         response = http_client.get(endpoint)
         if not response.is_success:
-            log_error(f"Failed to fetch executions page {page}: HTTP {response.status_code}")
+            log_error(
+                f"Failed to fetch executions page {page}: HTTP {response.status_code}"
+            )
             return page, [], False
-            
+
         exec_data = response.json()
         executions = safe_get(exec_data, "executions", [])
-        
+
         if not executions:
             return page, [], True  # No more data, stop
-        
+
         # Process the executions (we'll filter by timestamp later)
         page_executions = process_policy_executions(exec_data, 0, policy_types)
-        
+
         progress.update(
             task_id,
             description=f"Page {page + 1}: {len(page_executions)} executions",
-            advance=1
+            advance=1,
         )
-        
+
         return page, page_executions, False
-        
+
     except Exception as e:
         log_error(f"Error fetching executions page {page}: {e}")
         return page, [], False
@@ -176,26 +174,26 @@ def process_execution_details_parallel(
     task_id: str,
 ) -> list[ExecutionDetail]:
     """Process execution details for a single execution in parallel.
-    
+
     Args:
         execution: Policy execution to process
         http_client: HTTP client for API calls
         progress: Progress tracker
         task_id: Progress task ID for this thread
-        
+
     Returns:
         List of ExecutionDetail models
     """
     execution_details = []
-    
+
     if execution.execution_status != "SUCCESSFUL":
         return execution_details
-        
+
     try:
         progress.update(
             task_id,
             description=f"Processing {execution.policy_type} execution {execution.execution_id}...",
-            advance=0
+            advance=0,
         )
 
         # Build endpoint based on policy type
@@ -270,7 +268,7 @@ def process_execution_details_parallel(
         progress.update(
             task_id,
             description=f"Processed {execution.policy_type} execution: {len(execution_details)} details",
-            advance=1
+            advance=1,
         )
 
     except Exception as e:
@@ -286,23 +284,23 @@ def process_policy_details_parallel(
     task_id: str,
 ) -> list[PolicyDetail]:
     """Process policy details for a single execution in parallel.
-    
+
     Args:
         execution: Policy execution to process
         http_client: HTTP client for API calls
         progress: Progress tracker
         task_id: Progress task ID for this thread
-        
+
     Returns:
         List of PolicyDetail models
     """
     policy_details = []
-    
+
     try:
         progress.update(
             task_id,
             description=f"Processing {execution.policy_type} policy details {execution.policy_id}...",
-            advance=0
+            advance=0,
         )
 
         # Build endpoint based on policy type
@@ -333,9 +331,7 @@ def process_policy_details_parallel(
 
         # Fetch table asset name
         table_asset_name = (
-            fetch_asset_name(table_asset_id, http_client)
-            if table_asset_id
-            else None
+            fetch_asset_name(table_asset_id, http_client) if table_asset_id else None
         )
 
         details_data = safe_get(policy_detail_data, "details", {})
@@ -365,7 +361,7 @@ def process_policy_details_parallel(
         progress.update(
             task_id,
             description=f"Processed {execution.policy_type} policy: {len(policy_details)} details",
-            advance=1
+            advance=1,
         )
 
     except Exception as e:
@@ -375,7 +371,9 @@ def process_policy_details_parallel(
 
 
 def process_policy_executions(
-    executions_data: dict[str, Any], start_ts_marker: int, policy_types: list[str] = None
+    executions_data: dict[str, Any],
+    start_ts_marker: int,
+    policy_types: list[str] = None,
 ) -> list[PolicyExecution]:
     """Process policy executions data into PolicyExecution models.
 
@@ -388,8 +386,14 @@ def process_policy_executions(
         List of PolicyExecution models
     """
     if policy_types is None:
-        policy_types = ["DATA_QUALITY", "EQUALITY", "DATA_DRIFT", "PROFILE_ANOMALY", "SCHEMA_DRIFT"]
-    
+        policy_types = [
+            "DATA_QUALITY",
+            "EQUALITY",
+            "DATA_DRIFT",
+            "PROFILE_ANOMALY",
+            "SCHEMA_DRIFT",
+        ]
+
     policy_executions = []
 
     for execution in safe_get(executions_data, "executions", []):
@@ -618,9 +622,7 @@ def process_policy_details(
             response = http_client.get(endpoint)
 
             if not response.is_success:
-                log_error(
-                    f"Failed to fetch policy details for {execution.policy_id}"
-                )
+                log_error(f"Failed to fetch policy details for {execution.policy_id}")
                 continue
 
             policy_detail_data = response.json()
@@ -660,9 +662,7 @@ def process_policy_details(
                 policy_details.append(policy_detail)
 
         except Exception as e:
-            log_error(
-                f"Error processing policy details for {execution.policy_id}: {e}"
-            )
+            log_error(f"Error processing policy details for {execution.policy_id}: {e}")
             continue
 
         processed_count += 1
@@ -771,9 +771,7 @@ class ExecutionMetricsService(TraceableMixin):
             # First run without backload - default to 30 days ago
             start_datetime = datetime.now() - timedelta(days=30)
             start_timestamp = int(start_datetime.timestamp() * 1000)
-            log_info(
-                f"First run detected. Defaulting to 30 days ago: {start_datetime}"
-            )
+            log_info(f"First run detected. Defaulting to 30 days ago: {start_datetime}")
             return LastRunInfo(
                 last_run_timestamp=start_timestamp,
                 last_run_datetime=start_datetime,
@@ -848,7 +846,7 @@ class ExecutionMetricsService(TraceableMixin):
         """
         if policy_types is None:
             policy_types = ["DATA_QUALITY", "EQUALITY"]
-            
+
         # Step 1: Fetch policy executions
         task1 = progress.add_task("Fetching policy executions...", total=None)
         self.trace("fetching_policy_executions", start_ts_marker=start_ts_marker)
@@ -929,61 +927,61 @@ class ExecutionMetricsService(TraceableMixin):
         """
         # Create a thread-safe data collector
         data_collector = ThreadSafeDataCollector()
-        
+
         # First, let's determine how many pages we need to fetch
         # We'll start with a small batch to estimate the total
         initial_pages = 3
         max_workers = min(initial_pages, 10)  # Limit concurrent workers
-        
+
         # Create progress tasks for parallel fetching
         progress_tasks = {}
         for i in range(max_workers):
             task_name = f"fetch_page_{i}"
             progress_tasks[task_name] = progress.add_task(
-                f"[cyan]Thread {i+1}: Waiting...",
+                f"[cyan]Thread {i + 1}: Waiting...",
                 total=None,
                 columns=[
                     SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}")
-                ]
+                    TextColumn("[progress.description]{task.description}"),
+                ],
             )
-        
+
         # Track which worker is available
         available_workers = list(range(max_workers))
         worker_lock = threading.Lock()
-        
+
         def get_available_worker():
             """Get an available worker ID in a thread-safe manner."""
             with worker_lock:
                 if available_workers:
                     return available_workers.pop(0)
                 return None
-        
+
         def release_worker(worker_id):
             """Release a worker ID back to the pool."""
             with worker_lock:
                 available_workers.append(worker_id)
-        
+
         # Fetch initial pages in parallel
         page = 0
         stop_fetching = False
-        
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             while not stop_fetching and page < 50:  # Safety limit
                 # Submit tasks for parallel execution
                 futures = []
-                
+
                 for _ in range(max_workers):
                     if stop_fetching:
                         break
-                        
+
                     worker_id = get_available_worker()
                     if worker_id is None:
                         break
-                    
+
                     task_name = f"fetch_page_{worker_id}"
                     task_progress_id = progress_tasks[task_name]
-                    
+
                     future = executor.submit(
                         fetch_execution_page,
                         page,
@@ -991,71 +989,78 @@ class ExecutionMetricsService(TraceableMixin):
                         policy_types,
                         self.http_client,
                         progress,
-                        task_progress_id
+                        task_progress_id,
                     )
                     futures.append((future, worker_id, page))
                     page += 1
-                
+
                 # Wait for all submitted tasks to complete
                 for future, worker_id, page_num in futures:
                     try:
-                        result_page, page_executions, should_stop = future.result(timeout=30)
-                        
+                        result_page, page_executions, should_stop = future.result(
+                            timeout=30
+                        )
+
                         if should_stop:
                             stop_fetching = True
-                        
+
                         if page_executions:
                             # Filter by timestamp marker
                             filtered_executions = [
-                                exec for exec in page_executions
-                                if exec.start_ts is None or exec.start_ts > start_ts_marker
+                                exec
+                                for exec in page_executions
+                                if exec.start_ts is None
+                                or exec.start_ts > start_ts_marker
                             ]
-                            
+
                             if filtered_executions:
                                 data_collector.extend(filtered_executions)
-                            
+
                             # Check if we've reached the timestamp marker
-                            if any(exec.start_ts is not None and exec.start_ts <= start_ts_marker 
-                                   for exec in page_executions):
+                            if any(
+                                exec.start_ts is not None
+                                and exec.start_ts <= start_ts_marker
+                                for exec in page_executions
+                            ):
                                 stop_fetching = True
-                        
+
                         # Update progress
                         task_name = f"fetch_page_{worker_id}"
                         task_progress_id = progress_tasks[task_name]
                         progress.update(
                             task_progress_id,
-                            description=f"Thread {worker_id+1}: Page {page_num+1} complete",
-                            completed=True
+                            description=f"Thread {worker_id + 1}: Page {page_num + 1} complete",
+                            completed=True,
                         )
-                        
+
                     except Exception as e:
                         log_error(f"Error processing page {page_num}: {e}")
                         task_name = f"fetch_page_{worker_id}"
                         task_progress_id = progress_tasks[task_name]
                         progress.update(
                             task_progress_id,
-                            description=f"Thread {worker_id+1}: Error on page {page_num+1}",
-                            completed=True
+                            description=f"Thread {worker_id + 1}: Error on page {page_num + 1}",
+                            completed=True,
                         )
                     finally:
                         release_worker(worker_id)
-                
+
                 # If we didn't get any data, stop
                 if not futures:
                     break
-        
+
         # Clean up progress tasks
         for task_id in progress_tasks.values():
             progress.remove_task(task_id)
-        
+
         policy_executions = data_collector.get_all()
-        
+
         self.trace(
             "fetched_executions_parallel",
             total_executions=len(policy_executions),
-            pages_processed=page
+            pages_processed=page,
         )
-        
+
         return policy_executions
 
     @trace_method("fetch_execution_details_parallel", "execution_metrics_service")
@@ -1074,74 +1079,73 @@ class ExecutionMetricsService(TraceableMixin):
         """
         # Filter to only successful executions
         successful_executions = [
-            exec for exec in policy_executions 
-            if exec.execution_status == "SUCCESSFUL"
+            exec for exec in policy_executions if exec.execution_status == "SUCCESSFUL"
         ]
-        
+
         if not successful_executions:
             return []
-        
+
         # Create thread-safe data collector
         data_collector = ThreadSafeDataCollector()
-        
+
         # Determine number of workers (limit to avoid overwhelming the API)
         max_workers = min(len(successful_executions), 10)
-        
+
         # Create progress tasks for parallel processing
         progress_tasks = {}
         for i in range(max_workers):
             task_name = f"exec_details_{i}"
             progress_tasks[task_name] = progress.add_task(
-                f"[green]Exec Thread {i+1}: Waiting...",
+                f"[green]Exec Thread {i + 1}: Waiting...",
                 total=None,
                 columns=[
                     SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}")
-                ]
+                    TextColumn("[progress.description]{task.description}"),
+                ],
             )
-        
+
         # Track which worker is available
         available_workers = list(range(max_workers))
         worker_lock = threading.Lock()
-        
+
         def get_available_worker():
             """Get an available worker ID in a thread-safe manner."""
             with worker_lock:
                 if available_workers:
                     return available_workers.pop(0)
                 return None
-        
+
         def release_worker(worker_id):
             """Release a worker ID back to the pool."""
             with worker_lock:
                 available_workers.append(worker_id)
-        
+
         # Process executions in parallel
         execution_index = 0
-        
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
-            
+
             # Submit initial batch of tasks
             while execution_index < len(successful_executions):
                 worker_id = get_available_worker()
                 if worker_id is None:
                     break
-                
+
                 execution = successful_executions[execution_index]
                 task_name = f"exec_details_{worker_id}"
                 task_progress_id = progress_tasks[task_name]
-                
+
                 future = executor.submit(
                     process_execution_details_parallel,
                     execution,
                     self.http_client,
                     progress,
-                    task_progress_id
+                    task_progress_id,
                 )
                 futures.append((future, worker_id, execution_index))
                 execution_index += 1
-            
+
             # Process completed tasks and submit new ones
             while futures or execution_index < len(successful_executions):
                 # Wait for at least one task to complete
@@ -1153,67 +1157,67 @@ class ExecutionMetricsService(TraceableMixin):
                             done_futures.append((future, worker_id, exec_idx))
                         else:
                             not_done.append((future, worker_id, exec_idx))
-                    
+
                     futures = not_done
-                    
+
                     for future, worker_id, exec_idx in done_futures:
                         try:
                             execution_details = future.result(timeout=30)
                             data_collector.extend(execution_details)
-                            
+
                             # Update progress
                             task_name = f"exec_details_{worker_id}"
                             task_progress_id = progress_tasks[task_name]
                             progress.update(
                                 task_progress_id,
-                                description=f"Exec Thread {worker_id+1}: {len(execution_details)} details",
-                                completed=True
+                                description=f"Exec Thread {worker_id + 1}: {len(execution_details)} details",
+                                completed=True,
                             )
-                            
+
                         except Exception as e:
                             log_error(f"Error processing execution details: {e}")
                             task_name = f"exec_details_{worker_id}"
                             task_progress_id = progress_tasks[task_name]
                             progress.update(
                                 task_progress_id,
-                                description=f"Exec Thread {worker_id+1}: Error",
-                                completed=True
+                                description=f"Exec Thread {worker_id + 1}: Error",
+                                completed=True,
                             )
                         finally:
                             release_worker(worker_id)
-                
+
                 # Submit new tasks if we have more executions to process
                 while execution_index < len(successful_executions):
                     worker_id = get_available_worker()
                     if worker_id is None:
                         break
-                    
+
                     execution = successful_executions[execution_index]
                     task_name = f"exec_details_{worker_id}"
                     task_progress_id = progress_tasks[task_name]
-                    
+
                     future = executor.submit(
                         process_execution_details_parallel,
                         execution,
                         self.http_client,
                         progress,
-                        task_progress_id
+                        task_progress_id,
                     )
                     futures.append((future, worker_id, execution_index))
                     execution_index += 1
-        
+
         # Clean up progress tasks
         for task_id in progress_tasks.values():
             progress.remove_task(task_id)
-        
+
         execution_details = data_collector.get_all()
-        
+
         self.trace(
             "execution_details_parallel_completed",
             total_details=len(execution_details),
-            executions_processed=len(successful_executions)
+            executions_processed=len(successful_executions),
         )
-        
+
         return execution_details
 
     @trace_method("fetch_policy_details_parallel", "execution_metrics_service")
@@ -1236,73 +1240,75 @@ class ExecutionMetricsService(TraceableMixin):
             key = (execution.policy_id, execution.policy_version)
             if key not in unique_policies:
                 unique_policies[key] = execution
-        
+
         unique_executions = list(unique_policies.values())
-        
+
         if not unique_executions:
             return []
-        
+
         # Create thread-safe data collector
         data_collector = ThreadSafeDataCollector()
-        
+
         # Determine number of workers (limit to avoid overwhelming the API)
-        max_workers = min(len(unique_executions), 8)  # Slightly fewer workers for policy details
-        
+        max_workers = min(
+            len(unique_executions), 8
+        )  # Slightly fewer workers for policy details
+
         # Create progress tasks for parallel processing
         progress_tasks = {}
         for i in range(max_workers):
             task_name = f"policy_details_{i}"
             progress_tasks[task_name] = progress.add_task(
-                f"[yellow]Policy Thread {i+1}: Waiting...",
+                f"[yellow]Policy Thread {i + 1}: Waiting...",
                 total=None,
                 columns=[
                     SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}")
-                ]
+                    TextColumn("[progress.description]{task.description}"),
+                ],
             )
-        
+
         # Track which worker is available
         available_workers = list(range(max_workers))
         worker_lock = threading.Lock()
-        
+
         def get_available_worker():
             """Get an available worker ID in a thread-safe manner."""
             with worker_lock:
                 if available_workers:
                     return available_workers.pop(0)
                 return None
-        
+
         def release_worker(worker_id):
             """Release a worker ID back to the pool."""
             with worker_lock:
                 available_workers.append(worker_id)
-        
+
         # Process policies in parallel
         policy_index = 0
-        
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
-            
+
             # Submit initial batch of tasks
             while policy_index < len(unique_executions):
                 worker_id = get_available_worker()
                 if worker_id is None:
                     break
-                
+
                 execution = unique_executions[policy_index]
                 task_name = f"policy_details_{worker_id}"
                 task_progress_id = progress_tasks[task_name]
-                
+
                 future = executor.submit(
                     process_policy_details_parallel,
                     execution,
                     self.http_client,
                     progress,
-                    task_progress_id
+                    task_progress_id,
                 )
                 futures.append((future, worker_id, policy_index))
                 policy_index += 1
-            
+
             # Process completed tasks and submit new ones
             while futures or policy_index < len(unique_executions):
                 # Wait for at least one task to complete
@@ -1314,65 +1320,65 @@ class ExecutionMetricsService(TraceableMixin):
                             done_futures.append((future, worker_id, policy_idx))
                         else:
                             not_done.append((future, worker_id, policy_idx))
-                    
+
                     futures = not_done
-                    
+
                     for future, worker_id, policy_idx in done_futures:
                         try:
                             policy_details = future.result(timeout=30)
                             data_collector.extend(policy_details)
-                            
+
                             # Update progress
                             task_name = f"policy_details_{worker_id}"
                             task_progress_id = progress_tasks[task_name]
                             progress.update(
                                 task_progress_id,
-                                description=f"Policy Thread {worker_id+1}: {len(policy_details)} details",
-                                completed=True
+                                description=f"Policy Thread {worker_id + 1}: {len(policy_details)} details",
+                                completed=True,
                             )
-                            
+
                         except Exception as e:
                             log_error(f"Error processing policy details: {e}")
                             task_name = f"policy_details_{worker_id}"
                             task_progress_id = progress_tasks[task_name]
                             progress.update(
                                 task_progress_id,
-                                description=f"Policy Thread {worker_id+1}: Error",
-                                completed=True
+                                description=f"Policy Thread {worker_id + 1}: Error",
+                                completed=True,
                             )
                         finally:
                             release_worker(worker_id)
-                
+
                 # Submit new tasks if we have more policies to process
                 while policy_index < len(unique_executions):
                     worker_id = get_available_worker()
                     if worker_id is None:
                         break
-                    
+
                     execution = unique_executions[policy_index]
                     task_name = f"policy_details_{worker_id}"
                     task_progress_id = progress_tasks[task_name]
-                    
+
                     future = executor.submit(
                         process_policy_details_parallel,
                         execution,
                         self.http_client,
                         progress,
-                        task_progress_id
+                        task_progress_id,
                     )
                     futures.append((future, worker_id, policy_index))
                     policy_index += 1
-        
+
         # Clean up progress tasks
         for task_id in progress_tasks.values():
             progress.remove_task(task_id)
-        
+
         policy_details = data_collector.get_all()
-        
+
         self.trace(
             "policy_details_parallel_completed",
             total_details=len(policy_details),
-            policies_processed=len(unique_executions)
+            policies_processed=len(unique_executions),
         )
-        
+
         return policy_details

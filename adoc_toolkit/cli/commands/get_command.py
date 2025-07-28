@@ -19,7 +19,7 @@ class GetCommand(Command):
 
     def __init__(self, http_client: Optional[ADOCHTTPClient] = None):
         """Initialize the get command.
-        
+
         Args:
             http_client: HTTP client for making requests
         """
@@ -44,7 +44,9 @@ class GetCommand(Command):
         help_text += "Usage: get <url> [path-params] [query-params]\n\n"
         help_text += "Examples:\n"
         help_text += "  get /catalog-server/api/assets/search\n"
-        help_text += "  get /catalog-server/api/assets/:asset-id/metadata asset-id=123\n"
+        help_text += (
+            "  get /catalog-server/api/assets/:asset-id/metadata asset-id=123\n"
+        )
         help_text += "  get /catalog-server/api/assets/search ?name=test ?page=1\n"
         help_text += "  get /catalog-server/api/assets/:asset-id/metadata asset-id=123 include_history=true\n\n"
         help_text += "Path Parameters:\n"
@@ -60,8 +62,12 @@ class GetCommand(Command):
         """Load API reference from configuration file."""
         try:
             config_path = os.path.join(
-                os.path.dirname(__file__), "..", "..", "..", "config", 
-                "adoc-toolkit-api-reference.json"
+                os.path.dirname(__file__),
+                "..",
+                "..",
+                "..",
+                "config",
+                "adoc-toolkit-api-reference.json",
             )
             with open(config_path, "r") as f:
                 data = json.load(f)
@@ -73,7 +79,7 @@ class GetCommand(Command):
     def _parse_query_params(self, args: list[str]) -> dict[str, Any]:
         """Parse query parameters from command arguments."""
         query_params = {}
-        
+
         for arg in args:
             if arg.startswith("?"):
                 # Remove the ? prefix
@@ -97,40 +103,40 @@ class GetCommand(Command):
                 key, value = arg.split("=", 1)
                 # We'll handle path parameters separately
                 pass
-        
+
         return query_params
 
     def _parse_path_params(self, args: list[str]) -> dict[str, str]:
         """Parse path parameters from command arguments."""
         path_params = {}
-        
+
         for arg in args:
             if "=" in arg and not arg.startswith("?"):
                 key, value = arg.split("=", 1)
                 path_params[key] = value
-        
+
         return path_params
 
     def _extract_path_parameters(self, url: str) -> list[str]:
         """Extract path parameter names from a URL.
-        
+
         Args:
             url: URL with potential path parameters
-            
+
         Returns:
             List of path parameter names found in the URL
         """
         # Find all :param-name patterns
-        pattern = r':([^/]+)'
+        pattern = r":([^/]+)"
         return re.findall(pattern, url)
 
     def _replace_path_parameters(self, url: str, path_params: dict[str, str]) -> str:
         """Replace path parameters in a URL with actual values.
-        
+
         Args:
             url: URL with path parameters
             path_params: Dictionary of parameter names to values
-            
+
         Returns:
             URL with path parameters replaced
         """
@@ -141,36 +147,34 @@ class GetCommand(Command):
         return result
 
     def _prompt_for_missing_path_params(
-        self, 
-        url: str, 
-        provided_params: dict[str, str]
+        self, url: str, provided_params: dict[str, str]
     ) -> dict[str, str]:
         """Prompt user for missing path parameters.
-        
+
         Args:
             url: URL with path parameters
             provided_params: Already provided path parameters
-            
+
         Returns:
             Dictionary of all path parameters (provided + prompted)
         """
         path_params = self._extract_path_parameters(url)
         missing_params = {}
-        
+
         for param_name in path_params:
             if param_name not in provided_params:
                 # Prompt user for the parameter value
                 self.console.print(f"\nValue for {param_name}:", style="yellow")
-                
+
                 # Get user input
                 user_input = input("Enter value (or press Enter to cancel): ").strip()
-                
+
                 if not user_input:
                     # User cancelled
                     return {}
-                
+
                 missing_params[param_name] = user_input
-        
+
         # Combine provided and missing parameters
         return {**provided_params, **missing_params}
 
@@ -239,15 +243,17 @@ class GetCommand(Command):
 
     def execute(self, args: list[str]) -> bool:
         """Execute the get command.
-        
+
         Args:
             args: Command arguments
-            
+
         Returns:
             True if command executed successfully, False otherwise
         """
         if not args:
-            self.console.print("Usage: get <url> [path-params] [query-params]", style="red")
+            self.console.print(
+                "Usage: get <url> [path-params] [query-params]", style="red"
+            )
             self.console.print("Use 'get --help' for more information")
             return True
 
@@ -258,15 +264,15 @@ class GetCommand(Command):
 
         # Parse URL path
         url_path = args[0]
-        
+
         # Check if URL has path parameters
         path_params_in_url = self._extract_path_parameters(url_path)
-        
+
         # Parse remaining arguments
         remaining_args = args[1:]
         query_params = {}
         path_params = {}
-        
+
         for arg in remaining_args:
             if arg.startswith("?"):
                 # Query parameter
@@ -313,17 +319,19 @@ class GetCommand(Command):
             return True
 
         endpoint = api_ref.endpoints[url_path]
-        
+
         # Handle path parameters
         if path_params_in_url:
             # Prompt for missing path parameters
-            all_path_params = self._prompt_for_missing_path_params(url_path, path_params)
-            
+            all_path_params = self._prompt_for_missing_path_params(
+                url_path, path_params
+            )
+
             if not all_path_params:
                 # User cancelled
                 self.console.print("Request cancelled by user", style="yellow")
                 return True
-            
+
             # Replace path parameters in URL
             final_url = self._replace_path_parameters(endpoint.url, all_path_params)
         else:
@@ -332,21 +340,25 @@ class GetCommand(Command):
         # Make the HTTP request
         try:
             response = self.http_client.get(final_url, params=query_params)
-            
+
             # Create response formatter (for both success and error cases)
             formatter = ResponseFormatter(self.console)
-            
-            if response.is_success:                                
+
+            if response.is_success:
                 # Check if response is JSON by looking at content-type header or trying to parse as JSON
-                content_type = response.headers.get('content-type', '').lower()
-                is_json_response = 'json' in content_type or 'application/json' in content_type
-                
+                content_type = response.headers.get("content-type", "").lower()
+                is_json_response = (
+                    "json" in content_type or "application/json" in content_type
+                )
+
                 if is_json_response:
                     try:
                         data = response.json()
                         formatter.print_response_with_config(data)
                     except Exception as e:
-                        self.console.print(f"Error parsing JSON response: {e}", style="red")
+                        self.console.print(
+                            f"Error parsing JSON response: {e}", style="red"
+                        )
                         self.console.print("Raw response:")
                         self.console.print(response.text)
                 else:
@@ -367,7 +379,7 @@ class GetCommand(Command):
                     # If not JSON, show raw text
                     if response.text:
                         self.console.print(response.text)
-                    
+
         except Exception as e:
             self.console.print(f"❌ Error making request: {e}", style="red")
             return False
@@ -376,17 +388,17 @@ class GetCommand(Command):
 
     def _get_already_provided_params(self, args: list[str]) -> set[str]:
         """Extract already provided path parameters from command arguments.
-        
+
         Args:
             args: Command arguments
-            
+
         Returns:
             Set of parameter names that have already been provided
         """
         provided_params = set()
         for arg in args:
-            if '=' in arg and not arg.startswith('?'):
-                param_name = arg.split('=')[0]
+            if "=" in arg and not arg.startswith("?"):
+                param_name = arg.split("=")[0]
                 provided_params.add(param_name)
         return provided_params
 
@@ -394,11 +406,11 @@ class GetCommand(Command):
         self, current_input: str, cursor_position: int
     ) -> list[Union[str, CompletionItem]]:
         """Get auto-completion suggestions.
-        
+
         Args:
             current_input: Current input string (full document text)
             cursor_position: Current cursor position
-            
+
         Returns:
             List of completion suggestions
         """
@@ -409,25 +421,25 @@ class GetCommand(Command):
 
         # Parse current input
         parts = current_input.split()
-        
+
         # If we don't have at least "get" command, return empty
         if len(parts) < 1:
             return []
-        
+
         # If we only have "get", return all available endpoints
         if len(parts) == 1:
             return list(api_ref.endpoints.keys())
-        
+
         # Get the URL part (second argument)
         url_part = parts[1]
-        
+
         # If URL doesn't start with "/", return empty
         if not url_part.startswith("/"):
             return []
-        
+
         # Get already provided parameters from remaining args
         already_provided = self._get_already_provided_params(parts[2:])
-        
+
         # Check if we have a complete URL and are at the end of the input
         # This indicates we should show path parameters
         if len(parts) >= 2 and url_part in api_ref.endpoints:
@@ -436,11 +448,10 @@ class GetCommand(Command):
             if cursor_position >= len(current_input) - 2:
                 params = self._extract_path_parameters(url_part)
                 return [param for param in params if param not in already_provided]
-        
+
         # Otherwise, complete the URL path
         matching_urls = [
-            url for url in api_ref.endpoints.keys() 
-            if url.startswith(url_part)
+            url for url in api_ref.endpoints.keys() if url.startswith(url_part)
         ]
-        
+
         return matching_urls

@@ -16,7 +16,10 @@ from rich.text import Text
 
 from ..http import ADOCHTTPClient
 from ..models import CompletionItem
-from .environment_validator import validate_environments_at_startup, load_default_environment
+from .environment_validator import (
+    validate_environments_at_startup,
+    load_default_environment,
+)
 from .commands import (
     Command,
     ExitCommand,
@@ -32,13 +35,14 @@ from .commands import (
     UseCommand,
 )
 
+
 # Pure functions for command processing
 def parse_input_safely(user_input: str) -> list[str]:
     """Parse user input safely, handling unmatched quotes.
-    
+
     Args:
         user_input: Raw user input string
-        
+
     Returns:
         List of parsed parts
     """
@@ -50,10 +54,10 @@ def parse_input_safely(user_input: str) -> list[str]:
 
 def extract_command_and_args(parts: list[str]) -> tuple[str, list[str]]:
     """Extract command name and arguments from parsed parts.
-    
+
     Args:
         parts: List of parsed input parts
-        
+
     Returns:
         Tuple of (command_name, arguments_list)
     """
@@ -64,10 +68,10 @@ def extract_command_and_args(parts: list[str]) -> tuple[str, list[str]]:
 
 def parse_input(user_input: str) -> tuple[str, list[str]]:
     """Parse user input into command and arguments using pure functions.
-    
+
     Args:
         user_input: Raw user input
-        
+
     Returns:
         Tuple of (command_name, arguments_list)
     """
@@ -77,59 +81,61 @@ def parse_input(user_input: str) -> tuple[str, list[str]]:
 
 def should_add_to_history(command_text: str, excluded_commands: set[str]) -> bool:
     """Determine if a command should be added to history.
-    
+
     Args:
         command_text: The command text to check
         excluded_commands: Set of excluded command names
-        
+
     Returns:
         True if command should be added to history
     """
     parts = command_text.strip().split()
     if not parts:
         return False
-    
+
     command_name = parts[0].lower()
-    
+
     # Skip excluded commands
     if command_name in excluded_commands:
         return False
-    
+
     # Skip if it's just a number (history recall)
     if len(parts) == 1 and command_name.isdigit():
         return False
-    
+
     return True
 
 
-def update_history_list(history: list[str], command_text: str, max_history: int) -> list[str]:
+def update_history_list(
+    history: list[str], command_text: str, max_history: int
+) -> list[str]:
     """Update history list with new command, maintaining order and limits.
-    
+
     Args:
         history: Current history list
         command_text: New command to add
         max_history: Maximum history size
-        
+
     Returns:
         Updated history list
     """
     # Remove duplicate if it exists
     filtered_history = [cmd for cmd in history if cmd != command_text]
-    
+
     # Add to front of history (most recent first)
     updated_history = [command_text] + filtered_history
-    
+
     # Maintain max history limit
     return updated_history[:max_history]
 
 
 def create_history_data(history: list[str], max_history: int) -> dict[str, Any]:
     """Create history data structure for serialization.
-    
+
     Args:
         history: Current history list
         max_history: Maximum history size
-        
+
     Returns:
         Dictionary with history data
     """
@@ -141,99 +147,103 @@ def create_history_data(history: list[str], max_history: int) -> dict[str, Any]:
 
 def validate_history_data(history_data: dict[str, Any]) -> Optional[list[str]]:
     """Validate and extract history list from loaded data.
-    
+
     Args:
         history_data: Loaded history data
-        
+
     Returns:
         Validated history list or None if invalid
     """
     if not isinstance(history_data, dict):
         return None
-    
+
     if "history" not in history_data:
         return None
-    
+
     history_list = history_data["history"]
     if not isinstance(history_list, list):
         return None
-    
+
     return history_list
 
 
 def load_history_from_file(history_file: Path, max_history: int) -> list[str]:
     """Load command history from file using pure functions.
-    
+
     Args:
         history_file: Path to history file
         max_history: Maximum history size
-        
+
     Returns:
         List of history commands
     """
     try:
         if not history_file.exists():
             return []
-        
+
         with open(history_file, encoding="utf-8") as f:
             history_data = json.load(f)
-        
+
         history_list = validate_history_data(history_data)
         if history_list is None:
             return []
-        
+
         # Load history with most recent first, limit to max_history
         return history_list[:max_history]
-        
+
     except (json.JSONDecodeError, OSError, KeyError, TypeError):
         # If file is corrupted or unreadable, start with empty history
         return []
 
 
-def save_history_to_file(history_file: Path, history: list[str], max_history: int) -> bool:
+def save_history_to_file(
+    history_file: Path, history: list[str], max_history: int
+) -> bool:
     """Save command history to file using pure functions.
-    
+
     Args:
         history_file: Path to history file
         history: Current history list
         max_history: Maximum history size
-        
+
     Returns:
         True if save was successful, False otherwise
     """
     try:
         history_data = create_history_data(history, max_history)
-        
+
         # Ensure parent directory exists
         history_file.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Write to temporary file first, then rename for atomic operation
         temp_file = history_file.with_suffix(".tmp")
         with open(temp_file, "w", encoding="utf-8") as f:
             json.dump(history_data, f, indent=2, ensure_ascii=False)
-        
+
         # Atomic rename
         temp_file.replace(history_file)
         return True
-        
+
     except (OSError, TypeError):
         # Fail silently - history persistence is not critical to functionality
         return False
 
 
-def create_environment_info(environment: Optional[str], config: Optional[dict]) -> dict[str, str]:
+def create_environment_info(
+    environment: Optional[str], config: Optional[dict]
+) -> dict[str, str]:
     """Create environment info dictionary using pure function.
-    
+
     Args:
         environment: Current environment name
         config: Environment configuration
-        
+
     Returns:
         Dictionary with environment info
     """
     if not config:
         return {}
-    
+
     return {
         "environment": environment or "",
         "base_url": config.get("base_url", ""),
@@ -244,10 +254,10 @@ def create_environment_info(environment: Optional[str], config: Optional[dict]) 
 
 def create_prompt_text(environment: Optional[str]) -> str:
     """Create prompt text using pure function.
-    
+
     Args:
         environment: Current environment name
-        
+
     Returns:
         Formatted prompt text
     """
@@ -258,17 +268,17 @@ def create_prompt_text(environment: Optional[str]) -> str:
 
 def create_status_message(response) -> tuple[str, str]:
     """Create status message and style for HTTP response using pure function.
-    
+
     Args:
         response: HTTPResponse object
-        
+
     Returns:
         Tuple of (status_message, style)
     """
     method = response.request_info.method
     endpoint = response.request_info.endpoint
     retries = response.request_info.retries_attempted
-    
+
     if response.is_success:
         style = "green"
         status_msg = f"✅ {method} {endpoint} - {response.status_code}"
@@ -278,25 +288,25 @@ def create_status_message(response) -> tuple[str, str]:
     else:
         style = "red"
         status_msg = f"❌ {method} {endpoint} - {response.status_code}"
-    
+
     if retries > 0:
         status_msg += f" (after {retries} retries)"
-    
+
     return status_msg, style
 
 
 def extract_error_message(response) -> Optional[str]:
     """Extract error message from response using pure function.
-    
+
     Args:
         response: HTTPResponse object
-        
+
     Returns:
         Error message string or None
     """
     if response.is_success:
         return None
-    
+
     try:
         error_data = response.json()
         if isinstance(error_data, dict):
@@ -308,33 +318,33 @@ def extract_error_message(response) -> Optional[str]:
         # Not JSON, show raw text if reasonable length
         if len(response.text) < 200:
             return response.text
-    
+
     return None
 
 
 def create_command_completions(commands: dict[str, Command]) -> Iterator[Completion]:
     """Create command name completions using pure function.
-    
+
     Args:
         commands: Dictionary of available commands
-        
+
     Yields:
         Completion objects for command names
     """
     for cmd_name, cmd in commands.items():
         if cmd_name == cmd.name:  # Only show primary names, not aliases
-            yield Completion(
-                cmd_name, start_position=0, display_meta=cmd.description
-            )
+            yield Completion(cmd_name, start_position=0, display_meta=cmd.description)
 
 
-def create_filtered_completions(commands: dict[str, Command], current_word: str) -> Iterator[Completion]:
+def create_filtered_completions(
+    commands: dict[str, Command], current_word: str
+) -> Iterator[Completion]:
     """Create filtered command completions using pure function.
-    
+
     Args:
         commands: Dictionary of available commands
         current_word: Current word being typed
-        
+
     Yields:
         Completion objects for matching commands
     """
@@ -349,11 +359,11 @@ def create_filtered_completions(commands: dict[str, Command], current_word: str)
 
 def create_structured_completion(completion: Any, start_position: int) -> Completion:
     """Create completion object from structured completion data using pure function.
-    
+
     Args:
         completion: Completion data (CompletionItem or string)
         start_position: Start position for completion
-        
+
     Returns:
         Completion object
     """
@@ -367,14 +377,16 @@ def create_structured_completion(completion: Any, start_position: int) -> Comple
         return Completion(completion, start_position=start_position)
 
 
-def create_completion_from_structured(completion: Any, current_word: str, is_new_word: bool) -> Completion:
+def create_completion_from_structured(
+    completion: Any, current_word: str, is_new_word: bool
+) -> Completion:
     """Create completion from structured completion data using pure function.
-    
+
     Args:
         completion: Structured completion data
         current_word: Current word being typed
         is_new_word: Whether starting a new word
-        
+
     Returns:
         Completion object
     """
@@ -394,19 +406,23 @@ def create_completion_from_structured(completion: Any, current_word: str, is_new
         return None
 
 
-def filter_valid_completions(completions: list[Any], current_word: str, is_new_word: bool) -> Iterator[Completion]:
+def filter_valid_completions(
+    completions: list[Any], current_word: str, is_new_word: bool
+) -> Iterator[Completion]:
     """Filter and create valid completions using pure function.
-    
+
     Args:
         completions: List of completion data
         current_word: Current word being typed
         is_new_word: Whether starting a new word
-        
+
     Yields:
         Valid Completion objects
     """
     for completion in completions:
-        result = create_completion_from_structured(completion, current_word, is_new_word)
+        result = create_completion_from_structured(
+            completion, current_word, is_new_word
+        )
         if result is not None:
             yield result
 
@@ -444,7 +460,7 @@ class ADOCCompleter(Completer):
                         # Get the current word being typed
                         is_new_word = text.endswith(" ")
                         current_word = words[-1] if not is_new_word else ""
-                        
+
                         if is_new_word:
                             # Starting a new word
                             for completion in structured_completions:
@@ -466,8 +482,10 @@ class ADOCCompleter(Completer):
                     # Get the current word being typed
                     is_new_word = text.endswith(" ")
                     current_word = words[-1] if not is_new_word else ""
-                    
-                    yield from filter_valid_completions(completions, current_word, is_new_word)
+
+                    yield from filter_valid_completions(
+                        completions, current_word, is_new_word
+                    )
 
 
 class InteractiveProcessor:
@@ -526,33 +544,35 @@ class InteractiveProcessor:
     def _validate_environment_config(self) -> None:
         """Validate environment configuration at startup."""
         is_valid, errors = validate_environments_at_startup()
-        
+
         if not is_valid:
-            self.console.print("\n🔍 Environment Configuration Validation", style="bold red")
+            self.console.print(
+                "\n🔍 Environment Configuration Validation", style="bold red"
+            )
             self.console.print("=" * 50, style="red")
-            
+
             for error in errors:
                 self.console.print(f"\n{error}")
-            
+
             self.console.print("\n" + "=" * 50, style="red")
             self.console.print(
                 "❌ Please fix the configuration errors above before continuing.\n"
                 "   The toolkit will start, but you may encounter issues with environment commands.\n"
                 "   See docs/environment-setup.md for detailed setup instructions.",
-                style="red"
+                style="red",
             )
             self.console.print()
 
     def _load_default_environment(self) -> None:
         """Load and set the default environment if specified in config."""
         default_env_data = load_default_environment()
-        
+
         if default_env_data:
             env_name, env_config = default_env_data
             self._on_environment_change(env_name, env_config)
             self.console.print(
                 f"✅ Automatically loaded default environment: {env_name}",
-                style="green"
+                style="green",
             )
             self.console.print()
 
@@ -621,7 +641,9 @@ class InteractiveProcessor:
         Returns:
             Dictionary with environment info (base_url, access_key, secret_key)
         """
-        return create_environment_info(self.current_environment, self.current_environment_config)
+        return create_environment_info(
+            self.current_environment, self.current_environment_config
+        )
 
     def add_to_history(self, command_text: str) -> None:
         """Add a command to history using pure functions.
@@ -632,7 +654,7 @@ class InteractiveProcessor:
         if should_add_to_history(command_text, self._excluded_commands):
             # Add to prompt_toolkit history for arrow key navigation
             self.history.append_string(command_text)
-            
+
             # Also maintain our custom history for the history command
             self.command_history = update_history_list(
                 self.command_history, command_text, self._max_history
@@ -660,7 +682,7 @@ class InteractiveProcessor:
         self.command_history = load_history_from_file(
             self._history_file, self._max_history
         )
-        
+
         # Also populate prompt_toolkit history for arrow key navigation
         # Reverse the order since prompt_toolkit expects most recent commands at the end
         for command in reversed(self.command_history):
@@ -669,7 +691,9 @@ class InteractiveProcessor:
 
     def _save_history_file(self) -> None:
         """Save command history to file using pure function."""
-        save_history_to_file(self._history_file, self.command_history, self._max_history)
+        save_history_to_file(
+            self._history_file, self.command_history, self._max_history
+        )
 
     def _handle_http_response(self, response) -> None:
         """Handle HTTP responses with default logging and error reporting.

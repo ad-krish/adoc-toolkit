@@ -6,6 +6,7 @@ from typing import Callable, Optional
 from ...models import CommandExecution
 from .base import Command
 
+
 class HistoryCommand(Command):
     """Show and manage command history."""
 
@@ -95,7 +96,7 @@ class HistoryCommand(Command):
 
     def _wait_for_keypress(self) -> bool:
         """Wait for user to press any key.
-        
+
         Returns:
             True to continue, False if escape was pressed
         """
@@ -119,11 +120,11 @@ class HistoryCommand(Command):
             else:
                 # Fallback for non-TTY environments
                 response = input()
-                return response.lower() != 'q' and response.lower() != 'quit'
+                return response.lower() != "q" and response.lower() != "quit"
         except (ImportError, OSError):
             # Windows or other systems - fallback to input()
             response = input()
-            return response.lower() != 'q' and response.lower() != 'quit'
+            return response.lower() != "q" and response.lower() != "quit"
 
     def _display_executions_page(
         self, executions: list[CommandExecution], start_idx: int, page_size: int
@@ -143,43 +144,51 @@ class HistoryCommand(Command):
         if start_idx >= len(executions):
             return False
 
-        print(f"\nExecution History (showing {start_idx + 1}-{end_idx} of {len(executions)}):")
+        print(
+            f"\nExecution History (showing {start_idx + 1}-{end_idx} of {len(executions)}):"
+        )
         print("-" * 120)
-        print(f"{'#':<3} {'Command':<40} {'Status':<8} {'Duration':<12} {'Start Time':<19} {'End Time':<19}")
+        print(
+            f"{'#':<3} {'Command':<40} {'Status':<8} {'Duration':<12} {'Start Time':<19} {'End Time':<19}"
+        )
         print("-" * 120)
 
         for i in range(start_idx, end_idx):
             execution_num = i + 1
             execution = executions[i]
-            
+
             # Truncate long commands for display
             display_command = execution.command
             if len(display_command) > 37:
                 display_command = display_command[:34] + "..."
 
-            print(f"{execution_num:<3} {display_command:<40} {execution.status:<8} "
-                  f"{execution.formatted_duration:<12} {execution.formatted_start_time:<19} "
-                  f"{execution.formatted_end_time:<19}")
+            print(
+                f"{execution_num:<3} {display_command:<40} {execution.status:<8} "
+                f"{execution.formatted_duration:<12} {execution.formatted_start_time:<19} "
+                f"{execution.formatted_end_time:<19}"
+            )
 
         has_more = end_idx < len(executions)
         if has_more:
             remaining = min(page_size, len(executions) - end_idx)
-            print(f"\nPress any key to show next {remaining} executions, <escape> to exit...")
+            print(
+                f"\nPress any key to show next {remaining} executions, <escape> to exit..."
+            )
 
         return has_more
 
     def _parse_executions_args(self, args: list[str]) -> int:
         """Parse --executions arguments to get page size.
-        
+
         Args:
             args: Command arguments
-            
+
         Returns:
             Page size (10, 25, 50, or 100)
         """
         # Default page size
         page_size = 25
-        
+
         # Look for --executions option
         for i, arg in enumerate(args):
             if arg == "--executions":
@@ -190,12 +199,14 @@ class HistoryCommand(Command):
                         if requested_size in [10, 25, 50, 100]:
                             page_size = requested_size
                         else:
-                            print(f"Warning: Invalid page size {requested_size}. Valid sizes: 10, 25, 50, 100. Using default: 25")
+                            print(
+                                f"Warning: Invalid page size {requested_size}. Valid sizes: 10, 25, 50, 100. Using default: 25"
+                            )
                     except ValueError:
                         # Next argument isn't a number, use default
                         pass
                 break
-        
+
         return page_size
 
     def execute(self, args: list[str]) -> bool:
@@ -224,7 +235,9 @@ class HistoryCommand(Command):
 
             # Display executions in pages
             while start_idx < len(executions):
-                has_more = self._display_executions_page(executions, start_idx, page_size)
+                has_more = self._display_executions_page(
+                    executions, start_idx, page_size
+                )
 
                 if has_more:
                     if not self._wait_for_keypress():

@@ -501,19 +501,19 @@ class ResponseFormatter:
             title: Optional title for table/csv output
         """
         from ..config import get_config_manager
-        
+
         # Get response type from configuration
         config_manager = get_config_manager()
         response_type_str = config_manager.get("http.response.type")
-        
+
         if response_type_str is None:
             response_type_str = "json"  # Default fallback
-        
+
         # Convert string to ResponseType enum
         try:
             response_type = ResponseType(response_type_str.lower())
         except ValueError:
             # Fallback to JSON if invalid response type
             response_type = ResponseType.JSON
-        
+
         self.print_response(data, response_type, title)

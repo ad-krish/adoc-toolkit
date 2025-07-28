@@ -173,5 +173,6 @@ addopts = "-v --tb=short"           # Default pytest options (verbose, short tra
 dev = [
     "mypy>=1.17.0",                    # Static type checker
     "pytest>=8.4.1",                   # Testing framework
+    "ruff>=0.1.0",                     # Fast Python linter and formatter
     "types-pyyaml>=6.0.12.20250516",   # Type stubs for PyYAML
 ]

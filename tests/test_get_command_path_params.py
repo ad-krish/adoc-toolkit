@@ -75,7 +75,7 @@ class TestGetCommandPathParams:
         path_params = self.command._parse_path_params(args)
         assert path_params == {}
 
-    @patch('builtins.input')
+    @patch("builtins.input")
     def test_prompt_for_missing_path_params(self, mock_input):
         """Test prompting for missing path parameters."""
         url = "/catalog-server/api/assets/:asset-id/metadata"
@@ -85,7 +85,7 @@ class TestGetCommandPathParams:
         result = self.command._prompt_for_missing_path_params(url, provided_params)
         assert result == {"asset-id": "123"}
 
-    @patch('builtins.input')
+    @patch("builtins.input")
     def test_prompt_for_missing_path_params_cancel(self, mock_input):
         """Test canceling path parameter prompt."""
         url = "/catalog-server/api/assets/:asset-id/metadata"
@@ -116,25 +116,32 @@ class TestGetCommandPathParams:
                     url="/catalog-server/api/assets/:asset-id/metadata",
                     description="Get metadata for a specific asset",
                     query_params={},
-                    response_type="json"
+                    response_type="json",
                 )
-            }
+            },
         )
 
-        with patch.object(self.command, '_load_api_reference', return_value=api_ref):
-            with patch.object(self.command, '_prompt_for_missing_path_params', return_value={"asset-id": "123"}):
-                with patch.object(self.command.console, 'print'):
-                    with patch('adoc_toolkit.http.formatter.ResponseFormatter.print_response_with_config'):
-                        result = self.command.execute([
-                            "/catalog-server/api/assets/:asset-id/metadata",
-                            "asset-id=123"
-                        ])
+        with patch.object(self.command, "_load_api_reference", return_value=api_ref):
+            with patch.object(
+                self.command,
+                "_prompt_for_missing_path_params",
+                return_value={"asset-id": "123"},
+            ):
+                with patch.object(self.command.console, "print"):
+                    with patch(
+                        "adoc_toolkit.http.formatter.ResponseFormatter.print_response_with_config"
+                    ):
+                        result = self.command.execute(
+                            [
+                                "/catalog-server/api/assets/:asset-id/metadata",
+                                "asset-id=123",
+                            ]
+                        )
                         assert result is True
 
                         # Verify the correct URL was called
                         self.http_client.get.assert_called_once_with(
-                            "/catalog-server/api/assets/123/metadata",
-                            params={}
+                            "/catalog-server/api/assets/123/metadata", params={}
                         )
 
     def test_execute_with_missing_path_params(self):
@@ -148,19 +155,23 @@ class TestGetCommandPathParams:
                     url="/catalog-server/api/assets/:asset-id/metadata",
                     description="Get metadata for a specific asset",
                     query_params={},
-                    response_type="json"
+                    response_type="json",
                 )
-            }
+            },
         )
 
-        with patch.object(self.command, '_load_api_reference', return_value=api_ref):
-            with patch.object(self.command, '_prompt_for_missing_path_params', return_value={}):
-                with patch.object(self.command.console, 'print') as mock_print:
-                    result = self.command.execute([
-                        "/catalog-server/api/assets/:asset-id/metadata"
-                    ])
+        with patch.object(self.command, "_load_api_reference", return_value=api_ref):
+            with patch.object(
+                self.command, "_prompt_for_missing_path_params", return_value={}
+            ):
+                with patch.object(self.command.console, "print") as mock_print:
+                    result = self.command.execute(
+                        ["/catalog-server/api/assets/:asset-id/metadata"]
+                    )
                     assert result is True
-                    mock_print.assert_called_with("Request cancelled by user", style="yellow")
+                    mock_print.assert_called_with(
+                        "Request cancelled by user", style="yellow"
+                    )
 
     def test_show_endpoint_help_with_path_params(self):
         """Test showing help for endpoint with path parameters."""
@@ -172,14 +183,16 @@ class TestGetCommandPathParams:
                     url="/catalog-server/api/assets/:asset-id/metadata",
                     description="Get metadata for a specific asset",
                     query_params={},
-                    response_type="json"
+                    response_type="json",
                 )
-            }
+            },
         )
 
-        with patch.object(self.command, '_load_api_reference', return_value=api_ref):
-            with patch.object(self.command.console, 'print') as mock_print:
-                self.command._show_endpoint_help("/catalog-server/api/assets/:asset-id/metadata")
+        with patch.object(self.command, "_load_api_reference", return_value=api_ref):
+            with patch.object(self.command.console, "print") as mock_print:
+                self.command._show_endpoint_help(
+                    "/catalog-server/api/assets/:asset-id/metadata"
+                )
                 # Verify that path parameters were shown in help
                 mock_print.assert_called()
 
@@ -193,25 +206,30 @@ class TestGetCommandPathParams:
                     url="/catalog-server/api/assets/:asset-id/metadata",
                     description="Get metadata for a specific asset",
                     query_params={},
-                    response_type="json"
+                    response_type="json",
                 ),
                 "/catalog-server/api/assets/:asset-id/users/:user-id/permissions": APIEndpoint(
                     url="/catalog-server/api/assets/:asset-id/users/:user-id/permissions",
                     description="Get user permissions for asset",
                     query_params={},
-                    response_type="json"
-                )
-            }
+                    response_type="json",
+                ),
+            },
         )
 
-        with patch.object(self.command, '_load_api_reference', return_value=api_ref):
+        with patch.object(self.command, "_load_api_reference", return_value=api_ref):
             # Test completion for complete URL - should show path parameters
-            completions = self.command.get_completions("get /catalog-server/api/assets/:asset-id/metadata ", 50)
+            completions = self.command.get_completions(
+                "get /catalog-server/api/assets/:asset-id/metadata ", 50
+            )
             assert len(completions) > 0
             assert "asset-id" in completions
-            
+
             # Test completion for complete URL with multiple parameters
-            completions = self.command.get_completions("get /catalog-server/api/assets/:asset-id/users/:user-id/permissions ", 70)
+            completions = self.command.get_completions(
+                "get /catalog-server/api/assets/:asset-id/users/:user-id/permissions ",
+                70,
+            )
             assert len(completions) > 0
             assert "asset-id" in completions
             assert "user-id" in completions
@@ -226,23 +244,27 @@ class TestGetCommandPathParams:
                     url="/catalog-server/api/users/:user-id/info",
                     description="Get user info",
                     query_params={},
-                    response_type="json"
+                    response_type="json",
                 ),
                 "/catalog-server/api/assets/:asset-id/:uid/info": APIEndpoint(
                     url="/catalog-server/api/assets/:asset-id/:uid/info",
                     description="Get asset info",
                     query_params={},
-                    response_type="json"
-                )
-            }
+                    response_type="json",
+                ),
+            },
         )
 
-        with patch.object(self.command, '_load_api_reference', return_value=api_ref):
+        with patch.object(self.command, "_load_api_reference", return_value=api_ref):
             # Test completion for complete URL - should show path parameters
-            completions = self.command.get_completions("get /catalog-server/api/users/:user-id/info ", 44)
+            completions = self.command.get_completions(
+                "get /catalog-server/api/users/:user-id/info ", 44
+            )
             assert "user-id" in completions
-            
+
             # Test completion for complete URL with multiple parameters
-            completions = self.command.get_completions("get /catalog-server/api/assets/:asset-id/:uid/info ", 54)
+            completions = self.command.get_completions(
+                "get /catalog-server/api/assets/:asset-id/:uid/info ", 54
+            )
             assert "asset-id" in completions
-            assert "uid" in completions 
+            assert "uid" in completions

@@ -21,56 +21,56 @@ from .execution_metrics_service import ExecutionMetricsService
 # Pure functional utilities
 def parse_backload_option(backload_str: str) -> datetime:
     """Parse backload option string into a datetime.
-    
+
     Args:
         backload_str: Backload string like "-30d", "-10d", "2024-01-15", "2024-01-15T10:30:00"
-        
+
     Returns:
         Parsed datetime object
-        
+
     Raises:
         ValueError: If parsing fails or constraints are violated
     """
     if not backload_str:
         raise ValueError("Backload option cannot be empty")
-    
+
     # Check for relative day format: -Nd where N is 1-60
-    relative_pattern = r'^-(\d+)d$'
+    relative_pattern = r"^-(\d+)d$"
     match = re.match(relative_pattern, backload_str.strip())
-    
+
     if match:
         days = int(match.group(1))
         if days > 60:
             raise ValueError("Backload cannot be more than 60 days (-60d)")
         if days == 0:
             raise ValueError("Backload days must be positive")
-        
+
         return datetime.now() - timedelta(days=days)
-    
+
     # Try parsing as date or datetime string
     try:
         # Try various date formats
         date_formats = [
-            "%Y-%m-%d",          # 2024-01-15
-            "%Y-%m-%dT%H:%M:%S", # 2024-01-15T10:30:00
-            "%Y-%m-%d %H:%M:%S", # 2024-01-15 10:30:00
-            "%m/%d/%Y",          # 01/15/2024
-            "%d/%m/%Y",          # 15/01/2024
+            "%Y-%m-%d",  # 2024-01-15
+            "%Y-%m-%dT%H:%M:%S",  # 2024-01-15T10:30:00
+            "%Y-%m-%d %H:%M:%S",  # 2024-01-15 10:30:00
+            "%m/%d/%Y",  # 01/15/2024
+            "%d/%m/%Y",  # 15/01/2024
         ]
-        
+
         for fmt in date_formats:
             try:
                 parsed_date = datetime.strptime(backload_str.strip(), fmt)
-                
+
                 # Validate that the date is not more than 60 days ago
                 sixty_days_ago = datetime.now() - timedelta(days=60)
                 if parsed_date < sixty_days_ago:
                     raise ValueError("Backload date cannot be more than 60 days ago")
-                
+
                 # Validate that the date is not in the future
                 if parsed_date > datetime.now():
                     raise ValueError("Backload date cannot be in the future")
-                
+
                 return parsed_date
             except ValueError as e:
                 # If this is a validation error (not a format parsing error), re-raise it
@@ -78,13 +78,13 @@ def parse_backload_option(backload_str: str) -> datetime:
                     raise
                 # Otherwise, continue trying other formats
                 continue
-        
+
         # If no format worked, raise error
         raise ValueError(
             f"Invalid backload format: {backload_str}. "
             "Use formats like: -30d, 2024-01-15, 2024-01-15T10:30:00"
         )
-        
+
     except Exception as e:
         raise ValueError(f"Error parsing backload option: {e}")
 
@@ -107,7 +107,12 @@ def parse_execution_metrics_args(args: list[str]) -> dict[str, Any]:
         arg = args[i]
         if arg == "--help":
             parsed["help"] = True
-        elif arg in ["--output-type", "--output-dir", "--output-filename", "--backload"]:
+        elif arg in [
+            "--output-type",
+            "--output-dir",
+            "--output-filename",
+            "--backload",
+        ]:
             if i + 1 >= len(args):
                 raise ValueError(f"{arg} requires a value")
             # Convert --output-type to output_type, --output-dir to output_dir, etc.
@@ -119,7 +124,9 @@ def parse_execution_metrics_args(args: list[str]) -> dict[str, Any]:
                 raise ValueError(f"{arg} requires a value")
             # Handle multiple policy types (comma-separated)
             policy_types_str = args[i + 1]
-            policy_types = [pt.strip() for pt in policy_types_str.split(",") if pt.strip()]
+            policy_types = [
+                pt.strip() for pt in policy_types_str.split(",") if pt.strip()
+            ]
             if not policy_types:
                 raise ValueError(f"{arg} requires at least one policy type")
             parsed["policy_types"] = policy_types
@@ -284,7 +291,14 @@ def get_execution_metrics_completion_suggestions(
         return []
 
     # Available options
-    options = ["--help", "--output-type", "--output-dir", "--output-filename", "--backload", "--policy-types"]
+    options = [
+        "--help",
+        "--output-type",
+        "--output-dir",
+        "--output-filename",
+        "--backload",
+        "--policy-types",
+    ]
 
     # If the previous word was an option that expects a value, provide completions
     if len(words) >= 2:
@@ -309,18 +323,36 @@ def get_execution_metrics_completion_suggestions(
             ]
             return [t for t in templates if t.startswith(current_word)]
         elif prev_word == "--backload":
-            backload_options = ["-10d", "-30d", "-60d", "2024-01-15", "2024-01-15T10:30:00"]
+            backload_options = [
+                "-10d",
+                "-30d",
+                "-60d",
+                "2024-01-15",
+                "2024-01-15T10:30:00",
+            ]
             return [opt for opt in backload_options if opt.startswith(current_word)]
         elif prev_word == "--policy-types":
-            policy_types = ["DATA_QUALITY", "EQUALITY", "DATA_DRIFT", "PROFILE_ANOMALY", "SCHEMA_DRIFT"]
+            policy_types = [
+                "DATA_QUALITY",
+                "EQUALITY",
+                "DATA_DRIFT",
+                "PROFILE_ANOMALY",
+                "SCHEMA_DRIFT",
+            ]
             # Handle comma-separated completion
             if "," in current_word:
                 parts = current_word.split(",")
                 prefix = ",".join(parts[:-1]) + ","
                 last_part = parts[-1].strip()
-                return [prefix + pt for pt in policy_types if pt.startswith(last_part.upper())]
+                return [
+                    prefix + pt
+                    for pt in policy_types
+                    if pt.startswith(last_part.upper())
+                ]
             else:
-                return [pt for pt in policy_types if pt.startswith(current_word.upper())]
+                return [
+                    pt for pt in policy_types if pt.startswith(current_word.upper())
+                ]
 
     # Filter options based on current word and already used options
     used_options = set(words[1:])  # Skip command name
@@ -440,7 +472,9 @@ Examples:
                 output_dir=parsed_args.get("output_dir"),
                 output_filename=parsed_args.get("output_filename"),
                 backload=parsed_args.get("backload"),
-                policy_types=parsed_args.get("policy_types", ["DATA_QUALITY", "EQUALITY"]),
+                policy_types=parsed_args.get(
+                    "policy_types", ["DATA_QUALITY", "EQUALITY"]
+                ),
                 help=parsed_args.get("help", False),
             )
         except Exception as e:
@@ -460,7 +494,7 @@ Examples:
         if not environment_info or not environment_info.get("environment"):
             console.print(
                 "Error: No environment selected. Use 'use <environment>' command to set an environment first.",
-                style="red"
+                style="red",
             )
             return True
 
