@@ -2,7 +2,7 @@
 
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 
 class LLMVendor(str, Enum):
@@ -60,7 +60,7 @@ class LLMConfig(BaseModel):
 
     @field_validator("model")
     @classmethod
-    def validate_model(cls, v: str | None, info) -> str | None:
+    def validate_model(cls, v: str | None, info: ValidationInfo) -> str | None:
         """Validate model based on vendor."""
         if v is None:
             # Set default model based on vendor

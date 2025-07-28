@@ -5,6 +5,8 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any
 
+from pydantic import BaseModel
+
 from ..models import (
     ChatGPTRequest,
     ClaudeRequest,
@@ -24,7 +26,7 @@ def with_error_handling(func: Callable) -> Callable:
     """Decorator for functional error handling."""
 
     @wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return func(*args, **kwargs)
         except Exception as e:
@@ -36,7 +38,7 @@ def with_error_handling(func: Callable) -> Callable:
 def compose(*functions: Callable) -> Callable:
     """Function composition utility."""
 
-    def inner(arg):
+    def inner(arg: Any) -> Any:
         result = arg
         for f in reversed(functions):
             result = f(result)
@@ -63,28 +65,28 @@ def extract_content(response: Any) -> str:
     if hasattr(response, "choices") and response.choices:
         choice = response.choices[0]
         if hasattr(choice, "message") and hasattr(choice.message, "content"):
-            return choice.message.content
+            return str(choice.message.content)
         elif hasattr(choice, "text"):
-            return choice.text
+            return str(choice.text)
         else:
             return str(choice)
 
     # Handle Claude response format
     if hasattr(response, "content"):
         if isinstance(response.content, list) and response.content:
-            return (
-                response.content[0].text
-                if hasattr(response.content[0], "text")
-                else str(response.content[0])
-            )
+            content_item = response.content[0]
+            if hasattr(content_item, "text"):
+                return str(content_item.text)
+            else:
+                return str(content_item)
         elif hasattr(response.content, "text"):
-            return response.content.text
+            return str(response.content.text)
         else:
             return str(response.content)
 
     # Handle other response formats
     elif hasattr(response, "text"):
-        return response.text
+        return str(response.text)
     else:
         return str(response)
 
@@ -129,27 +131,9 @@ def process_response_with_processor(
         return None
 
 
-def validate_request(request: LLMRequest, request_type: type) -> Any:
+def validate_request(request: LLMRequest, request_type: type[BaseModel]) -> Any:
     """Pure function to validate and convert request."""
     return request_type.model_validate(request.model_dump())
-
-
-def create_vendor_client_map() -> dict[str, Callable]:
-    """Pure function to create vendor client mapping."""
-    return {
-        "grok": GrokLLMClient,
-        "gemini": GeminiLLMClient,
-        "claude": ClaudeLLMClient,
-        "chatgpt": ChatGPTLLMClient,
-    }
-
-
-def get_client_class(vendor: str, client_map: dict[str, Callable]) -> Callable:
-    """Pure function to get client class from vendor."""
-    vendor_lower = vendor.lower()
-    if vendor_lower not in client_map:
-        raise ValueError(f"Unsupported LLM vendor: {vendor}")
-    return client_map[vendor_lower]
 
 
 class BaseLLMClient(ABC):
@@ -209,6 +193,26 @@ class BaseLLMClient(ABC):
             print_success_response(self.console, response.content)
 
 
+def create_vendor_client_map() -> dict[str, Callable]:
+    """Pure function to create vendor client mapping."""
+    return {
+        "grok": GrokLLMClient,
+        "gemini": GeminiLLMClient,
+        "claude": ClaudeLLMClient,
+        "chatgpt": ChatGPTLLMClient,
+    }
+
+
+def get_client_class(
+    vendor: str, client_map: dict[str, Callable]
+) -> type[BaseLLMClient]:
+    """Pure function to get client class from vendor."""
+    vendor_lower = vendor.lower()
+    if vendor_lower not in client_map:
+        raise ValueError(f"Unsupported LLM vendor: {vendor}")
+    return client_map[vendor_lower]  # type: ignore
+
+
 class GrokLLMClient(BaseLLMClient):
     """Grok LLM client implementation."""
 
@@ -245,7 +249,7 @@ class GrokLLMClient(BaseLLMClient):
 
         # Create response using pure function
         return create_llm_response(
-            content=response.content,
+            content=str(response.content),
             model=grok_request.model,
             vendor="grok",
             metadata={
@@ -436,4 +440,4 @@ try:
     from ..cli.commands.dq_policy_llm_client import DQPolicyLLMClient
 except ImportError:
     # Handle case where the import fails (e.g., during testing)
-    DQPolicyLLMClient = None
+    DQPolicyLLMClient: type | None = None

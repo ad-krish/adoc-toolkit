@@ -15,7 +15,7 @@ from .response import HTTPResponse
 
 
 # Lazy imports to avoid circular dependencies
-def _get_config_manager():
+def _get_config_manager() -> Any:
     from ..config import get_config_manager
 
     return get_config_manager()

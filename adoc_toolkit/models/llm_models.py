@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 
 class LLMRequest(BaseModel):
@@ -144,7 +144,7 @@ class PromptConfig(BaseModel):
 
     @field_validator("system_prompt_file", "system_prompt_text")
     @classmethod
-    def validate_prompt_source(cls, v: str | None, info) -> str | None:
+    def validate_prompt_source(cls, v: str | None, info: ValidationInfo) -> str | None:
         """Ensure at least one prompt source is provided."""
         if info.field_name == "system_prompt_text":
             return v

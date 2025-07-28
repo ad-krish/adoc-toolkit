@@ -78,27 +78,27 @@ def calculate_failed_rows(rows_scanned: int | None, result: str | None) -> int:
 class ThreadSafeDataCollector:
     """Thread-safe data collector for parallel processing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the thread-safe data collector."""
         self._lock = threading.Lock()
         self._data = []
 
-    def add(self, item):
+    def add(self, item: Any) -> None:
         """Add an item to the collection in a thread-safe manner."""
         with self._lock:
             self._data.append(item)
 
-    def extend(self, items):
+    def extend(self, items: list[Any]) -> None:
         """Add multiple items to the collection in a thread-safe manner."""
         with self._lock:
             self._data.extend(items)
 
-    def get_all(self):
+    def get_all(self) -> list[Any]:
         """Get all collected data."""
         with self._lock:
             return self._data.copy()
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear all collected data."""
         with self._lock:
             self._data.clear()
@@ -413,7 +413,7 @@ def process_policy_details_parallel(
 def process_policy_executions(
     executions_data: dict[str, Any],
     start_ts_marker: int,
-    policy_types: list[str] = None,
+    policy_types: list[str] | None = None,
 ) -> list[PolicyExecution]:
     """Process policy executions data into PolicyExecution models.
 
@@ -910,7 +910,10 @@ class ExecutionMetricsService(TraceableMixin):
 
     @trace_method("fetch_execution_metrics", "execution_metrics_service")
     def fetch_execution_metrics(
-        self, start_ts_marker: int, progress: Progress, policy_types: list[str] = None
+        self,
+        start_ts_marker: int,
+        progress: Progress,
+        policy_types: list[str] | None = None,
     ) -> list[ExecutionMetricsRecord]:
         """Fetch and process execution metrics data with parallel processing.
 
@@ -1029,14 +1032,14 @@ class ExecutionMetricsService(TraceableMixin):
         available_workers = list(range(max_workers))
         worker_lock = threading.Lock()
 
-        def get_available_worker():
+        def get_available_worker() -> int | None:
             """Get an available worker ID in a thread-safe manner."""
             with worker_lock:
                 if available_workers:
                     return available_workers.pop(0)
                 return None
 
-        def release_worker(worker_id):
+        def release_worker(worker_id: int) -> None:
             """Release a worker ID back to the pool."""
             with worker_lock:
                 available_workers.append(worker_id)
@@ -1191,14 +1194,14 @@ class ExecutionMetricsService(TraceableMixin):
         available_workers = list(range(max_workers))
         worker_lock = threading.Lock()
 
-        def get_available_worker():
+        def get_available_worker() -> int | None:
             """Get an available worker ID in a thread-safe manner."""
             with worker_lock:
                 if available_workers:
                     return available_workers.pop(0)
                 return None
 
-        def release_worker(worker_id):
+        def release_worker(worker_id: int) -> None:
             """Release a worker ID back to the pool."""
             with worker_lock:
                 available_workers.append(worker_id)
@@ -1357,14 +1360,14 @@ class ExecutionMetricsService(TraceableMixin):
         available_workers = list(range(max_workers))
         worker_lock = threading.Lock()
 
-        def get_available_worker():
+        def get_available_worker() -> int | None:
             """Get an available worker ID in a thread-safe manner."""
             with worker_lock:
                 if available_workers:
                     return available_workers.pop(0)
                 return None
 
-        def release_worker(worker_id):
+        def release_worker(worker_id: int) -> None:
             """Release a worker ID back to the pool."""
             with worker_lock:
                 available_workers.append(worker_id)

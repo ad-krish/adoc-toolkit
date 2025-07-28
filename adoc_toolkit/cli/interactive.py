@@ -295,28 +295,25 @@ def create_status_message(response) -> tuple[str, str]:
 
 
 def extract_error_message(response) -> str | None:
-    """Extract error message from response using pure function.
+    """Extract error message from HTTP response using pure function.
 
     Args:
-        response: HTTPResponse object
+        response: HTTP response object
 
     Returns:
-        Error message string or None
+        Error message string or None if no error message found
     """
-    if response.is_success:
-        return None
-
     try:
         error_data = response.json()
         if isinstance(error_data, dict):
             if "message" in error_data:
-                return error_data["message"]
+                return str(error_data["message"])
             elif "error" in error_data:
-                return error_data["error"]
+                return str(error_data["error"])
     except ValueError:
         # Not JSON, show raw text if reasonable length
         if len(response.text) < 200:
-            return response.text
+            return str(response.text)
 
     return None
 
@@ -378,7 +375,7 @@ def create_structured_completion(completion: Any, start_position: int) -> Comple
 
 def create_completion_from_structured(
     completion: Any, current_word: str, is_new_word: bool
-) -> Completion:
+) -> Completion | None:
     """Create completion from structured completion data using pure function.
 
     Args:
@@ -387,7 +384,7 @@ def create_completion_from_structured(
         is_new_word: Whether starting a new word
 
     Returns:
-        Completion object
+        Completion object or None if no valid completion
     """
     if is_new_word:
         return create_structured_completion(completion, 0)

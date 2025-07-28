@@ -74,7 +74,7 @@ class ConfigManager:
     def _is_enhanced_structure(self, data: dict) -> bool:
         """Check if the config data uses the enhanced structure with descriptions."""
 
-        def check_enhanced(obj):
+        def check_enhanced(obj: Any) -> bool:
             if isinstance(obj, dict):
                 # Check if this looks like a ConfigItem (has value and description)
                 if "value" in obj and "description" in obj and "type" in obj:
@@ -89,7 +89,7 @@ class ConfigManager:
         """Load configuration from enhanced structure."""
 
         # Convert enhanced structure to legacy structure for compatibility
-        def convert_enhanced_to_legacy(obj):
+        def convert_enhanced_to_legacy(obj: Any) -> Any:
             if isinstance(obj, dict):
                 if "value" in obj and "description" in obj and "type" in obj:
                     # This is a ConfigItem, extract the value

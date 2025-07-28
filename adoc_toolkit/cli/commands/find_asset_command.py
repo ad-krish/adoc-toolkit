@@ -1,6 +1,7 @@
 """Find asset command implementation."""
 
 
+from ...http.client import ADOCHTTPClient
 from ...models import AssetSearchResponse
 from ...tracing.mixins import TraceableMixin
 from .base import Command
@@ -9,7 +10,7 @@ from .base import Command
 class FindAssetCommand(Command, TraceableMixin):
     """Find assets by name."""
 
-    def __init__(self, http_client):
+    def __init__(self, http_client: ADOCHTTPClient):
         """Initialize the find asset command.
 
         Args:

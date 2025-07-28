@@ -25,7 +25,7 @@ class CompletionItem(BaseModel):
         description="Text to display in completion menu (if different from text)",
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Set display_text to text if not provided."""
         if self.display_text is None:
             self.display_text = self.text
