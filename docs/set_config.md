@@ -12,6 +12,46 @@ set-config --list
 set-config --show <key>
 ```
 
+## Listing Configuration
+
+The `--list` option displays all configuration settings in a single table, organized by category:
+
+- **HTTP Configuration**: Network and API settings
+- **LLM Configuration**: AI/LLM vendor and model settings  
+- **Logging Configuration**: Log levels, file paths, and rotation
+- **Audit Configuration**: Audit trail settings
+
+Category headers span the entire table width, making it easy to find and understand related settings at a glance.
+
+### Example Output
+
+```bash
+ADOC > set-config --list
+```
+
+The command displays configuration in a single organized table with category headers:
+
+```
+                                           Configuration Settings
+
+┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Key              ┃ Value  ┃ Description                           ┃┃ Options                             ┃
+┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ HTTP             │        │                                       ││                                     │
+│ Configuration    │        │                                       ││                                     │
+│ http.timeout     │ 120    │ HTTP request timeout in seconds       ││ 30, 60, 120, 300                    │
+│ http.retries     │ 3      │ Number of retry attempts for failed   ││ 0, 1, 3, 5                          │
+│ http.response.t… │ json   │ Response format type                  ││ json, table, csv, human             │
+│                  │        │                                       ││                                     │
+│ LLM              │        │                                       ││                                     │
+│ Configuration    │        │                                       ││                                     │
+│ llm.vendor       │ gemini │ LLM vendor to use for AI operations   ││ claude, gemini, grok, chatgpt       │
+│ llm.model        │ gemin… │ Model name for the selected LLM       ││ gemini-1.5-pro, gemini-1.5-flash,   │
+│ llm.temperature  │ 0.2    │ Temperature for LLM response          ││ 0.0, 0.1, 0.2, 0.5, 0.7, 1.0, 1.5, │
+│                  │        │ generation                            ││ 2.0                                 │
+└──────────────────┴────────┴───────────────────────────────────────┴┴─────────────────────────────────────┘
+```
+
 ## Quick Start
 
 ### Basic Configuration
@@ -26,7 +66,7 @@ ADOC > set-config log.level DEBUG
 # Configure proxy for corporate network
 ADOC > set-config http.proxy https://proxy.company.com:8080
 
-# View all current settings
+# View all current settings (grouped by category)
 ADOC > set-config --list
 ```
 

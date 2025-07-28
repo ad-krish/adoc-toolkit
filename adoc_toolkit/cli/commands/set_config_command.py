@@ -163,7 +163,7 @@ class SetConfigCommand(Command):
         return True
 
     def _list_config(self) -> bool:
-        """List all configuration values with descriptions."""
+        """List all configuration values with descriptions, grouped by category."""
         config_manager = get_config_manager()
         config_items = config_manager.get_all_config_items()
 
@@ -171,29 +171,81 @@ class SetConfigCommand(Command):
             self.console.print("No configuration items found.", style="yellow")
             return True
 
-        # Create a table to display configuration
+        # Group configurations by category
+        grouped_configs = self._group_configurations(config_items)
+
+        # Create a single table to display all configurations
         from rich.table import Table
 
-        table = Table(title="Configuration Settings")
+        table = Table(title="[bold cyan]Configuration Settings[/bold cyan]")
         table.add_column("Key", style="cyan", width=30)
         table.add_column("Value", style="white", width=20)
         table.add_column("Description", style="green", width=50)
         table.add_column("Type", style="yellow", width=10)
-        table.add_column("Options", style="blue", width=30)
+        table.add_column("Options", style="blue", width=50)
 
-        for key, item in config_items.items():
-            # Format the value
-            value_str = self._format_value(item.value)
+        # Add each group to the table
+        for category, items in grouped_configs.items():
+            # Add category header row
+            table.add_row(
+                f"[bold]{category}[/bold]",
+                "",
+                "",
+                "",
+                "",
+                style="bold cyan"
+            )
+            
+            # Add configuration items for this category
+            for key, item in items.items():
+                # Format the value
+                value_str = self._format_value(item.value)
 
-            # Format options
-            options_str = ""
-            if item.options:
-                options_str = ", ".join(map(str, item.options))
+                # Format options
+                options_str = ""
+                if item.options:
+                    options_str = ", ".join(map(str, item.options))
 
-            table.add_row(key, value_str, item.description, item.type, options_str)
+                table.add_row(key, value_str, item.description, item.type, options_str)
+
+            # Add a separator row between categories (except after the last one)
+            if category != list(grouped_configs.keys())[-1]:
+                table.add_row("", "", "", "", "", style="dim")
 
         self.console.print(table)
         return True
+
+    def _group_configurations(self, config_items: dict) -> dict:
+        """Group configuration items by category.
+
+        Args:
+            config_items: Dictionary of configuration items
+
+        Returns:
+            Dictionary grouped by category
+        """
+        grouped = {
+            "HTTP Configuration": {},
+            "LLM Configuration": {},
+            "Logging Configuration": {},
+            "Audit Configuration": {},
+            "Other Configuration": {}
+        }
+
+        for key, item in config_items.items():
+            if key.startswith("http."):
+                grouped["HTTP Configuration"][key] = item
+            elif key.startswith("llm."):
+                grouped["LLM Configuration"][key] = item
+            elif key.startswith("log."):
+                grouped["Logging Configuration"][key] = item
+            elif key.startswith("audit."):
+                grouped["Audit Configuration"][key] = item
+            else:
+                grouped["Other Configuration"][key] = item
+
+        # Remove empty categories
+        return {k: v for k, v in grouped.items() if v}
 
     def _show_config(self, key: str) -> bool:
         """Show detailed information for a specific configuration key."""
