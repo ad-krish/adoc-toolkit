@@ -33,9 +33,18 @@ class HelpCommand(Command):
                 if name == cmd.name:  # Only show primary name, not aliases
                     unique_commands[name] = cmd
 
-            for cmd in unique_commands.values():
-                aliases = f" ({', '.join(cmd.aliases)})" if cmd.aliases else ""
-                print(f"  {cmd.name}{aliases}: {cmd.description}")
+            for i, cmd in enumerate(unique_commands.values()):
+                # Add spacing between commands (except before the first one)
+                if i > 0:
+                    print()
+                
+                # Command name in bold on first line
+                print(f"  \033[1m{cmd.name}\033[0m")
+                
+                # Description and aliases on second line
+                aliases_text = f" (aliases: {', '.join(cmd.aliases)})" if cmd.aliases else ""
+                print(f"    {cmd.description}{aliases_text}")
+            
             print(
                 "\nType 'help <command>' or '<command> --help' for detailed help "
                 "on a specific command."
