@@ -31,6 +31,10 @@ class ShowEnvCommand(Command):
     def aliases(self) -> list[str]:
         return ["env"]
 
+    @property
+    def contributor(self) -> str | None:
+        return None
+
     def get_help(self) -> str:
         """Get detailed help for show-env command."""
         help_text = f"{self.name}: {self.description}\n"

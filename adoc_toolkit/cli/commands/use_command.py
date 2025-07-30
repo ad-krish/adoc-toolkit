@@ -33,6 +33,10 @@ class UseCommand(Command):
     def description(self) -> str:
         return "Switch to a different environment"
 
+    @property
+    def contributor(self) -> str | None:
+        return None
+
     def get_help(self) -> str:
         """Get detailed help for use command."""
         help_text = f"{self.name}: {self.description}\n"

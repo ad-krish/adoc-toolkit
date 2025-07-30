@@ -25,6 +25,7 @@ from .commands import (
     HelpCommand,
     HistoryCommand,
     SetConfigCommand,
+    ShowCommand,
     ShowEnvCommand,
     TextToDQPolicyCommand,
     UseCommand,
@@ -328,8 +329,7 @@ def create_command_completions(commands: dict[str, Command]) -> Iterator[Complet
         Completion objects for command names
     """
     for cmd_name, cmd in commands.items():
-        if cmd_name == cmd.name:  # Only show primary names, not aliases
-            yield Completion(cmd_name, start_position=0, display_meta=cmd.description)
+        yield Completion(cmd_name, start_position=0, display_meta=cmd.description)
 
 
 def create_filtered_completions(
@@ -345,7 +345,7 @@ def create_filtered_completions(
         Completion objects for matching commands
     """
     for cmd_name, cmd in commands.items():
-        if cmd_name == cmd.name and cmd_name.startswith(current_word):
+        if cmd_name.startswith(current_word):
             yield Completion(
                 cmd_name,
                 start_position=-len(current_word),
@@ -594,6 +594,7 @@ class InteractiveProcessor:
         )
         get_cmd = GetCommand(http_client=self.http_client)
         find_asset_cmd = FindAssetCommand(http_client=self.http_client)
+        show_cmd = ShowCommand(http_client=self.http_client)
         text_to_dq_policy_cmd = TextToDQPolicyCommand()
 
         self.register_command(help_cmd)
@@ -606,6 +607,7 @@ class InteractiveProcessor:
         self.register_command(export_execution_metrics_cmd)
         self.register_command(get_cmd)
         self.register_command(find_asset_cmd)
+        self.register_command(show_cmd)
         self.register_command(text_to_dq_policy_cmd)
 
     def register_command(self, command: Command) -> None:

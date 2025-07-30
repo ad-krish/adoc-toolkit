@@ -1,7 +1,7 @@
 # Find Asset Command
 
 ## Overview
-The `find-asset` command allows you to find assets in the ADOC catalog by name. It performs a case-insensitive search that supports partial matches and displays results in a formatted table.
+The `find-asset` command allows you to find assets in the ADOC catalog by name. It performs a case-insensitive search that supports partial matches and displays results in a formatted table matching the data-sources command format.
 
 ## Usage
 ```
@@ -30,25 +30,17 @@ ADOC > find-asset --help
 
 ## Output Format
 
-The command displays results in a table format with the following columns:
+The command displays results in a Rich table format with the following columns:
 
 | Column | Description |
 |--------|-------------|
-| ID | Asset identifier |
-| Name | Asset name (full name displayed) |
-| Asset Type | Type of asset (e.g., Database, Table, Column) |
-| Asset UID | Unique asset identifier (full UID displayed) |
-
-### Example Output
-```
-Found 2 asset(s) matching 'database':
-===============================================================================================================================================
-ID              Name                                                Asset Type           Asset UID                                              
------------------------------------------------------------------------------------------------------------------------------------------------
-123             database_1                                          Database             db_123                                                 
-456             database_2                                          Database             db_456                                                 
-===============================================================================================================================================
-```
+| Assembly | Assembly name (derived from asset name) |
+| Source Type | Source type (derived from asset type) |
+| Assembly ID | Asset identifier |
+| Schedule | Schedule configuration (None for assets) |
+| Virtual | Whether virtual (No for assets) |
+| Protected | Whether protected (No for assets) |
+| Integration ID | Asset UID |
 
 ### No Results
 When no assets are found matching the search term:
@@ -98,6 +90,7 @@ The command handles various error scenarios:
 - [`get`](get.md): Execute general API calls
 - [`use`](use.md): Switch between environments
 - [`show-env`](show_env.md): Display current environment
+- [`show data-sources`](show.md): Display data sources in similar format
 
 ## Debugging and Tracing
 

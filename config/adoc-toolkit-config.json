@@ -37,7 +37,7 @@
     },
     "response": {
       "type": {
-        "value": "human",
+        "value": "json",
         "description": "Response format type",
         "type": "string",
         "options": [
@@ -116,7 +116,7 @@
   },
   "llm": {
     "vendor": {
-      "value": "grok",
+      "value": "gemini",
       "description": "LLM vendor to use for AI operations",
       "type": "string",
       "options": [
@@ -142,10 +142,11 @@
       "description": "Model name for the selected LLM vendor",
       "type": "string",
       "options": [
-        "grok-beta",
-        "grok-2"
+        "gemini-1.5-pro",
+        "gemini-1.5-flash",
+        "gemini-1.0-pro"
       ],
-      "default": "grok-beta"
+      "default": "gemini-1.5-pro"
     },
     "temperature": {
       "value": 0.8,

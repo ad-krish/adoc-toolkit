@@ -38,6 +38,10 @@ class GetCommand(Command):
     def aliases(self) -> list[str]:
         return ["g"]
 
+    @property
+    def contributor(self) -> str | None:
+        return None
+
     def get_help(self) -> str:
         """Get detailed help for get command."""
         help_text = f"{self.name}: {self.description}\n"

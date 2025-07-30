@@ -18,6 +18,10 @@ class ExitCommand(Command):
     def aliases(self) -> list[str]:
         return ["quit", "q"]
 
+    @property
+    def contributor(self) -> str | None:
+        return None
+
     def get_help(self) -> str:
         """Get detailed help for exit command."""
         return (

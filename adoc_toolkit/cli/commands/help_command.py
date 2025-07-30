@@ -41,9 +41,16 @@ class HelpCommand(Command):
                 # Command name in bold on first line
                 print(f"  \033[1m{cmd.name}\033[0m")
                 
-                # Description and aliases on second line
-                aliases_text = f" (aliases: {', '.join(cmd.aliases)})" if cmd.aliases else ""
-                print(f"    {cmd.description}{aliases_text}")
+                # Description on second line
+                print(f"    {cmd.description}")
+                
+                # Aliases on separate line in subtle gray text
+                if cmd.aliases:
+                    print(f"    \033[90mAliases: {', '.join(cmd.aliases)}\033[0m")
+                
+                # Contributor information in subtle gray text
+                if cmd.contributor:
+                    print(f"    \033[96mContributor: {cmd.contributor}\033[0m")
             
             print(
                 "\nType 'help <command>' or '<command> --help' for detailed help "

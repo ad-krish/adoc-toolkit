@@ -1,6 +1,9 @@
 """Find asset command implementation."""
 
 
+from rich.console import Console
+from rich.table import Table
+
 from ...http.client import ADOCHTTPClient
 from ...models import AssetSearchResponse
 from ...tracing.mixins import TraceableMixin
@@ -17,6 +20,7 @@ class FindAssetCommand(Command, TraceableMixin):
             http_client: HTTP client for making API calls
         """
         self.http_client = http_client
+        self.console = Console()
 
     @property
     def trace_prefix(self) -> str:
@@ -35,6 +39,10 @@ class FindAssetCommand(Command, TraceableMixin):
     def aliases(self) -> list[str]:
         return ["search", "search-asset", "asset-search"]
 
+    @property
+    def contributor(self) -> str | None:
+        return None
+
     def get_help(self) -> str:
         """Get detailed help for find-asset command."""
         help_text = f"{self.name}: {self.description}\n"
@@ -46,10 +54,13 @@ class FindAssetCommand(Command, TraceableMixin):
         help_text += "  find-asset 'my table'\n"
         help_text += "  find-asset --help\n\n"
         help_text += "The command will display a table with:\n"
-        help_text += "  - Asset ID\n"
-        help_text += "  - Asset Name\n"
-        help_text += "  - Asset Type\n"
-        help_text += "  - Asset UID\n"
+        help_text += "  - Assembly (derived from asset name)\n"
+        help_text += "  - Source Type (derived from asset type)\n"
+        help_text += "  - Assembly ID (asset ID)\n"
+        help_text += "  - Schedule (N/A for assets)\n"
+        help_text += "  - Virtual (No for assets)\n"
+        help_text += "  - Protected (No for assets)\n"
+        help_text += "  - Integration ID (asset UID)\n"
         return help_text
 
     def execute(self, args: list[str]) -> bool:
@@ -122,7 +133,7 @@ class FindAssetCommand(Command, TraceableMixin):
     def _display_results(
         self, asset_search_response: AssetSearchResponse, search_term: str
     ) -> None:
-        """Display search results in a formatted table.
+        """Display search results in a formatted table matching data-sources format.
 
         Args:
             asset_search_response: Validated response data from the API
@@ -144,35 +155,61 @@ class FindAssetCommand(Command, TraceableMixin):
             return
 
         print(f"\nFound {len(assets)} asset(s) matching '{search_term}':")
-        print("=" * 135)
 
-        # Print header
-        print(f"{'ID':<15} {'Name':<50} {'Asset Type':<20} {'Asset UID':<50}")
-        print("-" * 135)
+        # Create Rich table matching data-sources format
+        table = Table(
+            title="Assets",
+            show_header=True,
+            header_style="bold magenta",
+            show_lines=True
+        )
 
-        # Print each asset
+        # Add columns matching data-sources format
+        table.add_column("Assembly", style="cyan", no_wrap=True)
+        table.add_column("Source Type", style="green")
+        table.add_column("Assembly ID", style="yellow", justify="right")
+        table.add_column("Schedule", style="blue")
+        table.add_column("Virtual", style="red", justify="center")
+        table.add_column("Protected", style="red", justify="center")
+        table.add_column("Integration ID", style="white", no_wrap=False)
+
+        # Add each asset as a row
         for i, asset in enumerate(assets):
-            asset_id = str(asset.id)  # Convert to string for display
-            asset_name = asset.name
-            asset_type = asset.asset_type.name
-            asset_uid = asset.uid
+            # Map asset data to data-sources format
+            assembly = asset.name.split('.')[0] if '.' in asset.name else asset.name
+            source_type = asset.asset_type.name.upper()
+            assembly_id = str(asset.id)
+            schedule = "None"  # Assets don't have schedules
+            is_virtual = "No"  # Assets are not virtual
+            is_protected = "No"  # Assets are not protected
+            integration_id = asset.uid
 
-            # Only truncate asset type for better display, show full name and UID
-            asset_type = asset_type[:17] + "..." if len(asset_type) > 20 else asset_type
-
-            print(f"{asset_id:<15} {asset_name:<50} {asset_type:<20} {asset_uid:<50}")
+            table.add_row(
+                assembly,
+                source_type,
+                assembly_id,
+                schedule,
+                is_virtual,
+                is_protected,
+                integration_id
+            )
 
             # Trace each asset display
             self.trace(
                 "asset_displayed",
                 asset_index=i,
-                asset_id=asset_id,
-                asset_name=asset_name,
-                asset_type=asset_type,
-                asset_uid=asset_uid,
+                asset_id=assembly_id,
+                asset_name=asset.name,
+                asset_type=source_type,
+                asset_uid=integration_id,
             )
 
-        print("=" * 135)
+        # Display the table
+        self.console.print(table)
+        
+        # Show summary matching data-sources format
+        print(f"\nTotal assets: {len(assets)} (filtered from {len(assets)} total)")
+
         self.trace_complete("display_results", results_count=len(assets))
 
     def get_completions(self, current_input: str, cursor_position: int) -> list[str]:

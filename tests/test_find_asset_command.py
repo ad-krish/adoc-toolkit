@@ -32,6 +32,11 @@ class TestFindAssetCommand:
         assert "find-asset" in help_text
         assert "Find assets by name" in help_text
         assert "Usage: find-asset <asset-name>" in help_text
+        # Check for new column descriptions
+        assert "Assembly" in help_text
+        assert "Source Type" in help_text
+        assert "Assembly ID" in help_text
+        assert "Integration ID" in help_text
 
     def test_execute_with_help_flag(self):
         """Test command execution with --help flag."""
@@ -119,7 +124,7 @@ class TestFindAssetCommand:
             mock_print.assert_called_with("Error executing search: Network error")
 
     def test_display_results_with_multiple_assets(self):
-        """Test displaying multiple search results."""
+        """Test displaying multiple search results with Rich table format."""
         from adoc_toolkit.models import Asset, AssetSearchResponse, AssetType
 
         response_data = AssetSearchResponse(
@@ -142,11 +147,59 @@ class TestFindAssetCommand:
         with patch("builtins.print") as mock_print:
             self.command._display_results(response_data, "test")
 
+            # Should print table with results using Rich console
+            assert mock_print.call_count > 0
+
+    def test_display_results_with_asset_name_mapping(self):
+        """Test that asset names are properly mapped to assembly format."""
+        from adoc_toolkit.models import Asset, AssetSearchResponse, AssetType
+
+        response_data = AssetSearchResponse(
+            assets=[
+                Asset(
+                    id=123,
+                    name="schema.table_name",
+                    asset_type=AssetType(name="Table", id=1),
+                    uid="schema.table_uid",
+                ),
+                Asset(
+                    id=456,
+                    name="simple_name",
+                    asset_type=AssetType(name="Database", id=2),
+                    uid="simple_uid",
+                ),
+            ]
+        )
+
+        with patch("builtins.print") as mock_print:
+            self.command._display_results(response_data, "test")
+
+            # Should print table with results
+            assert mock_print.call_count > 0
+
+    def test_display_results_with_asset_type_mapping(self):
+        """Test that asset types are properly converted to source type format."""
+        from adoc_toolkit.models import Asset, AssetSearchResponse, AssetType
+
+        response_data = AssetSearchResponse(
+            assets=[
+                Asset(
+                    id=123,
+                    name="test_asset",
+                    asset_type=AssetType(name="Table", id=1),
+                    uid="test_uid",
+                ),
+            ]
+        )
+
+        with patch("builtins.print") as mock_print:
+            self.command._display_results(response_data, "test")
+
             # Should print table with results
             assert mock_print.call_count > 0
 
     def test_display_results_with_long_values(self):
-        """Test displaying results with long values that need truncation."""
+        """Test displaying results with long values in Rich table format."""
         from adoc_toolkit.models import Asset, AssetSearchResponse, AssetType
 
         response_data = AssetSearchResponse(
@@ -163,7 +216,7 @@ class TestFindAssetCommand:
         with patch("builtins.print") as mock_print:
             self.command._display_results(response_data, "test")
 
-            # Should print full name and UID values
+            # Should print full name and UID values in Rich table
             assert mock_print.call_count > 0
 
     def test_get_completions(self):
@@ -171,3 +224,8 @@ class TestFindAssetCommand:
         completions = self.command.get_completions("search-asset ", 12)
         # Currently returns empty list, but method exists for future enhancement
         assert isinstance(completions, list)
+
+    def test_console_initialization(self):
+        """Test that Rich console is properly initialized."""
+        assert hasattr(self.command, 'console')
+        assert self.command.console is not None

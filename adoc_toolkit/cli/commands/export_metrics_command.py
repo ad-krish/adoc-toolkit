@@ -653,6 +653,10 @@ class ExportMetricsCommand(Command, TraceableMixin):
     def aliases(self) -> list[str]:
         return ["export", "metrics"]
 
+    @property
+    def contributor(self) -> str | None:
+        return "Sharath Reddy"
+
     def get_help(self) -> str:
         return f"""{self.name}: {self.description}
 

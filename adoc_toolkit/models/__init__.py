@@ -26,6 +26,22 @@ from .llm_models import (
     LLMResponse,
     PromptConfig,
 )
+from .base_models import ColumnDefinition, ResourceColumnSet
+from .data_source_models import (
+    DataSource,
+    DataSourceResponse,
+    FilterCondition,
+    ShowCommandArgs,
+    SortSpec,
+    DATA_SOURCE_COLUMNS,
+)
+from .registry import RESOURCE_REGISTRY
+from .pipeline_models import (
+    PipelineSummary,
+    PipelineSummaryResponse,
+    PipelineSummaryMeta,
+    PIPELINE_SUMMARY_COLUMNS,
+)
 from .set_config_args import SetConfigArgs
 from .show_config_args import ShowConfigArgs
 
@@ -40,6 +56,15 @@ __all__ = [
     "CompletionItem",
     "ConfigurationData",
     "ConfigItem",
+    "DataSource",
+    "DataSourceResponse",
+    "FilterCondition",
+    "ShowCommandArgs",
+    "SortSpec",
+    "DATA_SOURCE_COLUMNS",
+    "RESOURCE_REGISTRY",
+    "ColumnDefinition",
+    "ResourceColumnSet",
     "EnvironmentInfo",
     "GetCommandArgs",
     "APIReference",
@@ -64,4 +89,8 @@ __all__ = [
     "ExecutionMetricsRecord",
     "LastRunInfo",
     "ExecutionMetricsArgs",
+    "PipelineSummary",
+    "PipelineSummaryResponse", 
+    "PipelineSummaryMeta",
+    "PIPELINE_SUMMARY_COLUMNS",
 ]

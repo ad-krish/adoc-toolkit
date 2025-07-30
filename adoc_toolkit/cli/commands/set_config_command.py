@@ -32,6 +32,10 @@ class SetConfigCommand(Command):
         """Get command aliases."""
         return ["config", "set"]
 
+    @property
+    def contributor(self) -> str | None:
+        return None
+
     def get_help(self) -> str:
         """Get detailed help for set-config command."""
         help_text = f"{self.name}: {self.description}\n"

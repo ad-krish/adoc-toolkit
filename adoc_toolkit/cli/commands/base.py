@@ -25,6 +25,11 @@ class Command(ABC):
         """Command aliases."""
         return []
 
+    @property
+    def contributor(self) -> str | None:
+        """Command contributor name."""
+        return None
+
     def get_help(self) -> str:
         """Get detailed help text for the command.
 
@@ -34,6 +39,8 @@ class Command(ABC):
         help_text = f"{self.name}: {self.description}"
         if self.aliases:
             help_text += f"\nAliases: {', '.join(self.aliases)}"
+        if self.contributor:
+            help_text += f"\nContributor: {self.contributor}"
         return help_text
 
     @abstractmethod

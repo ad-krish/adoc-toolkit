@@ -399,6 +399,10 @@ class ExportExecutionMetricsCommand(Command, TraceableMixin):
     def aliases(self) -> list[str]:
         return ["exec-metrics", "execution-metrics"]
 
+    @property
+    def contributor(self) -> str | None:
+        return "Joe Murphy"
+
     def get_help(self) -> str:
         return f"""{self.name}: {self.description}
 
