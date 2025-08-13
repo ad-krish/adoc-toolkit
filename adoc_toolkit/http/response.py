@@ -2,7 +2,7 @@
 
 from typing import Any
 
-import httpx
+import aiohttp
 
 from .http_response_info import HTTPResponseInfo
 
@@ -10,22 +10,25 @@ from .http_response_info import HTTPResponseInfo
 class HTTPResponse:
     """Wrapper for HTTP responses with additional metadata."""
 
-    def __init__(self, response: httpx.Response, request_info: dict[str, Any]):
+    def __init__(self, response: aiohttp.ClientResponse, request_info: dict[str, Any]):
         """Initialize HTTP response wrapper.
 
         Args:
-            response: The httpx response object
+            response: The aiohttp response object
             request_info: Information about the original request
         """
         self._response = response
         self.request_info = HTTPResponseInfo(
-            status_code=response.status_code,
+            status_code=response.status,
             headers=dict(response.headers),
             method=request_info.get("method", "UNKNOWN"),
             url=request_info.get("url", ""),
             endpoint=request_info.get("endpoint", ""),
             retries_attempted=request_info.get("retries_attempted", 0),
         )
+        self._text = None
+        self._content = None
+        self._json_data = None
 
     @property
     def status_code(self) -> int:
@@ -37,12 +40,13 @@ class HTTPResponse:
         """Get response headers."""
         return self.request_info.headers
 
-    @property
-    def text(self) -> str:
+    async def text(self) -> str:
         """Get response body as text."""
-        return self._response.text
+        if self._text is None:
+            self._text = await self._response.text()
+        return self._text
 
-    def json(self) -> Any:
+    async def json(self) -> Any:
         """Get response body as JSON.
 
         Returns:
@@ -51,15 +55,18 @@ class HTTPResponse:
         Raises:
             ValueError: If response is not valid JSON
         """
-        try:
-            return self._response.json()
-        except Exception as e:
-            raise ValueError(f"Invalid JSON response: {e}") from e
+        if self._json_data is None:
+            try:
+                self._json_data = await self._response.json()
+            except Exception as e:
+                raise ValueError(f"Invalid JSON response: {e}") from e
+        return self._json_data
 
-    @property
-    def content(self) -> bytes:
+    async def content(self) -> bytes:
         """Get response body as bytes."""
-        return self._response.content
+        if self._content is None:
+            self._content = await self._response.read()
+        return self._content
 
     @property
     def is_success(self) -> bool:
@@ -79,3 +86,8 @@ class HTTPResponse:
     def __str__(self) -> str:
         """String representation of response."""
         return f"HTTPResponse(status={self.status_code}, url={self.request_info.url})"
+
+    async def close(self) -> None:
+        """Close the response."""
+        if not self._response.closed:
+            await self._response.release()

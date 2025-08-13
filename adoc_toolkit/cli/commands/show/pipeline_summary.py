@@ -22,7 +22,7 @@ class PipelineSummaryHandler:
         self.http_client = http_client
         self.console = Console()
 
-    def fetch_resources(self) -> list[PipelineSummary]:
+    async def fetch_resources(self) -> list[PipelineSummary]:
         """Fetch pipeline summaries from the API.
 
         Returns:
@@ -35,20 +35,20 @@ class PipelineSummaryHandler:
         url = "/torch-pipeline/api/pipelines/summary"
         params = {
             "page": 0,
-            "size": 100
+            "size": 20
         }
 
-        response = self.http_client.get(url, params=params)
+        response = await self.http_client.get(url, params=params)
 
         if not response.is_success:
             raise Exception(f"Failed to fetch pipeline-summary: {response.status_code}")
 
         # Parse response data with better error handling
         try:
-            response_data = response.json()
+            response_data = await response.json()
         except Exception as e:
             # Log the raw response for debugging
-            raw_response = response.text if hasattr(response, 'text') else str(response)
+            raw_response = await response.text() if hasattr(response, 'text') else str(response)
             raise Exception(
                 f"Invalid JSON response: {e}. Raw response: {raw_response[:200]}..."
             ) from e
@@ -141,7 +141,7 @@ class PipelineSummaryHandler:
 
         return table
 
-    def display_resources(self, resources: list[PipelineSummary]) -> None:
+    async def display_resources(self, resources: list[PipelineSummary]) -> None:
         """Display pipeline summaries in a table.
 
         Args:

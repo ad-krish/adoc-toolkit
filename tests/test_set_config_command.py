@@ -225,12 +225,21 @@ def test_completions_for_keys() -> None:
                 },
             },
             "audit": {
-                "logfile": {
-                    "value": None,
-                    "description": "Path to audit log file",
-                    "type": "string",
-                    "options": ["audit/adoc-audit.log", "./audit.log", "none"],
-                    "default": None,
+                "log": {
+                    "enabled": {
+                        "value": False,
+                        "description": "Enable blockchain audit logging",
+                        "type": "boolean",
+                        "options": [True, False],
+                        "default": False,
+                    },
+                    "database_path": {
+                        "value": None,
+                        "description": "Path to audit database",
+                        "type": "string",
+                        "options": ["audit/auditlog.db", "./auditlog.db", "none"],
+                        "default": None,
+                    }
                 }
             },
             "log": {
@@ -289,7 +298,7 @@ def test_completions_for_keys() -> None:
         assert any(c.text == "log.filepath" for c in completions)
         assert any(c.text == "log.rotate.onsize" for c in completions)
         assert any(c.text == "log.rotate.ontime" for c in completions)
-        assert any(c.text == "audit.logfile" for c in completions)
+        assert any(c.text == "audit.log.enabled" for c in completions)
         assert any(c.text == "--list" for c in completions)
         assert any(c.text == "--show" for c in completions)
 
@@ -312,7 +321,7 @@ def test_completions_for_keys() -> None:
         assert any(c.text == "log.filepath" for c in completions)
         assert any(c.text == "log.rotate.onsize" for c in completions)
         assert any(c.text == "log.rotate.ontime" for c in completions)
-        assert not any(c.text == "audit.logfile" for c in completions)
+        assert not any(c.text == "audit.log.enabled" for c in completions)
 
 
 def test_completions_for_show_flag() -> None:
@@ -382,12 +391,21 @@ def test_completions_for_show_flag() -> None:
                 },
             },
             "audit": {
-                "logfile": {
-                    "value": None,
-                    "description": "Path to audit log file",
-                    "type": "string",
-                    "options": ["audit/adoc-audit.log", "./audit.log", "none"],
-                    "default": None,
+                "log": {
+                    "enabled": {
+                        "value": False,
+                        "description": "Enable blockchain audit logging",
+                        "type": "boolean",
+                        "options": [True, False],
+                        "default": False,
+                    },
+                    "database_path": {
+                        "value": None,
+                        "description": "Path to audit database",
+                        "type": "string",
+                        "options": ["audit/auditlog.db", "./auditlog.db", "none"],
+                        "default": None,
+                    }
                 }
             },
         }
@@ -413,7 +431,7 @@ def test_completions_for_show_flag() -> None:
         assert any(c.text == "log.filepath" for c in completions)
         assert any(c.text == "log.rotate.onsize" for c in completions)
         assert any(c.text == "log.rotate.ontime" for c in completions)
-        assert any(c.text == "audit.logfile" for c in completions)
+        assert any(c.text == "audit.log.enabled" for c in completions)
 
 
 def test_completions_for_values() -> None:

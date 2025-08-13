@@ -4,7 +4,7 @@ import functools
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from .service import get_audit_logger
+from .audit_service import get_immutable_audit_logger
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -47,7 +47,7 @@ class AuditableMixin:
             user_id: User ID (uses instance context if not provided)
             ip_address: IP address (uses instance context if not provided)
         """
-        audit_logger = get_audit_logger()
+        audit_logger = get_immutable_audit_logger()
         if not audit_logger.is_enabled():
             return
 
@@ -80,7 +80,7 @@ class AuditableMixin:
             user_id: User ID (uses instance context if not provided)
             ip_address: IP address (uses instance context if not provided)
         """
-        audit_logger = get_audit_logger()
+        audit_logger = get_immutable_audit_logger()
         if not audit_logger.is_enabled():
             return
 
@@ -103,13 +103,13 @@ def audit_operation(
     details: dict[str, Any] | None = None,
     extract_args: bool = False,
 ) -> Callable[[F], F]:
-    """Decorator to automatically audit operations.
+    """Decorator to audit operations.
 
     Args:
         command_object: Command or object being accessed
         operation_type: Type of operation
         details: Additional operation details
-        extract_args: Whether to extract method arguments into details
+        extract_args: Whether to extract function arguments as details
 
     Returns:
         Decorated function
@@ -118,51 +118,50 @@ def audit_operation(
     def decorator(func: F) -> F:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            audit_logger = get_audit_logger()
+            audit_logger = get_immutable_audit_logger()
+            if not audit_logger.is_enabled():
+                return func(*args, **kwargs)
 
-            if audit_logger.is_enabled():
-                audit_details = details.copy() if details else {}
+            # Extract audit context from first argument if it's an AuditableMixin
+            user_id = None
+            ip_address = None
+            if args and hasattr(args[0], '_audit_user_id'):
+                user_id = args[0]._audit_user_id
+                ip_address = args[0]._audit_ip_address
 
-                # Extract arguments if requested
-                if extract_args:
-                    # Get function argument names
-                    import inspect
+            # Extract additional details if requested
+            audit_details = details or {}
+            if extract_args:
+                # Add function arguments to details
+                audit_details["function_name"] = func.__name__
+                audit_details["args"] = str(args)
+                audit_details["kwargs"] = str(kwargs)
 
-                    sig = inspect.signature(func)
-                    bound_args = sig.bind(*args, **kwargs)
-                    bound_args.apply_defaults()
-
-                    # Add non-sensitive arguments to details
-                    for param_name, param_value in bound_args.arguments.items():
-                        if param_name not in (
-                            "self",
-                            "cls",
-                            "password",
-                            "secret",
-                            "token",
-                        ):
-                            # Convert to string and limit length to avoid huge logs
-                            str_value = str(param_value)
-                            if len(str_value) > 100:
-                                str_value = str_value[:97] + "..."
-                            audit_details[param_name] = str_value
-
-                # Check if first argument has audit context (AuditableMixin)
-                user_id = None
-                ip_address = None
-                if args and hasattr(args[0], "_audit_user_id"):
-                    user_id = args[0]._audit_user_id
-                    ip_address = args[0]._audit_ip_address
-
+            try:
+                # Execute the function
+                result = func(*args, **kwargs)
+                
+                # Log successful operation
                 audit_logger.log_operation(
                     command_object=command_object,
                     operation_type=operation_type,
-                    details=audit_details if audit_details else None,
+                    details=audit_details,
                     user_id=user_id,
                     ip_address=ip_address,
                 )
-
-            return func(*args, **kwargs)
+                
+                return result
+            except Exception as e:
+                # Log failed operation
+                audit_details["error"] = str(e)
+                audit_logger.log_operation(
+                    command_object=command_object,
+                    operation_type=f"{operation_type}_failed",
+                    details=audit_details,
+                    user_id=user_id,
+                    ip_address=ip_address,
+                )
+                raise
 
         return wrapper
 
@@ -170,10 +169,10 @@ def audit_operation(
 
 
 def audit_http_request(extract_args: bool = True) -> Callable[[F], F]:
-    """Decorator to automatically audit HTTP requests.
+    """Decorator to audit HTTP requests.
 
     Args:
-        extract_args: Whether to extract method arguments for URL and headers
+        extract_args: Whether to extract function arguments as details
 
     Returns:
         Decorated function
@@ -182,48 +181,74 @@ def audit_http_request(extract_args: bool = True) -> Callable[[F], F]:
     def decorator(func: F) -> F:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            audit_logger = get_audit_logger()
+            audit_logger = get_immutable_audit_logger()
+            if not audit_logger.is_enabled():
+                return func(*args, **kwargs)
 
-            if audit_logger.is_enabled() and extract_args:
-                # Extract HTTP request details from arguments
-                import inspect
+            # Extract audit context from first argument if it's an AuditableMixin
+            user_id = None
+            ip_address = None
+            if args and hasattr(args[0], '_audit_user_id'):
+                user_id = args[0]._audit_user_id
+                ip_address = args[0]._audit_ip_address
 
-                sig = inspect.signature(func)
-                bound_args = sig.bind(*args, **kwargs)
-                bound_args.apply_defaults()
+            # Extract HTTP request details from arguments
+            method = kwargs.get("method", "GET")
+            url = kwargs.get("url", "")
+            headers = kwargs.get("headers")
 
-                # Look for HTTP-related arguments
-                method = None
-                url = None
-                headers = None
+            # If not found in kwargs, try positional arguments
+            if len(args) >= 1 and not args[0] is None and hasattr(args[0], '_audit_user_id'):
+                # Skip self argument for mixin classes
+                if len(args) >= 2:
+                    method = str(args[1]) if args[1] is not None else method
+                if len(args) >= 3:
+                    url = str(args[2]) if args[2] is not None else url
+                if len(args) >= 4:
+                    headers = args[3] if args[3] is not None else headers
+            else:
+                # Regular function, first argument is method
+                if len(args) >= 1:
+                    method = str(args[0]) if args[0] is not None else method
+                if len(args) >= 2:
+                    url = str(args[1]) if args[1] is not None else url
+                if len(args) >= 3:
+                    headers = args[2] if args[2] is not None else headers
 
-                # Try to extract from common argument names
-                for param_name, param_value in bound_args.arguments.items():
-                    if param_name == "method":
-                        method = param_value
-                    elif param_name in ("url", "endpoint"):
-                        url = param_value
-                    elif param_name == "headers":
-                        headers = param_value
+            # Extract additional details if requested
+            audit_details = {}
+            if extract_args:
+                audit_details["function_name"] = func.__name__
+                audit_details["args"] = str(args)
+                audit_details["kwargs"] = str(kwargs)
 
-                # If we have at least method info, log it
-                if method:
-                    # Check if first argument has audit context (AuditableMixin)
-                    user_id = None
-                    ip_address = None
-                    if args and hasattr(args[0], "_audit_user_id"):
-                        user_id = args[0]._audit_user_id
-                        ip_address = args[0]._audit_ip_address
-
-                    audit_logger.log_http_request(
-                        method=method,
-                        url=url or "unknown",
-                        headers=headers,
-                        user_id=user_id,
-                        ip_address=ip_address,
-                    )
-
-            return func(*args, **kwargs)
+            try:
+                # Execute the function
+                result = func(*args, **kwargs)
+                
+                # Log successful request
+                audit_logger.log_http_request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    details=audit_details,
+                    user_id=user_id,
+                    ip_address=ip_address,
+                )
+                
+                return result
+            except Exception as e:
+                # Log failed request
+                audit_details["error"] = str(e)
+                audit_logger.log_http_request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    details=audit_details,
+                    user_id=user_id,
+                    ip_address=ip_address,
+                )
+                raise
 
         return wrapper
 

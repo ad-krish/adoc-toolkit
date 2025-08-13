@@ -5,7 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import httpx
+import aiohttp
 from pydantic import ValidationError
 from rich.console import Console
 
@@ -66,6 +66,43 @@ class ADOCHTTPClient(_AuditMixin):
         self.environment_info_callback = environment_info_callback
         self.response_handler = response_handler
         self.console = Console()
+        self._session: aiohttp.ClientSession | None = None
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        await self._ensure_session()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        await self.close()
+
+    async def _ensure_session(self) -> None:
+        """Ensure aiohttp session is available."""
+        if self._session is None or self._session.closed:
+            timeout = aiohttp.ClientTimeout(
+                total=_get_config_manager().get("http.timeout") or 120,
+                connect=_get_config_manager().get("http.connect_timeout") or 30
+            )
+            connector = aiohttp.TCPConnector(
+                limit=_get_config_manager().get("http.connection_pool_size") or 100,
+                limit_per_host=_get_config_manager().get("http.max_connections_per_host") or 10,
+                ttl_dns_cache=_get_config_manager().get("http.dns_cache_ttl") or 300,
+            )
+            self._session = aiohttp.ClientSession(
+                timeout=timeout,
+                connector=connector,
+                headers={
+                    "User-Agent": "ADOC-Toolkit/1.0",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                }
+            )
+
+    async def close(self) -> None:
+        """Close the HTTP client session."""
+        if self._session and not self._session.closed:
+            await self._session.close()
 
     def _get_environment_info(self) -> dict[str, Any]:
         """Get current environment information.
@@ -103,59 +140,68 @@ class ADOCHTTPClient(_AuditMixin):
             Complete headers dictionary
         """
         headers = {
-            "Content-Type": "application/json",
+            "User-Agent": "ADOC-Toolkit/1.0",
             "Accept": "application/json",
-            "User-Agent": "ADOC-Toolkit/1.0.0",
         }
+
+        # Add authentication headers if available
         env_info = self._get_environment_info()
-        access_key = env_info.get("access_key")
-        secret_key = env_info.get("secret_key")
-        if access_key:
-            headers["accessKey"] = access_key
-        if secret_key:
-            headers["secretKey"] = secret_key
+        if env_info.get("access_key"):
+            headers["X-API-Key"] = env_info["access_key"]
+        if env_info.get("secret_key"):
+            headers["X-API-Secret"] = env_info["secret_key"]
+
+        # Add additional headers
         if additional_headers:
             headers.update(additional_headers)
+
         return headers
 
     def _build_url(self, endpoint: str) -> str:
-        """Build complete URL from endpoint.
+        """Build full URL from endpoint.
 
         Args:
-            endpoint: API endpoint (with or without leading slash)
+            endpoint: API endpoint path
 
         Returns:
-            Complete URL
+            Complete URL with base URL
 
         Raises:
-            HTTPError: If no environment is set or base_url is missing
+            HTTPError: If no environment is selected
         """
         env_info = self._get_environment_info()
         base_url = env_info.get("base_url")
         if not base_url:
-            raise HTTPError(
-                "No environment selected. Use 'use <environment>' to set an "
-                "environment."
-            )
+            raise HTTPError("No environment selected. Use 'use <environment>' first.")
+
+        # Ensure endpoint starts with /
         if not endpoint.startswith("/"):
-            endpoint = f"/{endpoint}"
-        return f"{base_url.rstrip('/')}{endpoint}"
+            endpoint = "/" + endpoint
+
+        # Combine base URL and endpoint
+        return base_url.rstrip("/") + endpoint
 
     def _get_client_config(self) -> dict[str, Any]:
-        """Get HTTP client configuration.
+        """Get aiohttp client configuration.
 
         Returns:
-            Configuration dictionary for httpx client
+            Client configuration dictionary
         """
         config_manager = _get_config_manager()
-        config = {"timeout": config_manager.get("http.timeout") or 120}
-        proxy = config_manager.get("http.proxy")
-        if proxy:
-            config["proxies"] = proxy
-        return config
+        return {
+            "timeout": aiohttp.ClientTimeout(
+                total=config_manager.get("http.timeout") or 120,
+                connect=config_manager.get("http.connect_timeout") or 30
+            ),
+            "connector": aiohttp.TCPConnector(
+                limit=config_manager.get("http.connection_pool_size") or 100,
+                limit_per_host=config_manager.get("http.max_connections_per_host") or 10,
+                ttl_dns_cache=config_manager.get("http.dns_cache_ttl") or 300,
+            )
+        }
 
     def _load_file_content(self, file_path: str) -> bytes:
-        """Load content from file.
+        """Load file content for upload.
 
         Args:
             file_path: Path to file to load
@@ -171,7 +217,7 @@ class ADOCHTTPClient(_AuditMixin):
             if not path.exists():
                 raise HTTPError(f"File not found: {file_path}")
             return path.read_bytes()
-        except OSError as e:
+        except Exception as e:
             raise HTTPError(f"Error reading file {file_path}: {e}") from e
 
     def _prepare_data(
@@ -182,33 +228,29 @@ class ADOCHTTPClient(_AuditMixin):
         """Prepare request data.
 
         Args:
-            data: Request data (dict, str, or bytes)
-            file_path: Path to file to use as request body
+            data: Request data
+            file_path: Path to file for request body
 
         Returns:
             Prepared request data as bytes
 
         Raises:
-            HTTPError: If both data and file_path are provided or other data errors
+            HTTPError: If data cannot be prepared
         """
-        if data is not None and file_path is not None:
-            raise HTTPError("Cannot specify both data and file_path")
         if file_path:
             return self._load_file_content(file_path)
-        if data is None:
+        elif data is None:
             return None
-        if isinstance(data, bytes):
+        elif isinstance(data, bytes):
             return data
-        if isinstance(data, str):
+        elif isinstance(data, str):
             return data.encode("utf-8")
-        if isinstance(data, dict):
-            try:
-                return json.dumps(data).encode("utf-8")
-            except (TypeError, ValueError) as e:
-                raise HTTPError(f"Error serializing JSON data: {e}") from e
-        raise HTTPError(f"Unsupported data type: {type(data)}")
+        elif isinstance(data, dict):
+            return json.dumps(data).encode("utf-8")
+        else:
+            raise HTTPError(f"Unsupported data type: {type(data)}")
 
-    def _make_request(
+    async def _make_request(
         self,
         method: str,
         endpoint: str,
@@ -217,7 +259,7 @@ class ADOCHTTPClient(_AuditMixin):
         file_path: str | None = None,
         params: dict[str, Any] | None = None,
     ) -> HTTPResponse:
-        """Make HTTP request with retry logic.
+        """Make HTTP request.
 
         Args:
             method: HTTP method (GET, POST, PUT, DELETE)
@@ -248,7 +290,6 @@ class ADOCHTTPClient(_AuditMixin):
         url = self._build_url(request_data.endpoint)
         request_headers = self._build_headers(request_data.headers)
         prepared_data = self._prepare_data(request_data.data, request_data.file_path)
-        client_config = self._get_client_config()
         retries = _get_config_manager().get("http.retries") or 3
 
         if request_data.file_path and prepared_data:
@@ -268,20 +309,21 @@ class ADOCHTTPClient(_AuditMixin):
             "retries_attempted": 0,
         }
 
-        retryable_exceptions = (httpx.TimeoutException, httpx.ConnectError)
+        retryable_exceptions = (aiohttp.ClientError, aiohttp.ServerTimeoutError)
 
-        with httpx.Client(**client_config) as client:
-            last_exception: HTTPError | None = None
-            for attempt in range(retries + 1):
-                request_info["retries_attempted"] = attempt
-                try:
-                    response = client.request(
-                        method=request_data.method,
-                        url=url,
-                        content=prepared_data,
-                        headers=request_headers,
-                        params=request_data.params,
-                    )
+        await self._ensure_session()
+        last_exception: HTTPError | None = None
+        
+        for attempt in range(retries + 1):
+            request_info["retries_attempted"] = attempt
+            try:
+                async with self._session.request(
+                    method=request_data.method,
+                    url=url,
+                    data=prepared_data,
+                    headers=request_headers,
+                    params=request_data.params,
+                ) as response:
                     http_response = HTTPResponse(response, request_info)
                     self.audit_http_request(
                         method=request_data.method, url=url, headers=request_headers
@@ -289,7 +331,7 @@ class ADOCHTTPClient(_AuditMixin):
                     trace_http_request(
                         method=request_data.method,
                         url=url,
-                        status_code=response.status_code,
+                        status_code=response.status,
                         retries=attempt,
                     )
                     if self.response_handler:
@@ -300,50 +342,18 @@ class ADOCHTTPClient(_AuditMixin):
                                 f"Response handler error: {e}", style="yellow"
                             )
                     return http_response
-                except retryable_exceptions as e:
-                    error_type = (
-                        "Timeout"
-                        if isinstance(e, httpx.TimeoutException)
-                        else "Connection"
-                    )
-                    last_exception = HTTPError(
-                        f"Request {error_type.lower()} after "
-                        f"{client_config['timeout']}s: {e}"
-                        if error_type == "Timeout"
-                        else f"Connection error: {e}"
-                    )
-                    trace_error(
-                        f"HTTP {request_data.method} {url}",
-                        f"{error_type}: {e}",
-                        attempt=attempt,
-                    )
-                    if attempt < retries:
-                        self.console.print(
-                            f"{error_type} error, retrying... (attempt "
-                            f"{attempt + 1}/{retries})",
-                            style="yellow",
-                        )
-                        continue
-                    raise last_exception from None
-                except httpx.HTTPError as e:
-                    last_exception = HTTPError(f"HTTP error: {e}")
-                    trace_error(
-                        f"HTTP {request_data.method} {url}",
-                        f"HTTP error: {e}",
-                        attempt=attempt,
-                    )
-                    raise last_exception from None
-                except Exception as e:
-                    last_exception = HTTPError(f"Unexpected error: {e}")
-                    trace_error(
-                        f"HTTP {request_data.method} {url}",
-                        f"Unexpected: {e}",
-                        attempt=attempt,
-                    )
-                    raise last_exception from None
-            raise last_exception or HTTPError("Request failed after all retries")
+            except retryable_exceptions as e:
+                last_exception = HTTPError(f"Request failed: {e}")
+                if attempt < retries:
+                    continue
+                else:
+                    raise last_exception
+            except Exception as e:
+                raise HTTPError(f"Unexpected error: {e}") from e
 
-    def get(
+        raise last_exception or HTTPError("Request failed after all retries")
+
+    async def get(
         self,
         endpoint: str,
         headers: dict[str, str] | None = None,
@@ -357,11 +367,11 @@ class ADOCHTTPClient(_AuditMixin):
             params: Query parameters
 
         Returns:
-            HTTP response wrapper
+            HTTP response
         """
-        return self._make_request("GET", endpoint, headers=headers, params=params)
+        return await self._make_request("GET", endpoint, headers=headers, params=params)
 
-    def post(
+    async def post(
         self,
         endpoint: str,
         data: dict[str, Any] | str | bytes | None = None,
@@ -379,18 +389,13 @@ class ADOCHTTPClient(_AuditMixin):
             params: Query parameters
 
         Returns:
-            HTTP response wrapper
+            HTTP response
         """
-        return self._make_request(
-            "POST",
-            endpoint,
-            data=data,
-            headers=headers,
-            file_path=file_path,
-            params=params,
+        return await self._make_request(
+            "POST", endpoint, data=data, headers=headers, file_path=file_path, params=params
         )
 
-    def put(
+    async def put(
         self,
         endpoint: str,
         data: dict[str, Any] | str | bytes | None = None,
@@ -408,18 +413,13 @@ class ADOCHTTPClient(_AuditMixin):
             params: Query parameters
 
         Returns:
-            HTTP response wrapper
+            HTTP response
         """
-        return self._make_request(
-            "PUT",
-            endpoint,
-            data=data,
-            headers=headers,
-            file_path=file_path,
-            params=params,
+        return await self._make_request(
+            "PUT", endpoint, data=data, headers=headers, file_path=file_path, params=params
         )
 
-    def delete(
+    async def delete(
         self,
         endpoint: str,
         headers: dict[str, str] | None = None,
@@ -433,18 +433,18 @@ class ADOCHTTPClient(_AuditMixin):
             params: Query parameters
 
         Returns:
-            HTTP response wrapper
+            HTTP response
         """
-        return self._make_request("DELETE", endpoint, headers=headers, params=params)
+        return await self._make_request("DELETE", endpoint, headers=headers, params=params)
 
-    def health_check(self) -> bool:
-        """Perform basic health check against current environment.
+    async def health_check(self) -> bool:
+        """Perform health check.
 
         Returns:
-            True if environment is reachable, False otherwise
+            True if healthy, False otherwise
         """
         try:
-            response = self.get("/")
-            return response.status_code < 500
-        except HTTPError:
+            response = await self.get("/health")
+            return response.is_success
+        except Exception:
             return False

@@ -206,9 +206,28 @@ class PipelineSummaryResponse(BaseModel):
                         pipelines = [PipelineSummary.model_validate(response_data)]
                         meta = PipelineSummaryResponseMeta(count=1, size=1)
                     else:
-                        raise ValueError(
-                            f"Unexpected response structure: {type(response_data)}"
-                        ) from None
+                        # Try to handle case where pipelines don't have nested pipelineSummary
+                        # This might be the actual API response structure
+                        if "pipelines" in response_data:
+                            pipelines_data = response_data.get("pipelines", [])
+                            pipelines = []
+                            for pipeline_data in pipelines_data:
+                                # Check if pipeline data has nested structure
+                                if "pipelineSummary" in pipeline_data:
+                                    pipeline = PipelineSummary.model_validate(pipeline_data)
+                                else:
+                                    # Create a PipelineSummaryData directly from the pipeline data
+                                    # This handles the case where the API returns direct pipeline data
+                                    pipeline_summary_data = PipelineSummaryData.model_validate(pipeline_data)
+                                    pipeline = PipelineSummary(pipeline_summary=pipeline_summary_data)
+                                pipelines.append(pipeline)
+                            meta = PipelineSummaryResponseMeta(
+                                count=len(pipelines), size=len(pipelines)
+                            )
+                        else:
+                            raise ValueError(
+                                f"Unexpected response structure: {type(response_data)}"
+                            ) from None
         else:
             raise ValueError(f"Unexpected response type: {type(response_data)}")
 

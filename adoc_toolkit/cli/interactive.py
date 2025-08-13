@@ -2,9 +2,12 @@
 
 import json
 import shlex
+import time
+import getpass
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from datetime import datetime
 
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import Completer, Completion
@@ -13,8 +16,9 @@ from prompt_toolkit.history import InMemoryHistory
 from rich.console import Console
 from rich.text import Text
 
+from ..audit.audit_service import get_immutable_audit_logger
 from ..http import ADOCHTTPClient
-from ..models import CompletionItem
+from ..models import CompletionItem, CommandExecution, ExecutionHistory
 from .commands import (
     Command,
     ExitCommand,
@@ -30,6 +34,7 @@ from .commands import (
     TextToDQPolicyCommand,
     UseCommand,
 )
+from .commands.audit_command import AuditCommand
 from .environment_validator import (
     load_default_environment,
     validate_environments_at_startup,
@@ -519,6 +524,9 @@ class InteractiveProcessor:
         }
         self._pending_recall_command: str | None = None
 
+        # Execution history tracking
+        self.execution_history = ExecutionHistory()
+
         # History file management
         self._history_file = Path.home() / ".adoc-toolkit-history"
 
@@ -584,6 +592,7 @@ class InteractiveProcessor:
         history_cmd = HistoryCommand(
             get_history_callback=self.get_command_history,
             recall_callback=self.recall_command,
+            get_executions_callback=self.get_execution_history,
         )
         set_config_cmd = SetConfigCommand()
         export_metrics_cmd = ExportMetricsCommand(
@@ -596,6 +605,7 @@ class InteractiveProcessor:
         find_asset_cmd = FindAssetCommand(http_client=self.http_client)
         show_cmd = ShowCommand(http_client=self.http_client)
         text_to_dq_policy_cmd = TextToDQPolicyCommand()
+        audit_cmd = AuditCommand()
 
         self.register_command(help_cmd)
         self.register_command(exit_cmd)
@@ -609,6 +619,7 @@ class InteractiveProcessor:
         self.register_command(find_asset_cmd)
         self.register_command(show_cmd)
         self.register_command(text_to_dq_policy_cmd)
+        self.register_command(audit_cmd)
 
     def register_command(self, command: Command) -> None:
         """Register a command in the processor.
@@ -661,20 +672,29 @@ class InteractiveProcessor:
             self._save_history_file()
 
     def get_command_history(self) -> list[str]:
-        """Get the current command history.
-
-        Returns:
-            List of command history (most recent first)
-        """
+        """Get command history list."""
         return self.command_history.copy()
 
-    def recall_command(self, command_text: str) -> None:
-        """Set a command to be recalled/populated in the next prompt.
+    def get_execution_history(self) -> list[CommandExecution]:
+        """Get command execution history."""
+        return self.execution_history.get_recent_executions(limit=500)
 
-        Args:
-            command_text: The command text to recall
-        """
+    def recall_command(self, command_text: str) -> None:
+        """Recall a command for editing."""
         self._pending_recall_command = command_text
+
+    def _track_command_execution(
+        self, command: str, status: str, start_time: datetime, end_time: datetime, error_message: str | None = None
+    ) -> None:
+        """Track a command execution in the history."""
+        self.execution_history.add_execution(
+            command=command,
+            status=status,
+            start_time=start_time,
+            end_time=end_time,
+            error_message=error_message,
+            max_executions=500
+        )
 
     def _load_history_file(self) -> None:
         """Load command history from file and populate prompt_toolkit history."""
@@ -737,19 +757,142 @@ class InteractiveProcessor:
         Returns:
             True to continue, False to exit
         """
+        # Get user and command info
+        user = getpass.getuser()
+        full_command = f"{command_name} {' '.join(args)}"
+        start_time = datetime.now()
+        
         if command_name not in self.commands:
             self.console.print(f"Unknown command: {command_name}", style="red")
             self.console.print("Type 'help' for available commands.", style="yellow")
+            
+            # Track unknown command execution
+            end_time = datetime.now()
+            self._track_command_execution(
+                command=full_command,
+                status="failed",
+                start_time=start_time,
+                end_time=end_time,
+                error_message=f"Unknown command: {command_name}"
+            )
+            
+            # Log unknown command
+            audit_logger = get_immutable_audit_logger()
+            audit_logger.log_operation(
+                command_object=f"unknown_command:{command_name}",
+                operation_type="command_execution",
+                details={
+                    "args": args,
+                    "environment": self.current_environment,
+                    "status": "failed",
+                    "error": f"Unknown command: {command_name}",
+                    "full_command": full_command,
+                    "duration": 0.0  # No execution time for unknown commands
+                },
+                user_id=user
+            )
             return True
 
         # Check for --help flag in args
         if args and args[0] == "--help":
             self.console.print(self.commands[command_name].get_help())
+            
+            # Track help command execution as success
+            end_time = datetime.now()
+            self._track_command_execution(
+                command=full_command,
+                status="success",
+                start_time=start_time,
+                end_time=end_time
+            )
+            
+            # Log help command
+            audit_logger = get_immutable_audit_logger()
+            audit_logger.log_operation(
+                command_object=f"{command_name}:help",
+                operation_type="command_execution",
+                details={
+                    "args": args,
+                    "environment": self.current_environment,
+                    "status": "success",
+                    "full_command": full_command,
+                    "duration": 0.0  # Help commands are instant
+                },
+                user_id=user
+            )
             return True
 
         try:
-            return self.commands[command_name].execute(args)
+            # Log command execution start
+            audit_logger = get_immutable_audit_logger()
+
+            audit_logger.log_operation(
+                command_object=command_name,
+                operation_type="command_execution",
+                details={
+                    "args": args,
+                    "environment": self.current_environment,
+                    "status": "executing",
+                    "full_command": full_command
+                },
+                user_id=user
+            )
+            
+            result = self.commands[command_name].execute(args)
+            
+            # Track successful command execution
+            end_time = datetime.now()
+            self._track_command_execution(
+                command=full_command,
+                status="success" if result else "success",
+                start_time=start_time,
+                end_time=end_time
+            )
+            
+            # Log command execution result
+            duration = (end_time - start_time).total_seconds()
+            audit_logger.log_operation(
+                command_object=command_name,
+                operation_type="command_execution",
+                details={
+                    "args": args,
+                    "environment": self.current_environment,
+                    "status": "success",
+                    "result": result,
+                    "duration": duration,
+                    "full_command": full_command
+                },
+                user_id=user
+            )
+            
+            return result
         except Exception as e:
+            # Track failed command execution
+            end_time = datetime.now()
+            self._track_command_execution(
+                command=full_command,
+                status="failed",
+                start_time=start_time,
+                end_time=end_time,
+                error_message=str(e)
+            )
+            
+            # Log command execution failure
+            audit_logger = get_immutable_audit_logger()
+            duration = (end_time - start_time).total_seconds()
+            audit_logger.log_operation(
+                command_object=command_name,
+                operation_type="command_execution",
+                details={
+                    "args": args,
+                    "environment": self.current_environment,
+                    "status": "failed",
+                    "error": str(e),
+                    "duration": duration,
+                    "full_command": full_command
+                },
+                user_id=user
+            )
             self.console.print(f"Error executing command: {e}", style="red")
             return True
 

@@ -482,18 +482,39 @@ class ShowCommand(Command, TraceableMixin):
                     handler_class = RESOURCE_HANDLERS[resource_type]
                     handler = handler_class(self.http_client)
                     
-                    # Fetch resources
-                    resources = handler.fetch_resources()
-                    
-                    # Display resources with filtering and sorting
-                    display_resources(
-                        self.console, 
-                        resources, 
-                        resource_type,
-                        filter_conditions, 
-                        sort_specs,
-                        parsed_args.stats
-                    )
+                    # Handle async operations for pipeline-summary
+                    if resource_type == "pipeline-summary":
+                        import asyncio
+                        
+                        async def fetch_and_display():
+                            # Fetch resources
+                            resources = await handler.fetch_resources()
+                            
+                            # Display resources with filtering and sorting
+                            display_resources(
+                                self.console, 
+                                resources, 
+                                resource_type,
+                                filter_conditions, 
+                                sort_specs,
+                                parsed_args.stats
+                            )
+                        
+                        # Run async operation
+                        asyncio.run(fetch_and_display())
+                    else:
+                        # Fetch resources (sync for other handlers)
+                        resources = handler.fetch_resources()
+                        
+                        # Display resources with filtering and sorting
+                        display_resources(
+                            self.console, 
+                            resources, 
+                            resource_type,
+                            filter_conditions, 
+                            sort_specs,
+                            parsed_args.stats
+                        )
 
                     self.trace(
                         "resources_displayed", 

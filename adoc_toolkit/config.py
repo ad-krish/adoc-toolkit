@@ -185,13 +185,43 @@ class ConfigManager:
                 },
             },
             "audit": {
-                "logfile": {
-                    "value": self._config.audit.logfile,
-                    "description": "Path to audit log file",
-                    "type": "string",
-                    "options": ["audit/adoc-audit.log", "./audit.log", "none"],
-                    "default": None,
-                }
+                "log": {
+                    "enabled": {
+                        "value": self._config.audit.get("log", {}).get("enabled", False),
+                        "description": "Enable secure audit log (tamper-proof)",
+                        "type": "boolean",
+                        "options": [True, False],
+                        "default": False,
+                    },
+                    "database_path": {
+                        "value": self._config.audit.get("log", {}).get("database_path", "audit/audit_log.db"),
+                        "description": "Path to audit log database",
+                        "type": "string",
+                        "options": ["audit/audit_log.db", "./audit.db", "none"],
+                        "default": "audit/audit_log.db",
+                    },
+                    "difficulty": {
+                        "value": self._config.audit.get("log", {}).get("difficulty", 4),
+                        "description": "Audit log mining difficulty (number of leading zeros)",
+                        "type": "integer",
+                        "options": [1, 2, 3, 4, 5, 6, 7, 8],
+                        "default": 4,
+                    },
+                    "batch_size": {
+                        "value": self._config.audit.get("log", {}).get("batch_size", 100),
+                        "description": "Number of log entries to batch before creating a block",
+                        "type": "integer",
+                        "options": [10, 50, 100, 200, 500],
+                        "default": 100,
+                    },
+                    "batch_timeout": {
+                        "value": self._config.audit.get("log", {}).get("batch_timeout", 120.0),
+                        "description": "Maximum time (seconds) to wait before creating a block",
+                        "type": "float",
+                        "options": [30.0, 60.0, 120.0, 300.0, 600.0],
+                        "default": 120.0,
+                    },
+                },
             },
             "log": {
                 "level": {
@@ -354,26 +384,9 @@ class ConfigManager:
             # Update the value in the config item
             config_item.value = value
 
-            # Find and update the original structure
-            parts = key.split(".")
-            obj = self._config
-            for part in parts[:-1]:
-                if hasattr(obj, part):
-                    obj = getattr(obj, part)
-                elif hasattr(obj, "__getitem__"):
-                    obj = obj[part]
-                else:
-                    return
-
-            final_key = parts[-1]
-            if hasattr(obj, "__setitem__"):
-                obj[final_key]["value"] = value
-            else:
-                setattr(
-                    obj,
-                    final_key,
-                    {"value": value, **config_item.model_dump(exclude={"value"})},
-                )
+            # For enhanced structure, we need to update the actual config model
+            # instead of trying to modify the enhanced structure
+            self._config.set(key, value)
         else:
             # Fall back to regular set
             self._config.set(key, value)
@@ -507,13 +520,31 @@ class ConfigManager:
             elif key in (
                 "log.filepath",
                 "log.rotate.onsize",
-                "audit.logfile",
+        
                 "llm.apikey",
                 "llm.model",
             ):
                 if value.lower() in ("none", "null", ""):
                     return None
                 return value
+            elif key.startswith("audit.log."):
+                # Handle audit log configuration
+                if key == "audit.log.enabled":
+                    # Convert string boolean to actual boolean
+                    if value.lower() in ("true", "1", "yes", "on"):
+                        return True
+                    elif value.lower() in ("false", "0", "no", "off"):
+                        return False
+                    else:
+                        raise ValueError(f"Invalid boolean value '{value}'. Must be true/false")
+                elif key == "audit.log.difficulty":
+                    return int(value)
+                elif key == "audit.log.database_path":
+                    if value.lower() in ("none", "null", ""):
+                        return None
+                    return value
+                else:
+                    return value
             else:
                 return value
         except ValueError as e:

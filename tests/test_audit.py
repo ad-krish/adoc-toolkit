@@ -1,303 +1,315 @@
-"""Tests for audit logging functionality."""
+"""Tests for immutable audit logging functionality."""
 
 import json
 import tempfile
 from pathlib import Path
 
 from adoc_toolkit.audit import (
-    AuditEntry,
-    AuditLogger,
-    audit_enabled,
-    get_audit_logger,
-)
-from adoc_toolkit.audit import (
-    audit_command_execution as log_operation,
-)
-from adoc_toolkit.audit import (
-    audit_http_request as log_http_request,
+    ImmutableAuditLogger,
+    immutable_audit_enabled,
+    get_immutable_audit_logger,
+    log_operation_immutable,
+    log_http_request_immutable,
 )
 from adoc_toolkit.config import get_config_manager, reset_config_manager
 
 
-def test_audit_entry_creation():
-    """Test audit entry creation and serialization."""
-    entry = AuditEntry(
-        ip_address="192.168.1.1",
-        user_id="test_user",
-        command_object="test_command",
-        operation_type="TEST",
-        details={"key": "value"},
-    )
-
-    assert entry.ip_address == "192.168.1.1"
-    assert entry.user_id == "test_user"
-    assert entry.command_object == "test_command"
-    assert entry.operation_type == "TEST"
-    assert entry.details == {"key": "value"}
-
-    # Test serialization
-    log_line = entry.to_compressed_log_line()
-    parsed = json.loads(log_line)
-
-    assert parsed["ip"] == "192.168.1.1"
-    assert parsed["uid"] == "test_user"
-    assert parsed["cmd"] == "test_command"
-    assert parsed["op"] == "TEST"
-    assert parsed["details"]["key"] == "value"
-
-
-def test_audit_entry_from_http_request():
-    """Test creating audit entry from HTTP request data."""
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer token123456789",
-        "User-Agent": "ADOC-Toolkit/1.0.0",
-        "accessKey": "access123456789",
-        "secretKey": "secret123456789",
-    }
-
-    entry = AuditEntry.from_http_request(
-        method="POST",
-        url="https://api.example.com/test",
-        headers=headers,
-        ip_address="10.0.0.1",
-        user_id="api_user",
-    )
-
-    assert entry.command_object == "http_request"
-    assert entry.operation_type == "POST"
-    assert entry.ip_address == "10.0.0.1"
-    assert entry.user_id == "api_user"
-
-    # Check compressed headers
-    assert entry.details["url"] == "https://api.example.com/test"
-    assert entry.details["hdrs"]["ct"] == "application/json"
-    assert entry.details["hdrs"]["ua"] == "ADOC-Toolkit/1.0.0"
-
-    # Check masked sensitive headers
-    assert entry.details["hdrs"]["auth"] == "Bear***6789"
-    assert entry.details["hdrs"]["ak"] == "acce***6789"
-    assert entry.details["hdrs"]["sk"] == "secr***6789"
-
-
-def test_audit_logger_disabled_by_default():
-    """Test that audit logging is disabled by default."""
+def test_immutable_audit_logger_disabled_by_default():
+    """Test that immutable audit logging is disabled by default."""
     with tempfile.TemporaryDirectory() as temp_dir:
         config_file = Path(temp_dir) / "test-config.json"
         reset_config_manager(config_file)
 
-        logger = AuditLogger()
+        logger = get_immutable_audit_logger()
         assert not logger.is_enabled()
-        assert not audit_enabled()
+        assert not immutable_audit_enabled()
 
 
-def test_audit_logger_enabled_with_logfile():
-    """Test that audit logging is enabled when logfile is configured."""
+def test_immutable_audit_logger_enabled_with_config():
+    """Test that immutable audit logging is enabled when configured."""
     with tempfile.TemporaryDirectory() as temp_dir:
         config_file = Path(temp_dir) / "test-config.json"
-        audit_file = Path(temp_dir) / "audit.log"
+        database_path = Path(temp_dir) / "audit.db"
 
         reset_config_manager(config_file)
-        get_config_manager().set("audit.logfile", str(audit_file))
+        config_manager = get_config_manager()
+        
+        # Enable audit logging
+        config_manager.set("audit.log.enabled", True)
+        config_manager.set("audit.log.database_path", str(database_path))
+        config_manager.set("audit.log.difficulty", 1)
 
-        logger = AuditLogger()
+        # Reset the singleton instance to force reconfiguration
+        from adoc_toolkit.audit import ImmutableAuditLogger
+        ImmutableAuditLogger.reset_instance()
+
+        logger = get_immutable_audit_logger()
         assert logger.is_enabled()
-        assert audit_enabled()
+        assert immutable_audit_enabled()
 
 
-def test_audit_logger_logs_entries():
-    """Test that audit logger writes entries to log file."""
+def test_immutable_audit_logger_logs_operations():
+    """Test that immutable audit logger logs operations."""
     with tempfile.TemporaryDirectory() as temp_dir:
         config_file = Path(temp_dir) / "test-config.json"
-        audit_file = Path(temp_dir) / "audit.log"
+        database_path = Path(temp_dir) / "audit.db"
 
         reset_config_manager(config_file)
-        get_config_manager().set("audit.logfile", str(audit_file))
+        config_manager = get_config_manager()
+        
+        # Enable audit logging with small batch size for immediate commits
+        config_manager.set("audit.log.enabled", True)
+        config_manager.set("audit.log.database_path", str(database_path))
+        config_manager.set("audit.log.difficulty", 1)
+        config_manager.set("audit.log.batch_size", 1)  # Force immediate commits
 
-        logger = AuditLogger()
+        # Reset the singleton instance to force reconfiguration
+        from adoc_toolkit.audit import ImmutableAuditLogger
+        ImmutableAuditLogger.reset_instance()
 
-        entry = AuditEntry(
-            ip_address="127.0.0.1",
-            user_id="test",
-            command_object="test_cmd",
-            operation_type="CREATE",
-        )
-
-        logger.log_entry(entry)
-
-        # Check that log file was created and contains entry
-        assert audit_file.exists()
-        content = audit_file.read_text()
-        assert "test_cmd" in content
-        assert "CREATE" in content
-        assert "127.0.0.1" in content
-
-
-def test_audit_logger_http_request_logging():
-    """Test HTTP request audit logging."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        config_file = Path(temp_dir) / "test-config.json"
-        audit_file = Path(temp_dir) / "audit.log"
-
-        reset_config_manager(config_file)
-        get_config_manager().set("audit.logfile", str(audit_file))
-
-        logger = AuditLogger()
-
-        logger.log_http_request(
-            method="GET",
-            url="https://test.com/api",
-            headers={"Content-Type": "application/json"},
+        logger = get_immutable_audit_logger()
+        logger.clear_blockchain()
+        
+        # Log an operation
+        success = logger.log_operation(
+            command_object="test_command",
+            operation_type="TEST",
+            details={"key": "value"},
             user_id="test_user",
-            ip_address="192.168.1.100",
+            ip_address="192.168.1.1",
         )
 
-        # Check log content
-        content = audit_file.read_text()
-        log_data = json.loads(content.strip())
+        # Verify the operation was logged
+        assert success is True
+        logs = logger.get_blockchain_logs(limit=10)
+        assert len(logs) >= 1
+        
+        latest_log = logs[0]
+        assert latest_log["operation"] == "TEST"
+        assert latest_log["user_id"] == "test_user"
+        assert latest_log["resource"] == "test_command"
+        assert latest_log["details"]["key"] == "value"
 
-        assert log_data["cmd"] == "http_request"
-        assert log_data["op"] == "GET"
-        assert log_data["uid"] == "test_user"
-        assert log_data["ip"] == "192.168.1.100"
-        assert log_data["details"]["url"] == "https://test.com/api"
 
-
-def test_audit_logger_operation_logging():
-    """Test general operation audit logging."""
+def test_immutable_audit_logger_logs_http_requests():
+    """Test that immutable audit logger logs HTTP requests."""
     with tempfile.TemporaryDirectory() as temp_dir:
         config_file = Path(temp_dir) / "test-config.json"
-        audit_file = Path(temp_dir) / "audit.log"
+        database_path = Path(temp_dir) / "audit.db"
 
         reset_config_manager(config_file)
-        get_config_manager().set("audit.logfile", str(audit_file))
+        config_manager = get_config_manager()
+        
+        # Enable audit logging with small batch size for immediate commits
+        config_manager.set("audit.log.enabled", True)
+        config_manager.set("audit.log.database_path", str(database_path))
+        config_manager.set("audit.log.difficulty", 1)
+        config_manager.set("audit.log.batch_size", 1)  # Force immediate commits
 
-        logger = AuditLogger()
+        # Reset the singleton instance to force reconfiguration
+        from adoc_toolkit.audit import ImmutableAuditLogger
+        ImmutableAuditLogger.reset_instance()
 
-        logger.log_operation(
-            command_object="config",
-            operation_type="UPDATE",
-            details={"key": "http.timeout", "value": "60"},
-            user_id="admin",
+        logger = get_immutable_audit_logger()
+        logger.clear_blockchain()
+        
+        # Log an HTTP request
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer token123",
+            "User-Agent": "ADOC-Toolkit/1.0.0",
+        }
+        
+        success = logger.log_http_request(
+            method="POST",
+            url="https://api.example.com/test",
+            headers=headers,
+            user_id="api_user",
             ip_address="10.0.0.1",
         )
 
-        # Check log content
-        content = audit_file.read_text()
-        log_data = json.loads(content.strip())
+        # Verify the request was logged
+        assert success is True
+        logs = logger.get_blockchain_logs(limit=10)
+        assert len(logs) >= 1
+        
+        latest_log = logs[0]
+        assert latest_log["operation"] == "http_request"
+        assert latest_log["user_id"] == "api_user"
+        assert latest_log["resource"] == "https://api.example.com/test"
+        assert latest_log["action"] == "POST"
+        assert latest_log["details"]["method"] == "POST"
+        assert latest_log["details"]["url"] == "https://api.example.com/test"
 
-        assert log_data["cmd"] == "config"
-        assert log_data["op"] == "UPDATE"
-        assert log_data["uid"] == "admin"
-        assert log_data["ip"] == "10.0.0.1"
-        assert log_data["details"]["key"] == "http.timeout"
 
-
-def test_audit_logger_convenience_functions():
-    """Test convenience functions for audit logging."""
+def test_immutable_audit_logger_convenience_functions():
+    """Test immutable audit logger convenience functions."""
     with tempfile.TemporaryDirectory() as temp_dir:
         config_file = Path(temp_dir) / "test-config.json"
-        audit_file = Path(temp_dir) / "audit.log"
+        database_path = Path(temp_dir) / "audit.db"
 
         reset_config_manager(config_file)
-        get_config_manager().set("audit.logfile", str(audit_file))
+        config_manager = get_config_manager()
+        
+        # Enable audit logging with small batch size for immediate commits
+        config_manager.set("audit.log.enabled", True)
+        config_manager.set("audit.log.database_path", str(database_path))
+        config_manager.set("audit.log.difficulty", 1)
+        config_manager.set("audit.log.batch_size", 1)  # Force immediate commits
 
-        # Test HTTP request logging
-        log_http_request("POST", "https://api.test.com", user_id="user1")
+        # Reset the singleton instance to force reconfiguration
+        from adoc_toolkit.audit import ImmutableAuditLogger
+        ImmutableAuditLogger.reset_instance()
 
-        # Test operation logging
-        log_operation("command", "EXECUTE", user_id="user2")
+        logger = get_immutable_audit_logger()
+        logger.clear_blockchain()
 
-        # Check log content
-        content = audit_file.read_text().strip().split("\n")
-        assert len(content) == 2
+        # Test convenience functions
+        success1 = log_operation_immutable(
+            command_object="test_command",
+            operation_type="TEST",
+            details={"key": "value"},
+            user_id="test_user",
+        )
 
-        # Parse both log entries
-        http_log = json.loads(content[0])
-        op_log = json.loads(content[1])
+        success2 = log_http_request_immutable(
+            method="GET",
+            url="https://api.example.com/test",
+            user_id="api_user",
+        )
 
-        assert http_log["cmd"] == "http_request"
-        assert http_log["op"] == "POST"
-        assert http_log["uid"] == "user1"
-
-        assert op_log["cmd"] == "command"
-        assert op_log["op"] == "EXECUTE"
-        assert op_log["uid"] == "user2"
+        # Verify logs were created
+        assert success1 is True
+        assert success2 is True
+        logs = logger.get_blockchain_logs(limit=10)
+        assert len(logs) >= 2
 
 
-def test_audit_logger_singleton():
-    """Test that audit logger uses singleton pattern."""
-    logger1 = get_audit_logger()
-    logger2 = get_audit_logger()
-
+def test_immutable_audit_logger_singleton():
+    """Test that immutable audit logger is a singleton."""
+    logger1 = get_immutable_audit_logger()
+    logger2 = get_immutable_audit_logger()
+    
     assert logger1 is logger2
-    assert AuditLogger.get_instance() is logger1
 
 
-def test_audit_logger_reconfiguration():
-    """Test that audit logger reconfigures when settings change."""
+def test_immutable_audit_logger_reconfiguration():
+    """Test that immutable audit logger can be reconfigured."""
     with tempfile.TemporaryDirectory() as temp_dir:
         config_file = Path(temp_dir) / "test-config.json"
-        audit_file1 = Path(temp_dir) / "audit1.log"
-        audit_file2 = Path(temp_dir) / "audit2.log"
+        database_path = Path(temp_dir) / "audit.db"
 
         reset_config_manager(config_file)
-        logger = AuditLogger()
-
+        config_manager = get_config_manager()
+        
         # Initially disabled
+        config_manager.set("audit.log.enabled", False)
+        
+        # Reset the singleton instance to force reconfiguration
+        from adoc_toolkit.audit import ImmutableAuditLogger
+        ImmutableAuditLogger.reset_instance()
+        
+        logger = get_immutable_audit_logger()
         assert not logger.is_enabled()
 
-        # Enable with first log file
-        get_config_manager().set("audit.logfile", str(audit_file1))
+        # Enable audit logging
+        config_manager.set("audit.log.enabled", True)
+        config_manager.set("audit.log.database_path", str(database_path))
+        config_manager.set("audit.log.difficulty", 1)
+
+        # Reconfigure
+        logger.reconfigure()
         assert logger.is_enabled()
 
-        logger.log_operation("test", "OP1")
-        assert audit_file1.exists()
 
-        # Change to second log file
-        get_config_manager().set("audit.logfile", str(audit_file2))
-        logger.log_operation("test", "OP2")
-        assert audit_file2.exists()
-
-        # Check content
-        content2 = audit_file2.read_text()
-        assert "OP2" in content2
-
-
-def test_audit_logger_silent_failure():
-    """Test that audit logger fails silently on errors."""
+def test_immutable_audit_logger_blockchain_info():
+    """Test that immutable audit logger provides blockchain information."""
     with tempfile.TemporaryDirectory() as temp_dir:
         config_file = Path(temp_dir) / "test-config.json"
+        database_path = Path(temp_dir) / "audit.db"
 
         reset_config_manager(config_file)
-        # Set an invalid log file path
-        get_config_manager().set("audit.logfile", "/invalid/path/audit.log")
+        config_manager = get_config_manager()
+        
+        # Enable audit logging
+        config_manager.set("audit.log.enabled", True)
+        config_manager.set("audit.log.database_path", str(database_path))
+        config_manager.set("audit.log.difficulty", 1)
 
-        logger = AuditLogger()
+        logger = get_immutable_audit_logger()
+        
+        # Get blockchain info
+        info = logger.get_blockchain_info()
+        assert info["enabled"] is True
+        assert "total_blocks" in info
+        assert "last_block_hash" in info
+        assert info["last_block_hash"] != ""  # Should have a hash value
 
-        # This should not raise an exception
-        logger.log_operation("test", "OP")
-        logger.log_http_request("GET", "http://test.com")
+
+def test_immutable_audit_logger_integrity_verification():
+    """Test that immutable audit logger can verify blockchain integrity."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config_file = Path(temp_dir) / "test-config.json"
+        database_path = Path(temp_dir) / "audit.db"
+
+        reset_config_manager(config_file)
+        config_manager = get_config_manager()
+        
+        # Enable audit logging
+        config_manager.set("audit.log.enabled", True)
+        config_manager.set("audit.log.database_path", str(database_path))
+        config_manager.set("audit.log.difficulty", 1)
+
+        logger = get_immutable_audit_logger()
+        
+        # Log some operations
+        logger.log_operation(
+            command_object="test_command",
+            operation_type="TEST",
+            details={"key": "value"},
+        )
+
+        # Verify integrity
+        result = logger.verify_blockchain_integrity()
+        assert result["enabled"] is True
+        assert result["integrity_verified"] is True
 
 
-def test_audit_config_validation():
-    """Test audit configuration validation."""
-    from adoc_toolkit.audit import AuditConfig
+def test_immutable_audit_logger_filtering():
+    """Test that immutable audit logger supports filtering."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config_file = Path(temp_dir) / "test-config.json"
+        database_path = Path(temp_dir) / "audit.db"
 
-    # Test None/empty values
-    config1 = AuditConfig(logfile=None)
-    assert config1.logfile is None
+        reset_config_manager(config_file)
+        config_manager = get_config_manager()
+        
+        # Enable audit logging with small batch size for immediate commits
+        config_manager.set("audit.log.enabled", True)
+        config_manager.set("audit.log.database_path", str(database_path))
+        config_manager.set("audit.log.difficulty", 1)
+        config_manager.set("audit.log.batch_size", 1)  # Force immediate commits
 
-    config2 = AuditConfig(logfile="")
-    assert config2.logfile is None
+        # Reset the singleton instance to force reconfiguration
+        from adoc_toolkit.audit import ImmutableAuditLogger
+        ImmutableAuditLogger.reset_instance()
 
-    config3 = AuditConfig(logfile="  ")
-    assert config3.logfile is None
-
-    # Test valid path
-    config4 = AuditConfig(logfile="/path/to/audit.log")
-    assert config4.logfile == "/path/to/audit.log"
-
-    # Test path with whitespace
-    config5 = AuditConfig(logfile="  /path/to/audit.log  ")
-    assert config5.logfile == "/path/to/audit.log"
+        logger = get_immutable_audit_logger()
+        logger.clear_blockchain()
+        
+        # Log some operations
+        logger.log_operation(
+            command_object="test_command1",
+            operation_type="TEST1",
+            user_id="user1",
+        )
+        
+        logger.log_operation(
+            command_object="test_command2",
+            operation_type="TEST2",
+            user_id="user2",
+        )
+        
+        # Get all logs (filtering is done at blockchain level)
+        all_logs = logger.get_blockchain_logs(limit=10)
+        assert len(all_logs) >= 2

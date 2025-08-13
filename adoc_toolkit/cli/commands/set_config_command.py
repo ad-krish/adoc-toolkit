@@ -64,7 +64,10 @@ class SetConfigCommand(Command):
         help_text += "minutes (default: 120)\n\n"
 
         help_text += "  Audit Configuration:\n"
-        help_text += "    audit.logfile   - Path to audit log file (optional)\n\n"
+
+        help_text += "    audit.log.enabled - Enable audit log (secure/immutable)\n"
+        help_text += "    audit.log.database_path - Audit log database path\n"
+        help_text += "    audit.log.difficulty - Audit log mining difficulty (2-6)\n\n"
 
         help_text += "  LLM Configuration:\n"
         help_text += (
@@ -98,7 +101,10 @@ class SetConfigCommand(Command):
         help_text += "  set-config log.level DEBUG\n"
         help_text += "  set-config log.filepath ./my-app.log\n"
         help_text += "  set-config log.rotate.onsize 50MB\n"
-        help_text += "  set-config audit.logfile ./audit.log\n"
+
+        help_text += "  set-config audit.log.enabled true\n"
+        help_text += "  set-config audit.log.database_path ./auditlog.db\n"
+        help_text += "  set-config audit.log.difficulty 5\n"
         help_text += "  set-config llm.vendor claude\n"
         help_text += "  set-config llm.apikey your-api-key-here\n"
         help_text += "  set-config llm.model claude-3-5-sonnet-20241022\n"

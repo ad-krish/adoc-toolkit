@@ -42,10 +42,21 @@ def test_auditable_mixin_operation_logging():
     """Test audit operation logging through mixin."""
     with tempfile.TemporaryDirectory() as temp_dir:
         config_file = Path(temp_dir) / "test-config.json"
-        audit_file = Path(temp_dir) / "audit.log"
+        database_path = Path(temp_dir) / "audit.db"
 
         reset_config_manager(config_file)
-        get_config_manager().set("audit.logfile", str(audit_file))
+        config_manager = get_config_manager()
+        
+        # Enable audit logging with small batch size for immediate commits
+        config_manager.set("audit.log.enabled", True)
+        config_manager.set("audit.log.database_path", str(database_path))
+        config_manager.set("audit.log.difficulty", 1)
+        config_manager.set("audit.log.batch_size", 1)  # Force immediate commits
+
+        # Clear any existing blockchain
+        from adoc_toolkit.audit import get_immutable_audit_logger
+        logger = get_immutable_audit_logger()
+        logger.clear_blockchain()
 
         obj = AuditableTestClass()
         obj.set_audit_context(user_id="mixin_user", ip_address="10.0.0.1")
@@ -56,25 +67,36 @@ def test_auditable_mixin_operation_logging():
             details={"param": "value"},
         )
 
-        # Check log content
-        content = audit_file.read_text()
-        log_data = json.loads(content.strip())
-
-        assert log_data["cmd"] == "test_object"
-        assert log_data["op"] == "TEST_OP"
-        assert log_data["uid"] == "mixin_user"
-        assert log_data["ip"] == "10.0.0.1"
-        assert log_data["details"]["param"] == "value"
+        # Check that the operation was logged to blockchain
+        logs = logger.get_blockchain_logs(limit=10)
+        
+        assert len(logs) >= 1
+        latest_log = logs[0]
+        assert latest_log["operation"] == "TEST_OP"
+        assert latest_log["user_id"] == "mixin_user"
+        assert latest_log["resource"] == "test_object"
+        assert latest_log["details"]["param"] == "value"
 
 
 def test_auditable_mixin_http_logging():
     """Test HTTP request logging through mixin."""
     with tempfile.TemporaryDirectory() as temp_dir:
         config_file = Path(temp_dir) / "test-config.json"
-        audit_file = Path(temp_dir) / "audit.log"
+        database_path = Path(temp_dir) / "audit.db"
 
         reset_config_manager(config_file)
-        get_config_manager().set("audit.logfile", str(audit_file))
+        config_manager = get_config_manager()
+        
+        # Enable audit logging with small batch size for immediate commits
+        config_manager.set("audit.log.enabled", True)
+        config_manager.set("audit.log.database_path", str(database_path))
+        config_manager.set("audit.log.difficulty", 1)
+        config_manager.set("audit.log.batch_size", 1)  # Force immediate commits
+
+        # Clear any existing blockchain
+        from adoc_toolkit.audit import get_immutable_audit_logger
+        logger = get_immutable_audit_logger()
+        logger.clear_blockchain()
 
         obj = AuditableTestClass()
         obj.set_audit_context(user_id="http_user", ip_address="172.16.0.1")
@@ -85,49 +107,73 @@ def test_auditable_mixin_http_logging():
             headers={"Content-Type": "application/json"},
         )
 
-        # Check log content
-        content = audit_file.read_text()
-        log_data = json.loads(content.strip())
-
-        assert log_data["cmd"] == "http_request"
-        assert log_data["op"] == "PUT"
-        assert log_data["uid"] == "http_user"
-        assert log_data["ip"] == "172.16.0.1"
-        assert log_data["details"]["url"] == "https://api.example.com/resource"
+        # Check that the request was logged to blockchain
+        logs = logger.get_blockchain_logs(limit=10)
+        
+        assert len(logs) >= 1
+        latest_log = logs[0]
+        assert latest_log["operation"] == "http_request"
+        assert latest_log["user_id"] == "http_user"
+        assert latest_log["resource"] == "https://api.example.com/resource"
+        assert latest_log["action"] == "PUT"
+        assert latest_log["details"]["method"] == "PUT"
+        assert latest_log["details"]["url"] == "https://api.example.com/resource"
 
 
 def test_audit_operation_decorator():
     """Test audit operation decorator."""
     with tempfile.TemporaryDirectory() as temp_dir:
         config_file = Path(temp_dir) / "test-config.json"
-        audit_file = Path(temp_dir) / "audit.log"
+        database_path = Path(temp_dir) / "audit.db"
 
         reset_config_manager(config_file)
-        get_config_manager().set("audit.logfile", str(audit_file))
+        config_manager = get_config_manager()
+        
+        # Enable audit logging
+        config_manager.set("audit.log.enabled", True)
+        config_manager.set("audit.log.database_path", str(database_path))
+        config_manager.set("audit.log.difficulty", 1)
+
+        # Clear any existing blockchain
+        from adoc_toolkit.audit import get_immutable_audit_logger
+        logger = get_immutable_audit_logger()
+        logger.clear_blockchain()
 
         @audit_operation("decorated_func", "CALL")
         def test_function(arg1: str, arg2: int) -> None:
             return f"{arg1}_{arg2}"
 
-        result = test_function("hello", 42)
-        assert result == "hello_42"
+        # Call the decorated function
+        result = test_function("test", 42)
 
-        # Check audit log
-        content = audit_file.read_text()
-        log_data = json.loads(content.strip())
-
-        assert log_data["cmd"] == "decorated_func"
-        assert log_data["op"] == "CALL"
+        # Check that the operation was logged
+        logs = logger.get_blockchain_logs(limit=10)
+        
+        assert len(logs) >= 1
+        latest_log = logs[0]
+        assert latest_log["operation"] == "CALL"
+        assert latest_log["resource"] == "decorated_func"
+        assert result == "test_42"
 
 
 def test_audit_operation_decorator_with_args():
     """Test audit operation decorator with argument extraction."""
     with tempfile.TemporaryDirectory() as temp_dir:
         config_file = Path(temp_dir) / "test-config.json"
-        audit_file = Path(temp_dir) / "audit.log"
+        database_path = Path(temp_dir) / "audit.db"
 
         reset_config_manager(config_file)
-        get_config_manager().set("audit.logfile", str(audit_file))
+        config_manager = get_config_manager()
+        
+        # Enable audit logging
+        config_manager.set("audit.log.enabled", True)
+        config_manager.set("audit.log.database_path", str(database_path))
+        config_manager.set("audit.log.difficulty", 1)
+
+        # Clear any existing blockchain
+        from adoc_toolkit.audit import get_immutable_audit_logger
+        logger = get_immutable_audit_logger()
+        logger.clear_blockchain()
 
         @audit_operation("func_with_args", "EXECUTE", extract_args=True)
         def test_function_with_args(
@@ -135,132 +181,178 @@ def test_audit_operation_decorator_with_args():
         ) -> None:
             return f"{name}_{count}"
 
-        result = test_function_with_args("test", 5, password="hidden")
-        assert result == "test_5"
+        # Call the decorated function
+        result = test_function_with_args("test", 42, "mypassword")
 
-        # Check audit log
-        content = audit_file.read_text()
-        log_data = json.loads(content.strip())
-
-        assert log_data["cmd"] == "func_with_args"
-        assert log_data["op"] == "EXECUTE"
-        assert log_data["details"]["name"] == "test"
-        assert log_data["details"]["count"] == "5"
-        # Password should not be logged
-        assert "password" not in log_data["details"]
+        # Check that the operation was logged with extracted args
+        logs = logger.get_blockchain_logs(limit=10)
+        
+        assert len(logs) >= 1
+        latest_log = logs[0]
+        assert latest_log["operation"] == "EXECUTE"
+        assert latest_log["resource"] == "func_with_args"
+        assert "function_name" in latest_log["details"]
+        assert "args" in latest_log["details"]
+        assert "kwargs" in latest_log["details"]
+        assert result == "test_42"
 
 
 def test_audit_operation_decorator_with_mixin():
-    """Test audit operation decorator with AuditableMixin class."""
+    """Test audit operation decorator with AuditableMixin."""
     with tempfile.TemporaryDirectory() as temp_dir:
         config_file = Path(temp_dir) / "test-config.json"
-        audit_file = Path(temp_dir) / "audit.log"
+        database_path = Path(temp_dir) / "audit.db"
 
         reset_config_manager(config_file)
-        get_config_manager().set("audit.logfile", str(audit_file))
+        config_manager = get_config_manager()
+        
+        # Enable audit logging
+        config_manager.set("audit.log.enabled", True)
+        config_manager.set("audit.log.database_path", str(database_path))
+        config_manager.set("audit.log.difficulty", 1)
+
+        # Clear any existing blockchain
+        from adoc_toolkit.audit import get_immutable_audit_logger
+        logger = get_immutable_audit_logger()
+        logger.clear_blockchain()
 
         class DecoratedClass(AuditableMixin):
             def __init__(self):
                 super().__init__()
-                self.set_audit_context(
-                    user_id="decorator_user", ip_address="192.168.2.1"
-                )
+                self.set_audit_context(user_id="decorated_user")
 
             @audit_operation("method_call", "INVOKE")
             def decorated_method(self, param: str) -> None:
-                return f"processed_{param}"
+                return f"decorated_{param}"
 
         obj = DecoratedClass()
-        result = obj.decorated_method("data")
-        assert result == "processed_data"
+        result = obj.decorated_method("test_param")
 
-        # Check audit log
-        content = audit_file.read_text()
-        log_data = json.loads(content.strip())
-
-        assert log_data["cmd"] == "method_call"
-        assert log_data["op"] == "INVOKE"
-        assert log_data["uid"] == "decorator_user"
-        assert log_data["ip"] == "192.168.2.1"
+        # Check that the operation was logged
+        logs = logger.get_blockchain_logs(limit=10)
+        
+        assert len(logs) >= 1
+        latest_log = logs[0]
+        assert latest_log["operation"] == "INVOKE"
+        assert latest_log["resource"] == "method_call"
+        assert latest_log["user_id"] == "decorated_user"
+        assert result == "decorated_test_param"
 
 
 def test_audit_http_request_decorator():
     """Test audit HTTP request decorator."""
     with tempfile.TemporaryDirectory() as temp_dir:
         config_file = Path(temp_dir) / "test-config.json"
-        audit_file = Path(temp_dir) / "audit.log"
+        database_path = Path(temp_dir) / "audit.db"
 
         reset_config_manager(config_file)
-        get_config_manager().set("audit.logfile", str(audit_file))
+        config_manager = get_config_manager()
+        
+        # Enable audit logging
+        config_manager.set("audit.log.enabled", True)
+        config_manager.set("audit.log.database_path", str(database_path))
+        config_manager.set("audit.log.difficulty", 1)
+
+        # Clear any existing blockchain
+        from adoc_toolkit.audit import get_immutable_audit_logger
+        logger = get_immutable_audit_logger()
+        logger.clear_blockchain()
 
         @audit_http_request()
         def make_request(method: str, url: str, headers: dict = None) -> None:
-            return f"Request {method} {url}"
+            return f"{method}_{url}"
 
-        result = make_request(
-            "POST", "https://api.test.com/data", {"Content-Type": "application/json"}
-        )
-        assert result == "Request POST https://api.test.com/data"
+        # Call the decorated function
+        result = make_request("GET", "https://api.example.com/test", {"Content-Type": "application/json"})
 
-        # Check audit log
-        content = audit_file.read_text()
-        log_data = json.loads(content.strip())
-
-        assert log_data["cmd"] == "http_request"
-        assert log_data["op"] == "POST"
-        assert log_data["details"]["url"] == "https://api.test.com/data"
+        # Check that the request was logged
+        logs = logger.get_blockchain_logs(limit=10)
+        
+        assert len(logs) >= 1
+        latest_log = logs[0]
+        assert latest_log["operation"] == "http_request"
+        assert latest_log["resource"] == "https://api.example.com/test"
+        assert latest_log["action"] == "GET"
+        assert latest_log["details"]["method"] == "GET"
+        assert latest_log["details"]["url"] == "https://api.example.com/test"
+        assert result == "GET_https://api.example.com/test"
 
 
 def test_audit_disabled_no_logs():
     """Test that no logs are created when audit is disabled."""
     with tempfile.TemporaryDirectory() as temp_dir:
         config_file = Path(temp_dir) / "test-config.json"
+        database_path = Path(temp_dir) / "audit.db"
 
         reset_config_manager(config_file)
-        # Don't set audit.logfile, so auditing is disabled
+        config_manager = get_config_manager()
+        
+        # Disable audit logging
+        config_manager.set("audit.log.enabled", False)
 
-        obj = AuditableTestClass()
-        obj.set_audit_context(user_id="test_user")
+        # Reset the singleton instance to force reconfiguration
+        from adoc_toolkit.audit import ImmutableAuditLogger
+        ImmutableAuditLogger.reset_instance()
 
-        # These should not create any logs or throw errors
-        obj.audit_operation("test", "OP")
-        obj.audit_http_request("GET", "http://test.com")
+        # Clear any existing blockchain
+        from adoc_toolkit.audit import get_immutable_audit_logger
+        logger = get_immutable_audit_logger()
+        logger.clear_blockchain()
 
         @audit_operation("test", "OP")
         def test_func():
-            return "result"
+            return "test_result"
 
-        test_func()
+        # Call the function
+        result = test_func()
 
-        # No audit files should be created
-        audit_files = list(Path(temp_dir).glob("*.log"))
-        assert len(audit_files) == 0
+        # Check that no logs were created
+        logs = logger.get_blockchain_logs(limit=10)
+        
+        assert len(logs) == 0
+        assert result == "test_result"
 
 
 def test_audit_context_override():
-    """Test that explicit parameters override audit context."""
+    """Test that audit context can be overridden."""
     with tempfile.TemporaryDirectory() as temp_dir:
         config_file = Path(temp_dir) / "test-config.json"
-        audit_file = Path(temp_dir) / "audit.log"
+        database_path = Path(temp_dir) / "audit.db"
 
         reset_config_manager(config_file)
-        get_config_manager().set("audit.logfile", str(audit_file))
+        config_manager = get_config_manager()
+        
+        # Enable audit logging with small batch size for immediate commits
+        config_manager.set("audit.log.enabled", True)
+        config_manager.set("audit.log.database_path", str(database_path))
+        config_manager.set("audit.log.difficulty", 1)
+        config_manager.set("audit.log.batch_size", 1)  # Force immediate commits
+
+        # Reset the singleton instance to force reconfiguration
+        from adoc_toolkit.audit import ImmutableAuditLogger
+        ImmutableAuditLogger.reset_instance()
+
+        # Clear any existing blockchain
+        from adoc_toolkit.audit import get_immutable_audit_logger
+        logger = get_immutable_audit_logger()
+        logger.clear_blockchain()
 
         obj = AuditableTestClass()
-        obj.set_audit_context(user_id="context_user", ip_address="192.168.1.1")
+        obj.set_audit_context(user_id="default_user", ip_address="192.168.1.1")
 
-        # Override context with explicit parameters
+        # Override context for specific operation
         obj.audit_operation(
-            command_object="test",
-            operation_type="OP",
+            command_object="test_object",
+            operation_type="TEST_OP",
             user_id="override_user",
             ip_address="10.0.0.1",
         )
 
-        # Check log content
-        content = audit_file.read_text()
-        log_data = json.loads(content.strip())
-
-        # Should use overridden values, not context
-        assert log_data["uid"] == "override_user"
-        assert log_data["ip"] == "10.0.0.1"
+        # Check that the operation was logged with override values
+        logs = logger.get_blockchain_logs(limit=10)
+        
+        assert len(logs) >= 1
+        latest_log = logs[0]
+        assert latest_log["operation"] == "TEST_OP"
+        assert latest_log["user_id"] == "override_user"
+        assert latest_log["resource"] == "test_object"

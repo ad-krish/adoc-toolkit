@@ -133,11 +133,7 @@ Control logging behavior and output:
 
 Track command execution for compliance:
 
-#### `audit.logfile`
-- **Purpose**: Log all commands for audit purposes
-- **Default**: None (no audit logging)
-- **Options**: Any file path
-- **Example**: `set-config audit.logfile ./audit.log`
+
 
 ### 🤖 AI/LLM Configuration
 
@@ -194,8 +190,9 @@ ADOC > set-config log.filepath ./adoc-toolkit.log
 ADOC > set-config log.rotate.onsize 50MB
 ADOC > set-config log.rotate.ontime 240
 
-# Enable audit logging
-ADOC > set-config audit.logfile ./audit.log
+# Enable blockchain audit logging
+ADOC > set-config audit.log.enabled true
+ADOC > set-config audit.log.database_path ./auditlog.db
 ```
 
 ### AI/LLM Examples

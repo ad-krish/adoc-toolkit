@@ -342,48 +342,61 @@ class GetCommand(Command):
 
         # Make the HTTP request
         try:
-            response = self.http_client.get(final_url, params=query_params)
+            import asyncio
+            
+            async def make_request():
+                response = await self.http_client.get(final_url, params=query_params)
+                
+                # Create response formatter (for both success and error cases)
+                formatter = ResponseFormatter(self.console)
 
-            # Create response formatter (for both success and error cases)
-            formatter = ResponseFormatter(self.console)
+                if response.is_success:
+                    # Check if response is JSON by looking at content-type header or
+                    # trying to parse as JSON
+                    content_type = response.headers.get("content-type", "").lower()
+                    is_json_response = (
+                        "json" in content_type or "application/json" in content_type
+                    )
 
-            if response.is_success:
-                # Check if response is JSON by looking at content-type header or
-                # trying to parse as JSON
-                content_type = response.headers.get("content-type", "").lower()
-                is_json_response = (
-                    "json" in content_type or "application/json" in content_type
-                )
-
-                if is_json_response:
-                    try:
-                        data = response.json()
-                        formatter.print_response_with_config(data)
-                    except Exception as e:
-                        self.console.print(
-                            f"Error parsing JSON response: {e}", style="red"
-                        )
-                        self.console.print("Raw response:")
-                        self.console.print(response.text)
+                    if is_json_response:
+                        try:
+                            data = await response.json()
+                            formatter.print_response_with_config(data)
+                        except Exception as e:
+                            self.console.print(
+                                f"Error parsing JSON response: {e}", style="red"
+                            )
+                            self.console.print("Raw response:")
+                            self.console.print(await response.text())
+                        finally:
+                            await response.close()
+                    else:
+                        # Try to parse as JSON anyway in case content-type is not set
+                        # correctly
+                        try:
+                            data = await response.json()
+                            formatter.print_response_with_config(data)
+                        except Exception:
+                            # If JSON parsing fails, show as text
+                            self.console.print(await response.text())
+                        finally:
+                            await response.close()
                 else:
-                    # Try to parse as JSON anyway in case content-type is not set
-                    # correctly
+                    # Handle error response - use formatter for consistent formatting
                     try:
-                        data = response.json()
-                        formatter.print_response_with_config(data)
-                    except Exception:
-                        # If JSON parsing fails, show as text
-                        self.console.print(response.text)
-            else:
-                # Handle error response - use formatter for consistent formatting
-                try:
-                    error_data = response.json()
-                    # Use the formatter to respect http.response.type setting
-                    formatter.print_response_with_config(error_data)
-                except (ValueError, TypeError):
-                    # If not JSON, show raw text
-                    if response.text:
-                        self.console.print(response.text)
+                        error_data = await response.json()
+                        # Use the formatter to respect http.response.type setting
+                        formatter.print_response_with_config(error_data)
+                    except (ValueError, TypeError):
+                        # If not JSON, show raw text
+                        response_text = await response.text()
+                        if response_text:
+                            self.console.print(response_text)
+                    finally:
+                        await response.close()
+            
+            # Run async request
+            asyncio.run(make_request())
 
         except Exception as e:
             self.console.print(f"❌ Error making request: {e}", style="red")

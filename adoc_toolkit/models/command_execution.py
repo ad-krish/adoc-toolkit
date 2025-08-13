@@ -9,7 +9,7 @@ class CommandExecution(BaseModel):
     """Model for tracking command execution details."""
 
     command: str = Field(description="The command that was executed")
-    status: str = Field(description="Execution status: 'success' or 'failure'")
+    status: str = Field(description="Execution status: 'success' or 'failed'")
     start_time: datetime = Field(description="When the command started")
     end_time: datetime = Field(description="When the command finished")
     duration_seconds: float = Field(description="Duration in seconds")
@@ -64,7 +64,7 @@ class ExecutionHistory(BaseModel):
 
         Args:
             command: The command that was executed
-            status: 'success' or 'failure'
+            status: 'success' or 'failed'
             start_time: When the command started
             end_time: When the command finished
             error_message: Error message if command failed
