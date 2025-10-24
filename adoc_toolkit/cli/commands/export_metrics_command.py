@@ -880,53 +880,143 @@ Examples:
             self.environment_info_callback() if self.environment_info_callback else {}
         )
 
+    @trace_method("fetch_paginated_data", "export_metrics")
+    def _fetch_paginated_data(
+        self, http_client: ADOCHTTPClient, base_url: str, endpoint_name: str, progress: Progress, task, page_size: int = 100
+    ) -> dict[str, Any]:
+        """Fetch paginated data from an endpoint."""
+        all_items = []
+        page = 0
+        total_fetched = 0
+        
+        while True:
+            progress.update(task, description=f"Fetching {endpoint_name} data (page {page + 1})...")
+            self.trace(
+                f"fetching_{endpoint_name}_page",
+                page=page,
+                page_size=page_size,
+                total_fetched=total_fetched,
+            )
+            
+            headers = {"accept": "application/json, text/plain, */*"}
+            response = http_client.get(f"{base_url}&page={page}&size={page_size}", headers=headers)
+            
+            if not response.is_success:
+                self.trace(
+                    f"fetch_{endpoint_name}_failed",
+                    page=page,
+                    status_code=response.status_code,
+                    error_type="HTTP_ERROR",
+                )
+                raise HTTPError(
+                    f"Failed to fetch {endpoint_name} data: HTTP {response.status_code}"
+                )
+            
+            json_data = response.json()
+            
+            # Handle different response formats
+            if "items" in json_data:
+                items = json_data.get("items", [])
+            elif "content" in json_data:
+                items = json_data.get("content", [])
+            elif isinstance(json_data, list):
+                items = json_data
+            else:
+                items = []
+            
+            if not items:
+                # No more data
+                self.trace(
+                    f"fetch_{endpoint_name}_complete",
+                    total_pages=page + 1,
+                    total_items=total_fetched,
+                )
+                break
+            
+            all_items.extend(items)
+            total_fetched += len(items)
+            
+            self.trace(
+                f"fetch_{endpoint_name}_page_success",
+                page=page,
+                items_in_page=len(items),
+                total_fetched=total_fetched,
+            )
+            
+            # If we got fewer items than page_size, we've reached the end
+            if len(items) < page_size:
+                break
+            
+            page += 1
+        
+        # Return in the same format as original response
+        if "items" in json_data:
+            return {"items": all_items}
+        elif "content" in json_data:
+            return {"content": all_items}
+        else:
+            return all_items
+
     @trace_method("fetch_all_data", "export_metrics")
     def _fetch_all_data(
         self, http_client: ADOCHTTPClient, progress: Progress, task
     ) -> dict[str, Any]:
-        """Fetch all required data from ADOC platform in parallel."""
-        endpoints = {
+        """Fetch all required data from ADOC platform with pagination."""
+        # Base URLs without pagination parameters
+        endpoints_config = {
             "catalog": (
-                "/catalog-server/api/assets/list?page=-1&size=-1&"
+                "/catalog-server/api/assets/list?"
                 "sortBy=dataQualityPolicyCount:DESC&"
                 "asset_type_ids=2,4,9,11,18,23,24,6,53,55"
             ),
             "dq_policies": (
-                "/catalog-server/api/rules?page=-1&size=-1&"
+                "/catalog-server/api/rules?"
                 "withLatestExecution=true&ruleStatus=ENABLED,ACTIVE"
             ),
-            "alerts": "/api/incidents/api/v1/550191433/incidents/listing?size=100",
         }
 
+        # Fetch paginated endpoints
+        data = {}
+        for name, base_url in endpoints_config.items():
+            try:
+                data[name] = self._fetch_paginated_data(
+                    http_client, base_url, name, progress, task, page_size=100
+                )
+            except HTTPError as e:
+                self.trace(
+                    f"fetch_{name}_error",
+                    error=str(e),
+                    error_type="HTTPError",
+                )
+                raise
+
+        # Fetch alerts (non-paginated, already has size limit)
         @trace_method("fetch_single_endpoint", "export_metrics")
-        def fetch_endpoint(name_endpoint):
-            name, endpoint = name_endpoint
-            progress.update(task, description=f"Fetching {name} data...")
-            self.trace(f"fetching_{name}_endpoint", endpoint=endpoint, data_source=name)
+        def fetch_alerts():
+            endpoint = "/api/incidents/api/v1/550191433/incidents/listing?size=100"
+            progress.update(task, description=f"Fetching alerts data...")
+            self.trace(f"fetching_alerts_endpoint", endpoint=endpoint, data_source="alerts")
             headers = {"accept": "application/json, text/plain, */*"}
             response = http_client.get(endpoint, headers=headers)
             if not response.is_success:
                 self.trace(
-                    f"fetch_{name}_failed",
+                    f"fetch_alerts_failed",
                     endpoint=endpoint,
                     status_code=response.status_code,
                     error_type="HTTP_ERROR",
                 )
                 raise HTTPError(
-                    f"Failed to fetch {name} data: HTTP {response.status_code}"
+                    f"Failed to fetch alerts data: HTTP {response.status_code}"
                 )
             self.trace(
-                f"fetch_{name}_success",
+                f"fetch_alerts_success",
                 endpoint=endpoint,
                 status_code=response.status_code,
                 has_data=bool(response.json()),
             )
-            return name, response.json()
+            return response.json()
 
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            results = list(executor.map(fetch_endpoint, endpoints.items()))
-
-        data = dict(results)
+        data["alerts"] = fetch_alerts()
         data["_debug_files"] = []
 
         # Optional debug file saving (e.g., enabled via env var DEBUG_EXPORT=True)
