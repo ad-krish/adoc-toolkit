@@ -888,6 +888,7 @@ Examples:
         all_items = []
         page = 0
         total_fetched = 0
+        response_format = None  # Track the response format from first page
         
         while True:
             progress.update(task, description=f"Fetching {endpoint_name} data (page {page + 1})...")
@@ -914,13 +915,24 @@ Examples:
             
             json_data = response.json()
             
-            # Handle different response formats
-            if "items" in json_data:
+            # Determine response format on first page
+            if response_format is None:
+                if isinstance(json_data, dict) and "items" in json_data:
+                    response_format = "items"
+                elif isinstance(json_data, dict) and "content" in json_data:
+                    response_format = "content"
+                elif isinstance(json_data, list):
+                    response_format = "list"
+                else:
+                    response_format = "unknown"
+            
+            # Extract items based on response format
+            if response_format == "items":
                 items = json_data.get("items", [])
-            elif "content" in json_data:
+            elif response_format == "content":
                 items = json_data.get("content", [])
-            elif isinstance(json_data, list):
-                items = json_data
+            elif response_format == "list":
+                items = json_data if isinstance(json_data, list) else []
             else:
                 items = []
             
@@ -950,9 +962,9 @@ Examples:
             page += 1
         
         # Return in the same format as original response
-        if "items" in json_data:
+        if response_format == "items":
             return {"items": all_items}
-        elif "content" in json_data:
+        elif response_format == "content":
             return {"content": all_items}
         else:
             return all_items
