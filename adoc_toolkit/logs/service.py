@@ -105,7 +105,7 @@ class SizeAndTimeRotatingHandler(RotatingFileHandler):
             backupCount: Number of backup files to keep
             rotate_minutes: Minutes after which to rotate logs
         """
-        super().__init__(filename, maxBytes=maxBytes, backupCount=backupCount)
+        super().__init__(filename, maxBytes=maxBytes, backupCount=backupCount, encoding='utf-8')
         self.rotate_minutes = rotate_minutes
         self.last_rotation = datetime.now()
 
@@ -310,6 +310,14 @@ class TracerLogger:
                 full_message = f"{message} | {context}"
             else:
                 full_message = message
+
+            # Ensure message is ASCII-safe for Windows compatibility
+            # Replace any problematic Unicode characters if they slip through
+            try:
+                full_message.encode('ascii')
+            except UnicodeEncodeError:
+                # If message contains non-ASCII characters, encode safely
+                full_message = full_message.encode('ascii', errors='replace').decode('ascii')
 
             if self._logger is not None:
                 self._logger.log(level, full_message)

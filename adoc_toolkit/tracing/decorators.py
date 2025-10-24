@@ -50,12 +50,12 @@ def trace_method(
     Example:
         @trace_method("fetch_data", "my_command")
         def fetch_data(self):
-            # This will log: "→ my_command.fetch_data" when TRACE level is enabled
+            # This will log: "-> my_command.fetch_data" when TRACE level is enabled
             pass
 
         @trace_method()  # Uses method name as operation_name
         def process_data(self):
-            # This will log: "→ process_data" when TRACE level is enabled
+            # This will log: "-> process_data" when TRACE level is enabled
             pass
     """
 

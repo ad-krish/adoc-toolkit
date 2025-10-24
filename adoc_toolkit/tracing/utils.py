@@ -75,9 +75,9 @@ def format_trace_message(
 
     # Add command prefix if provided
     if command_prefix:
-        nested_operation = f"{indent}→ {command_prefix}.{operation}"
+        nested_operation = f"{indent}-> {command_prefix}.{operation}"
     else:
-        nested_operation = f"{indent}→ {operation}"
+        nested_operation = f"{indent}-> {operation}"
 
     # Add trace depth to details
     trace_details = {"trace_depth": depth, **details}
