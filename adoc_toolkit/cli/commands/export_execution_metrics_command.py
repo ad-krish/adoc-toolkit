@@ -120,6 +120,15 @@ def parse_execution_metrics_args(args: list[str]) -> dict[str, Any]:
             key = arg.replace("--", "").replace("-", "_")
             parsed[key] = args[i + 1]
             i += 1
+        elif arg == "--page-size":
+            if i + 1 >= len(args):
+                raise ValueError(f"{arg} requires a value")
+            try:
+                page_size = int(args[i + 1])
+                parsed["page_size"] = page_size
+            except ValueError:
+                raise ValueError("--page-size must be a valid integer")
+            i += 1
         elif arg == "--policy-types":
             if i + 1 >= len(args):
                 raise ValueError(f"{arg} requires a value")
@@ -299,6 +308,7 @@ def get_execution_metrics_completion_suggestions(
         "--output-filename",
         "--backload",
         "--policy-types",
+        "--page-size",
     ]
 
     # If the previous word was an option that expects a value, provide completions
@@ -354,6 +364,9 @@ def get_execution_metrics_completion_suggestions(
                 return [
                     pt for pt in policy_types if pt.startswith(current_word.upper())
                 ]
+        elif prev_word == "--page-size":
+            page_sizes = ["100", "200", "500", "1000"]
+            return [ps for ps in page_sizes if ps.startswith(current_word)]
 
     # Filter options based on current word and already used options
     used_options = set(words[1:])  # Skip command name
@@ -419,6 +432,9 @@ Options:
                          (default: DATA_QUALITY,EQUALITY)
                          Available: DATA_QUALITY, EQUALITY, DATA_DRIFT, PROFILE_ANOMALY,
                          SCHEMA_DRIFT
+  --page-size SIZE        Number of items to fetch per API call (default: 100, max: 1000)
+                         Higher values fetch data faster but may cause server timeouts
+                         for large datasets
   --help                  Show this help message
 
 Description:
@@ -459,6 +475,8 @@ Examples:
   {self.name} --output-type parquet  # Export to Parquet format
   {self.name} --output-dir ./reports  # Save to reports directory
   {self.name} --output-filename "exec-metrics-%y%m%d"  # Custom filename template
+  {self.name} --page-size 500  # Fetch 500 items per page (faster for large datasets)
+  {self.name} --backload -30d --page-size 1000  # Large backload with max page size
 """
 
     @trace_method("command_execute", "export_execution_metrics")
@@ -560,9 +578,9 @@ Examples:
                 transient=True,
             ) as progress:
                 # Fetch execution metrics data
-                self.trace("starting_execution_metrics_fetch")
+                self.trace("starting_execution_metrics_fetch", page_size=args_model.page_size)
                 execution_records = service.fetch_execution_metrics(
-                    start_ts_marker, progress, args_model.policy_types
+                    start_ts_marker, progress, args_model.policy_types, args_model.page_size
                 )
 
                 if not execution_records:

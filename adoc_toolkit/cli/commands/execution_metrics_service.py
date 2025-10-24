@@ -914,6 +914,7 @@ class ExecutionMetricsService(TraceableMixin):
         start_ts_marker: int,
         progress: Progress,
         policy_types: list[str] | None = None,
+        page_size: int = 100,
     ) -> list[ExecutionMetricsRecord]:
         """Fetch and process execution metrics data with parallel processing.
 
@@ -935,7 +936,7 @@ class ExecutionMetricsService(TraceableMixin):
 
         try:
             policy_executions = self._fetch_policy_executions(
-                start_ts_marker, progress, task1, policy_types
+                start_ts_marker, progress, task1, policy_types, page_size
             )
             progress.update(
                 task1,
@@ -994,7 +995,7 @@ class ExecutionMetricsService(TraceableMixin):
 
     @trace_method("fetch_policy_executions_api", "execution_metrics_service")
     def _fetch_policy_executions(
-        self, start_ts_marker: int, progress: Progress, task_id, policy_types: list[str]
+        self, start_ts_marker: int, progress: Progress, task_id, policy_types: list[str], page_size: int = 100
     ) -> list[PolicyExecution]:
         """Fetch policy executions from API with parallel pagination.
 
@@ -1003,6 +1004,7 @@ class ExecutionMetricsService(TraceableMixin):
             progress: Progress tracker
             task_id: Progress task ID
             policy_types: List of policy types to filter
+            page_size: Number of items per page (default: 100, max: 1000)
 
         Returns:
             List of PolicyExecution models
@@ -1067,7 +1069,7 @@ class ExecutionMetricsService(TraceableMixin):
                     future = executor.submit(
                         fetch_execution_page,
                         page,
-                        100,  # exec_count
+                        page_size,  # exec_count
                         policy_types,
                         self.http_client,
                         progress,

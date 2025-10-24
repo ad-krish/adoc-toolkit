@@ -229,6 +229,10 @@ class ExecutionMetricsArgs(BaseModel):
         default=["DATA_QUALITY", "EQUALITY"],
         description="Policy types to export (default: DATA_QUALITY, EQUALITY)",
     )
+    page_size: int = Field(
+        default=100,
+        description="Number of items per page for API calls (default: 100, max: 1000)",
+    )
     help: bool = Field(default=False, description="Show help")
 
     @field_validator("output_type")
@@ -263,3 +267,13 @@ class ExecutionMetricsArgs(BaseModel):
 
         # Convert to uppercase for consistency
         return [pt.upper() for pt in v]
+
+    @field_validator("page_size")
+    @classmethod
+    def validate_page_size(cls, v: int) -> int:
+        """Validate page size."""
+        if v <= 0:
+            raise ValueError("page_size must be a positive integer")
+        if v > 1000:
+            raise ValueError("page_size cannot exceed 1000 (server limit)")
+        return v

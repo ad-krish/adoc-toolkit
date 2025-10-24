@@ -36,12 +36,27 @@ def parse_command_args(args: list[str]) -> dict[str, Any]:
         arg = args[i]
         if arg == "--help":
             parsed["help"] = True
-        elif arg in ["--output-type", "--output-dir", "--output-filename"]:
+        elif arg in ["--output-type", "--output-dir", "--output-filename", "--page-size"]:
             if i + 1 >= len(args):
                 raise ValueError(f"{arg} requires a value")
             # Convert --output-type to output_type, --output-dir to output_dir, etc.
             key = arg.replace("--", "").replace("-", "_")
-            parsed[key] = args[i + 1]
+            value = args[i + 1]
+            
+            # Validate page-size is a positive integer
+            if arg == "--page-size":
+                try:
+                    value = int(value)
+                    if value <= 0:
+                        raise ValueError("--page-size must be a positive integer")
+                    if value > 1000:
+                        raise ValueError("--page-size cannot exceed 1000 (server limit)")
+                except ValueError as e:
+                    if "invalid literal" in str(e):
+                        raise ValueError("--page-size must be a valid integer")
+                    raise
+            
+            parsed[key] = value
             i += 1
         else:
             raise ValueError(f"Unknown argument: {arg}")
@@ -618,7 +633,7 @@ def get_completion_suggestions(current_input: str, cursor_position: int) -> list
         return []
 
     # Available options
-    options = ["--help", "--output-type", "--output-dir", "--output-filename"]
+    options = ["--help", "--output-type", "--output-dir", "--output-filename", "--page-size"]
 
     # If the previous word was an option that expects a value, provide completions
     if len(words) >= 2:
@@ -642,6 +657,9 @@ def get_completion_suggestions(current_input: str, cursor_position: int) -> list
                 "data-%y-%m-%d",
             ]
             return [t for t in templates if t.startswith(current_word)]
+        elif prev_word == "--page-size":
+            page_sizes = ["100", "200", "500", "1000"]
+            return [ps for ps in page_sizes if ps.startswith(current_word)]
 
     # Filter options based on current word and already used options
     used_options = set(words[1:])  # Skip command name
@@ -689,12 +707,15 @@ Options:
   --output-filename NAME  Output filename template (default: ad-metrics-%d-%m-%y-%h-%M)
                          Variables: %y=year, %m=month, %d=day, %h=hour, %M=minute
                          Environment name is automatically added as suffix
+  --page-size SIZE        Items per page for API calls (default: 100, max: 1000)
+                         Larger values = fewer API calls but higher server load
+                         Recommended: 100-500 for most cases, up to 1000 for large datasets
   --help                  Show this help message
 
 Description:
   Fetches data quality metrics from ADOC platform including:
-  - Catalog assets
-  - Data quality policies
+  - Catalog assets (fetched with pagination)
+  - Data quality policies (fetched with pagination)
   - Alerts and incidents
 
   Combines the data and exports to specified format with configurable filename.
@@ -707,10 +728,11 @@ Description:
   - For Avro format: uv sync --extra export (or uv add fastavro)
 
 Examples:
-  {self.name}                                    # Export to CSV with env suffix
+  {self.name}                                    # Export to CSV with default page size (100)
   {self.name} --output-type parquet              # Export to Parquet format
   {self.name} --output-dir ./reports             # Save to reports directory
   {self.name} --output-filename "metrics-%y%m%d" # Custom filename template
+  {self.name} --page-size 500                    # Use larger page size (fewer API calls)
 """
 
     @trace_method("command_execute", "export_metrics")
@@ -774,8 +796,9 @@ Examples:
                 task = progress.add_task(
                     "Fetching data from ADOC platform...", total=None
                 )
-                self.trace("starting_data_fetch", endpoints_count=3)
-                data = self._fetch_all_data(http_client, progress, task)
+                page_size = parsed_args.get("page_size", 100)
+                self.trace("starting_data_fetch", endpoints_count=3, page_size=page_size)
+                data = self._fetch_all_data(http_client, progress, task, page_size)
 
                 # Process data using functional approach
                 progress.update(task, description="Processing and combining data...")
@@ -1017,9 +1040,19 @@ Examples:
 
     @trace_method("fetch_all_data", "export_metrics")
     def _fetch_all_data(
-        self, http_client: ADOCHTTPClient, progress: Progress, task
+        self, http_client: ADOCHTTPClient, progress: Progress, task, page_size: int = 100
     ) -> dict[str, Any]:
-        """Fetch all required data from ADOC platform with pagination."""
+        """Fetch all required data from ADOC platform with pagination.
+        
+        Args:
+            http_client: HTTP client for API calls
+            progress: Progress tracker
+            task: Progress task ID
+            page_size: Number of items per page (default: 100, max: 1000)
+        
+        Returns:
+            Dictionary with fetched data
+        """
         # Base URLs without pagination parameters
         endpoints_config = {
             "catalog": (
@@ -1038,7 +1071,7 @@ Examples:
         for name, base_url in endpoints_config.items():
             try:
                 data[name] = self._fetch_paginated_data(
-                    http_client, base_url, name, progress, task, page_size=100
+                    http_client, base_url, name, progress, task, page_size=page_size
                 )
             except HTTPError as e:
                 self.trace(
