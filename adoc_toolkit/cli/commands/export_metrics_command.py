@@ -163,31 +163,48 @@ def preprocess_dataframe_for_format(df: pd.DataFrame, output_type: str) -> pd.Da
     return processed_df
 
 
-def create_asset_lookup(catalog_json: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def create_asset_lookup(catalog_json: dict[str, Any] | list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Create asset lookup dictionary from catalog data.
 
     Args:
-        catalog_json: Catalog JSON data
+        catalog_json: Catalog JSON data (can be dict with "assets"/"items" or list)
 
     Returns:
         Dictionary mapping asset IDs to asset data
     """
-    return {asset["assetId"]: asset for asset in catalog_json.get("assets", [])}
+    # Handle different response formats
+    if isinstance(catalog_json, list):
+        assets = catalog_json
+    elif isinstance(catalog_json, dict):
+        assets = catalog_json.get("assets", catalog_json.get("items", catalog_json.get("content", [])))
+    else:
+        assets = []
+    
+    return {asset["assetId"]: asset for asset in assets if "assetId" in asset}
 
 
-def create_alert_lookup(alert_json: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def create_alert_lookup(alert_json: dict[str, Any] | list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Create alert lookup dictionary from alert data.
 
     Args:
-        alert_json: Alert JSON data
+        alert_json: Alert JSON data (can be dict with "incidents" or list)
 
     Returns:
         Dictionary mapping asset IDs to alert data
     """
+    # Handle different response formats
+    if isinstance(alert_json, list):
+        incidents = alert_json
+    elif isinstance(alert_json, dict):
+        incidents = alert_json.get("incidents", alert_json.get("items", alert_json.get("content", [])))
+    else:
+        incidents = []
+    
     return {
         asset["assetId"]: incident
-        for incident in alert_json.get("incidents", [])
+        for incident in incidents
         for asset in incident.get("assets", [])
+        if "assetId" in asset
     }
 
 
@@ -277,10 +294,18 @@ def process_metrics_data(data: dict[str, Any]) -> list[dict[str, Any]]:
     catalog_assets = create_asset_lookup(catalog_json)
     alert_assets = create_alert_lookup(alert_json)
 
+    # Extract rules from different response formats
+    if isinstance(dq_policies_json, list):
+        rules = dq_policies_json
+    elif isinstance(dq_policies_json, dict):
+        rules = dq_policies_json.get("rules", dq_policies_json.get("items", dq_policies_json.get("content", [])))
+    else:
+        rules = []
+
     # Process each rule
     report_data = [
         extract_rule_data(rule, catalog_assets, alert_assets)
-        for rule in dq_policies_json.get("rules", [])
+        for rule in rules
     ]
 
     return report_data
