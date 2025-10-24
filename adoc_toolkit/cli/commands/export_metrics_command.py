@@ -942,10 +942,19 @@ Examples:
             
             # Determine response format on first page
             if response_format is None:
-                if isinstance(json_data, dict) and "items" in json_data:
-                    response_format = "items"
-                elif isinstance(json_data, dict) and "content" in json_data:
-                    response_format = "content"
+                if isinstance(json_data, dict):
+                    if "items" in json_data:
+                        response_format = "items"
+                    elif "content" in json_data:
+                        response_format = "content"
+                    elif "assets" in json_data:
+                        response_format = "assets"
+                    elif "rules" in json_data:
+                        response_format = "rules"
+                    elif "incidents" in json_data:
+                        response_format = "incidents"
+                    else:
+                        response_format = "unknown"
                 elif isinstance(json_data, list):
                     response_format = "list"
                 else:
@@ -956,6 +965,12 @@ Examples:
                 items = json_data.get("items", [])
             elif response_format == "content":
                 items = json_data.get("content", [])
+            elif response_format == "assets":
+                items = json_data.get("assets", [])
+            elif response_format == "rules":
+                items = json_data.get("rules", [])
+            elif response_format == "incidents":
+                items = json_data.get("incidents", [])
             elif response_format == "list":
                 items = json_data if isinstance(json_data, list) else []
             else:
@@ -991,6 +1006,12 @@ Examples:
             return {"items": all_items}
         elif response_format == "content":
             return {"content": all_items}
+        elif response_format == "assets":
+            return {"assets": all_items}
+        elif response_format == "rules":
+            return {"rules": all_items}
+        elif response_format == "incidents":
+            return {"incidents": all_items}
         else:
             return all_items
 
