@@ -186,6 +186,11 @@ class ThreadSafeDataCollector:
         """Get all collected data."""
         with self._lock:
             return self._data.copy()
+    
+    def __len__(self) -> int:
+        """Get the number of items in the collection."""
+        with self._lock:
+            return len(self._data)
 
     def clear(self) -> None:
         """Clear all collected data."""
@@ -216,7 +221,8 @@ def fetch_execution_page(
         Tuple of (page_number, list_of_executions, should_stop)
     """
     try:
-        progress.update(task_id, description=f"Fetching page {page + 1}...", advance=0)
+        if task_id:
+            progress.update(task_id, description=f"Fetching page {page + 1}...", advance=0)
 
         rule_types_param = ",".join(policy_types)
         endpoint = (
@@ -225,6 +231,7 @@ def fetch_execution_page(
             "&executionStatus=SUCCESSFUL,ERRORED,ABORTED,WARNING"
             f"&ruleType={rule_types_param}"
         )
+        log_info(f"Fetching page {page} with size={exec_count}")
 
         response = http_client.get(endpoint)
         if not response.is_success:
@@ -239,14 +246,32 @@ def fetch_execution_page(
         if not executions:
             return page, [], True  # No more data, stop
 
+        # Log policy types in the raw API response
+        policy_type_counts = {}
+        for execution in executions:
+            ex = safe_get(execution, "execution", {})
+            policy_type = safe_get(ex, "ruleType")
+            if policy_type:
+                policy_type_counts[policy_type] = policy_type_counts.get(policy_type, 0) + 1
+        
+        log_info(f"Page {page} API response: {len(executions)} total executions")
+        log_info(f"Page {page} policy type breakdown: {policy_type_counts}")
+
         # Process the executions (we'll filter by timestamp later)
         page_executions = process_policy_executions(exec_data, 0, policy_types, timezone)
+        
+        # Log how many passed the filter
+        filtered_type_counts = {}
+        for exec in page_executions:
+            filtered_type_counts[exec.policy_type] = filtered_type_counts.get(exec.policy_type, 0) + 1
+        log_info(f"Page {page} after filtering: {len(page_executions)} executions, breakdown: {filtered_type_counts}")
 
-        progress.update(
-            task_id,
-            description=f"Page {page + 1}: {len(page_executions)} executions",
-            advance=1,
-        )
+        if task_id:
+            progress.update(
+                task_id,
+                description=f"Page {page + 1}: {len(page_executions)} executions",
+                advance=1,
+            )
 
         return page, page_executions, False
 
@@ -275,14 +300,15 @@ def process_execution_details_parallel(
     execution_details = []
 
     try:
-        progress.update(
-            task_id,
-            description=(
-                f"Processing {execution.policy_type} execution "
-                f"{execution.execution_id}..."
-            ),
-            advance=0,
-        )
+        if task_id:
+            progress.update(
+                task_id,
+                description=(
+                    f"Processing {execution.policy_type} execution "
+                    f"{execution.execution_id}..."
+                ),
+                advance=0,
+            )
 
         # Build endpoint based on policy type
         if execution.policy_type == "DATA_QUALITY":
@@ -291,8 +317,9 @@ def process_execution_details_parallel(
                 f"{execution.execution_id}"
             )
         elif execution.policy_type == "EQUALITY":
+            # EQUALITY uses the reconciliation endpoint
             endpoint = (
-                f"/catalog-server/api/rules/equality/executions/"
+                f"/catalog-server/api/rules/reconciliation/executions/"
                 f"{execution.execution_id}"
             )
         elif execution.policy_type == "DATA_DRIFT":
@@ -301,9 +328,10 @@ def process_execution_details_parallel(
                 f"{execution.execution_id}"
             )
         elif execution.policy_type == "PROFILE_ANOMALY":
+            # PROFILE_ANOMALY requires /result suffix
             endpoint = (
                 f"/catalog-server/api/rules/profile-anomaly/executions/"
-                f"{execution.execution_id}"
+                f"{execution.execution_id}/result"
             )
         elif execution.policy_type == "SCHEMA_DRIFT":
             endpoint = (
@@ -321,8 +349,25 @@ def process_execution_details_parallel(
             return execution_details
 
         exec_result_data = response.json()
+        items = safe_get(exec_result_data, "items", [])
+        
+        log_info(
+            f"Fetched execution details for {execution.policy_type} "
+            f"exec_id={execution.execution_id}: {len(items)} items"
+        )
+        
+        # Log the first item structure for non-DATA_QUALITY to debug the merge issue
+        if items and execution.policy_type != "DATA_QUALITY":
+            first_item = items[0]
+            log_info(
+                f"DEBUG {execution.policy_type} item structure - "
+                f"keys: {list(first_item.keys())}, "
+                f"has 'item' nested: {bool(first_item.get('item'))}, "
+                f"direct id: {first_item.get('id')}, "
+                f"nested id: {first_item.get('item', {}).get('id') if isinstance(first_item.get('item'), dict) else 'N/A'}"
+            )
 
-        for item in safe_get(exec_result_data, "items", []):
+        for item in items:
             labels = safe_get(item, "labels", [])
             pde_value = next(
                 (
@@ -334,6 +379,13 @@ def process_execution_details_parallel(
             )
 
             item_data = safe_get(item, "item", {})
+            
+            # For non-DATA_QUALITY policies, item structure is different
+            # SCHEMA_DRIFT, EQUALITY, etc. don't have nested 'item' objects
+            if not item_data and execution.policy_type != "DATA_QUALITY":
+                # Use the item itself as item_data
+                item_data = item
+            
             item_labels = safe_get(item_data, "labels", [])
             pde_label = next(
                 (
@@ -348,11 +400,44 @@ def process_execution_details_parallel(
             rule_result = safe_get(item, "result")
 
             threshold_config = safe_get(item, "thresholdConfig", {})
+            
+            # For SCHEMA_DRIFT and other non-DATA_QUALITY policies:
+            # - Execution details use "ruleItemId" to reference the policy item
+            # - Policy details use "id" for the item ID
+            # For DATA_QUALITY:
+            # - Both use nested item.id
+            if execution.policy_type != "DATA_QUALITY":
+                # Use ruleItemId from the top-level item for non-DATA_QUALITY policies
+                extracted_item_id = str(safe_get(item, "ruleItemId", ""))
+                # Default version depends on policy type:
+                # - DATA_DRIFT uses version 0
+                # - EQUALITY and PROFILE_ANOMALY use version 1
+                default_version = 0 if execution.policy_type == "DATA_DRIFT" else 1
+                extracted_item_ver = safe_get(item, "ruleVersion", default_version)
+            else:
+                # Use nested item.id for DATA_QUALITY
+                extracted_item_id = safe_get(item_data, "id", "")
+                extracted_item_ver = safe_get(item_data, "ruleVersion", 1)
+            
+            # Log extraction details for first item of each execution (for debugging merge)
+            if execution_details == [] and execution.policy_type != "DATA_QUALITY":
+                log_info(
+                    f"DEBUG {execution.policy_type} extracted - "
+                    f"item_id: '{extracted_item_id}', item_ver: {extracted_item_ver}, "
+                    f"merge key will be: ('{extracted_item_id}', {extracted_item_ver})"
+                )
+            
+            # Log if we're getting empty IDs (this indicates a structure mismatch)
+            if not extracted_item_id:
+                log_info(
+                    f"WARNING: Empty item_id for {execution.policy_type} exec_id={execution.execution_id}, "
+                    f"item keys: {list(item.keys())}"
+                )
 
             execution_detail = ExecutionDetail(
-                item_id=safe_get(item_data, "id", ""),
+                item_id=extracted_item_id,
                 item_column_name=safe_get(item_data, "columnName"),
-                item_ver=safe_get(item_data, "ruleVersion", 1),
+                item_ver=extracted_item_ver,
                 pde_name=pde_value,
                 pde=pde_label,
                 item_measurement_type=safe_get(item_data, "measurementType"),
@@ -370,14 +455,15 @@ def process_execution_details_parallel(
             )
             execution_details.append(execution_detail)
 
-        progress.update(
-            task_id,
-            description=(
-                f"Processed {execution.policy_type} execution: "
-                f"{len(execution_details)} details"
-            ),
-            advance=1,
-        )
+        if task_id:
+            progress.update(
+                task_id,
+                description=(
+                    f"Processed {execution.policy_type} execution: "
+                    f"{len(execution_details)} details"
+                ),
+                advance=1,
+            )
 
     except Exception as e:
         log_error(f"Error processing execution {execution.execution_id}: {e}")
@@ -405,14 +491,15 @@ def process_policy_details_parallel(
     policy_details = []
 
     try:
-        progress.update(
-            task_id,
-            description=(
-                f"Processing {execution.policy_type} policy details "
-                f"{execution.policy_id}..."
-            ),
-            advance=0,
-        )
+        if task_id:
+            progress.update(
+                task_id,
+                description=(
+                    f"Processing {execution.policy_type} policy details "
+                    f"{execution.policy_id}..."
+                ),
+                advance=0,
+            )
 
         # Build endpoint based on policy type
         if execution.policy_type == "DATA_QUALITY":
@@ -421,8 +508,9 @@ def process_policy_details_parallel(
                 f"?version={execution.policy_version}"
             )
         elif execution.policy_type == "EQUALITY":
+            # EQUALITY uses the reconciliation endpoint
             endpoint = (
-                f"/catalog-server/api/rules/equality/{execution.policy_id}"
+                f"/catalog-server/api/rules/reconciliation/{execution.policy_id}"
                 f"?version={execution.policy_version}"
             )
         elif execution.policy_type == "DATA_DRIFT":
@@ -471,11 +559,26 @@ def process_policy_details_parallel(
                 None,
             )
 
+            # For non-DATA_QUALITY types, use id to match execution details' ruleItemId
+            # For DATA_QUALITY, the nested item.item.id is used via parallel path
+            if execution.policy_type == "DATA_QUALITY":
+                item_id = str(safe_get(item, "id", ""))
+            else:
+                # For EQUALITY, DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT
+                # Policy details have "id" field that matches execution details' "ruleItemId"
+                item_id = str(safe_get(item, "id", ""))
+                log_info(
+                    f"DEBUG {execution.policy_type} policy detail - "
+                    f"item keys: {list(item.keys())}, "
+                    f"id: {safe_get(item, 'id')}, "
+                    f"using item_id: '{item_id}'"
+                )
+
             policy_detail = PolicyDetail(
                 policy_name=execution.policy_name,
                 policy_id=execution.policy_id,
                 policy_type=execution.policy_type,
-                id=safe_get(item, "id", ""),
+                id=item_id,
                 rule_version=safe_get(item, "ruleVersion", 1),
                 column_name=safe_get(item, "columnName"),
                 pde_value=pde_value,
@@ -484,14 +587,15 @@ def process_policy_details_parallel(
             )
             policy_details.append(policy_detail)
 
-        progress.update(
-            task_id,
-            description=(
-                f"Processed {execution.policy_type} policy: "
-                f"{len(policy_details)} details"
-            ),
-            advance=1,
-        )
+        if task_id:
+            progress.update(
+                task_id,
+                description=(
+                    f"Processed {execution.policy_type} policy: "
+                    f"{len(policy_details)} details"
+                ),
+                advance=1,
+            )
 
     except Exception as e:
         log_error(f"Error processing policy details for {execution.policy_id}: {e}")
@@ -598,8 +702,9 @@ def process_execution_details(
                     f"{execution.execution_id}"
                 )
             elif execution.policy_type == "EQUALITY":
+                # EQUALITY uses the reconciliation endpoint
                 endpoint = (
-                    f"/catalog-server/api/rules/equality/executions/"
+                    f"/catalog-server/api/rules/reconciliation/executions/"
                     f"{execution.execution_id}"
                 )
             elif execution.policy_type == "DATA_DRIFT":
@@ -608,9 +713,10 @@ def process_execution_details(
                     f"{execution.execution_id}"
                 )
             elif execution.policy_type == "PROFILE_ANOMALY":
+                # PROFILE_ANOMALY requires /result suffix
                 endpoint = (
                     f"/catalog-server/api/rules/profile-anomaly/executions/"
-                    f"{execution.execution_id}"
+                    f"{execution.execution_id}/result"
                 )
             elif execution.policy_type == "SCHEMA_DRIFT":
                 endpoint = (
@@ -659,10 +765,22 @@ def process_execution_details(
 
                 threshold_config = safe_get(item, "thresholdConfig", {})
 
+                # Extract item_id and item_ver based on policy type
+                if execution.policy_type != "DATA_QUALITY":
+                    # Use ruleItemId from top-level for non-DATA_QUALITY policies
+                    extracted_item_id = str(safe_get(item, "ruleItemId", ""))
+                    # Default version depends on policy type
+                    default_version = 0 if execution.policy_type == "DATA_DRIFT" else 1
+                    extracted_item_ver = safe_get(item, "ruleVersion", default_version)
+                else:
+                    # Use nested item.id for DATA_QUALITY
+                    extracted_item_id = safe_get(item_data, "id", "")
+                    extracted_item_ver = safe_get(item_data, "ruleVersion", 1)
+
                 execution_detail = ExecutionDetail(
-                    item_id=safe_get(item_data, "id", ""),
+                    item_id=extracted_item_id,
                     item_column_name=safe_get(item_data, "columnName"),
-                    item_ver=safe_get(item_data, "ruleVersion", 1),
+                    item_ver=extracted_item_ver,
                     pde_name=pde_value,
                     pde=pde_label,
                     item_measurement_type=safe_get(item_data, "measurementType"),
@@ -764,8 +882,9 @@ def process_policy_details(
                     f"?version={execution.policy_version}"
                 )
             elif execution.policy_type == "EQUALITY":
+                # EQUALITY uses the reconciliation endpoint
                 endpoint = (
-                    f"/catalog-server/api/rules/equality/{execution.policy_id}"
+                    f"/catalog-server/api/rules/reconciliation/{execution.policy_id}"
                     f"?version={execution.policy_version}"
                 )
             elif execution.policy_type == "DATA_DRIFT":
@@ -806,7 +925,14 @@ def process_policy_details(
             )
 
             details_data = safe_get(policy_detail_data, "details", {})
-            for item in safe_get(details_data, "items", []):
+            items = safe_get(details_data, "items", [])
+            
+            log_info(
+                f"Fetched policy details for {execution.policy_type} "
+                f"policy_id={execution.policy_id}: {len(items)} items"
+            )
+            
+            for item in items:
                 pde_value = next(
                     (
                         safe_get(label, "value")
@@ -816,11 +942,26 @@ def process_policy_details(
                     None,
                 )
 
+                # Convert ID to string for consistent merge key matching
+                # For non-DATA_QUALITY types, use id to match execution details' ruleItemId
+                if execution.policy_type == "DATA_QUALITY":
+                    item_id = str(safe_get(item, "id", ""))
+                else:
+                    # For EQUALITY, DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT
+                    # Policy details have "id" field that matches execution details' "ruleItemId"
+                    item_id = str(safe_get(item, "id", ""))
+                    log_info(
+                        f"DEBUG {execution.policy_type} policy detail (non-parallel) - "
+                        f"item keys: {list(item.keys())}, "
+                        f"id: {safe_get(item, 'id')}, "
+                        f"using item_id: '{item_id}'"
+                    )
+                
                 policy_detail = PolicyDetail(
                     policy_name=execution.policy_name,
                     policy_id=execution.policy_id,
                     policy_type=execution.policy_type,
-                    id=safe_get(item, "id", ""),
+                    id=item_id,
                     rule_version=safe_get(item, "ruleVersion", 1),
                     column_name=safe_get(item, "columnName"),
                     pde_value=pde_value,
@@ -854,6 +995,22 @@ def merge_execution_data(
     Returns:
         List of merged ExecutionMetricsRecord models
     """
+    # Log input counts by policy type
+    exec_type_counts = {}
+    for detail in execution_details:
+        # We don't have policy_type on ExecutionDetail, so we'll count all
+        exec_id = str(detail.exec_id)
+        if exec_id not in exec_type_counts:
+            exec_type_counts[exec_id] = 0
+        exec_type_counts[exec_id] += 1
+    
+    policy_type_counts = {}
+    for detail in policy_details:
+        policy_type_counts[detail.policy_type] = policy_type_counts.get(detail.policy_type, 0) + 1
+    
+    log_info(f"Merge input: {len(execution_details)} execution details from {len(exec_type_counts)} unique exec_ids")
+    log_info(f"Merge input: {len(policy_details)} policy details, breakdown: {policy_type_counts}")
+    
     # Create lookup dictionary for policy details
     policy_lookup = {}
     for detail in policy_details:
@@ -861,8 +1018,11 @@ def merge_execution_data(
         policy_lookup[key] = detail
 
     merged_records = []
+    unmatched_exec_details = 0
+    
     for exec_detail in execution_details:
         key = (exec_detail.item_id, exec_detail.item_ver)
+        
         policy_detail = policy_lookup.get(key)
 
         if policy_detail:
@@ -891,6 +1051,17 @@ def merge_execution_data(
                 policy_type=policy_detail.policy_type,
             )
             merged_records.append(record)
+        else:
+            unmatched_exec_details += 1
+    
+    # Log output counts by policy type
+    merged_type_counts = {}
+    for record in merged_records:
+        merged_type_counts[record.policy_type] = merged_type_counts.get(record.policy_type, 0) + 1
+    
+    log_info(f"Merge output: {len(merged_records)} merged records, breakdown: {merged_type_counts}")
+    if unmatched_exec_details > 0:
+        log_info(f"Merge warning: {unmatched_exec_details} execution details had no matching policy details")
 
     return merged_records
 
@@ -1032,53 +1203,110 @@ class ExecutionMetricsService(TraceableMixin):
             policy_types = ["DATA_QUALITY", "EQUALITY"]
 
         # Step 1: Fetch policy executions
-        task1 = progress.add_task("Fetching policy executions...", total=None)
+        task1 = progress.add_task("📥 Fetching policy executions...", total=None)
         self.trace("fetching_policy_executions", start_ts_marker=start_ts_marker)
 
         try:
             policy_executions = self._fetch_policy_executions(
                 start_ts_marker, progress, task1, policy_types, page_size
             )
-            progress.update(
-                task1,
-                description=f"Found {len(policy_executions)} executions",
-                completed=True,
-            )
+            
+            # Count by policy type
+            exec_type_counts = {}
+            for exec in policy_executions:
+                exec_type_counts[exec.policy_type] = exec_type_counts.get(exec.policy_type, 0) + 1
+            
+            # Remove the fetching task and show completion message
+            progress.remove_task(task1)
 
             if not policy_executions:
                 log_info("No new policy executions found")
                 return []
 
+            # Print breakdown
+            from rich.console import Console
+            console = Console()
+            console.print(f"\n📊 [bold cyan]Executions by Policy Type:[/bold cyan]")
+            for ptype, count in sorted(exec_type_counts.items()):
+                console.print(f"   • {ptype}: [bold]{count}[/bold]")
+            console.print()
+
             # Step 2: Fetch execution details in parallel
-            task2 = progress.add_task("Fetching execution details...", total=None)
+            task2 = progress.add_task(
+                "📊 Fetching execution details", 
+                total=len(policy_executions)
+            )
             execution_details = self._fetch_execution_details_parallel(
                 policy_executions, progress, task2
             )
-            progress.update(
-                task2,
-                description=f"Processed {len(execution_details)} execution details",
-                completed=True,
-            )
+            # Remove the task after completion
+            progress.remove_task(task2)
 
             # Step 3: Fetch policy details in parallel
-            task3 = progress.add_task("Fetching policy details...", total=None)
+            # Get unique policies
+            unique_policies = {}
+            for execution in policy_executions:
+                key = (execution.policy_id, execution.policy_version)
+                if key not in unique_policies:
+                    unique_policies[key] = execution
+            
+            task3 = progress.add_task(
+                "📋 Fetching policy details",
+                total=len(unique_policies)
+            )
             policy_details = self._fetch_policy_details_parallel(
                 policy_executions, progress, task3
             )
-            progress.update(
-                task3,
-                description=f"Processed {len(policy_details)} policy details",
-                completed=True,
-            )
+            
+            # Count policy details by type
+            policy_detail_counts = {}
+            for detail in policy_details:
+                policy_detail_counts[detail.policy_type] = policy_detail_counts.get(detail.policy_type, 0) + 1
+            
+            # Remove the task after completion
+            progress.remove_task(task3)
+            
+            console.print(f"\n📋 [bold cyan]Policy Details by Type:[/bold cyan]")
+            for ptype, count in sorted(policy_detail_counts.items()):
+                console.print(f"   • {ptype}: [bold]{count}[/bold]")
+            console.print()
 
             # Step 4: Merge data
-            task4 = progress.add_task("Merging execution data...", total=None)
+            task4 = progress.add_task("🔄 Merging data", total=None)
             merged_records = merge_execution_data(execution_details, policy_details, self.timezone)
-            progress.update(
-                task4,
-                description=f"Created {len(merged_records)} merged records",
-                completed=True,
-            )
+            # Remove the task after completion
+            progress.remove_task(task4)
+
+            # Final summary by policy type
+            final_type_counts = {}
+            for record in merged_records:
+                final_type_counts[record.policy_type] = final_type_counts.get(record.policy_type, 0) + 1
+            
+            # Print final summary to console
+            console.print(f"\n{'='*70}")
+            console.print(f"[bold green]✅ FINAL SUMMARY:[/bold green]")
+            console.print(f"{'='*70}")
+            console.print(f"[cyan]Total Executions Found:[/cyan]       {len(policy_executions)}")
+            console.print(f"[cyan]Execution Details Fetched:[/cyan]   {len(execution_details)}")
+            console.print(f"[cyan]Policy Details Fetched:[/cyan]      {len(policy_details)}")
+            console.print(f"[bold cyan]Records Ready for Export:[/bold cyan]   [bold green]{len(merged_records)}[/bold green]")
+            console.print()
+            console.print(f"[bold cyan]📊 Records by Policy Type:[/bold cyan]")
+            for ptype in sorted(final_type_counts.keys()):
+                count = final_type_counts[ptype]
+                percentage = (count / len(merged_records) * 100) if merged_records else 0
+                console.print(f"   • {ptype:20s}: [bold]{count:5d}[/bold] ({percentage:5.1f}%)")
+            console.print(f"{'='*70}\n")
+            
+            # Also log to file
+            log_info("=" * 60)
+            log_info("FINAL SUMMARY:")
+            log_info(f"  Total policy executions fetched: {len(policy_executions)}")
+            log_info(f"  Total execution details fetched: {len(execution_details)}")
+            log_info(f"  Total policy details fetched: {len(policy_details)}")
+            log_info(f"  Total merged records: {len(merged_records)}")
+            log_info(f"  Breakdown by policy type: {final_type_counts}")
+            log_info("=" * 60)
 
             self.trace(
                 "execution_metrics_fetch_completed",
@@ -1110,6 +1338,8 @@ class ExecutionMetricsService(TraceableMixin):
         Returns:
             List of PolicyExecution models
         """
+        log_info(f"Fetching policy executions with page_size={page_size}")
+        
         # Create a thread-safe data collector
         data_collector = ThreadSafeDataCollector()
 
@@ -1118,18 +1348,8 @@ class ExecutionMetricsService(TraceableMixin):
         initial_pages = 3
         max_workers = min(initial_pages, 10)  # Limit concurrent workers
 
-        # Create progress tasks for parallel fetching
-        progress_tasks = {}
-        for i in range(max_workers):
-            task_name = f"fetch_page_{i}"
-            progress_tasks[task_name] = progress.add_task(
-                f"[cyan]Thread {i + 1}: Waiting...",
-                total=None,
-                columns=[
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                ],
-            )
+        # Track pages fetched for progress display
+        pages_fetched = 0
 
         # Track which worker is available
         available_workers = list(range(max_workers))
@@ -1164,9 +1384,6 @@ class ExecutionMetricsService(TraceableMixin):
                     if worker_id is None:
                         break
 
-                    task_name = f"fetch_page_{worker_id}"
-                    task_progress_id = progress_tasks[task_name]
-
                     future = executor.submit(
                         fetch_execution_page,
                         page,
@@ -1174,7 +1391,7 @@ class ExecutionMetricsService(TraceableMixin):
                         policy_types,
                         self.http_client,
                         progress,
-                        task_progress_id,
+                        None,  # No individual task progress
                         self.timezone,
                     )
                     futures.append((future, worker_id, page))
@@ -1191,6 +1408,17 @@ class ExecutionMetricsService(TraceableMixin):
                             stop_fetching = True
 
                         if page_executions:
+                            # DEBUG: Log sample timestamps BEFORE filtering
+                            if page_executions:
+                                sample_exec = page_executions[0]
+                                sample_dt = datetime.fromtimestamp(sample_exec.start_ts / 1000, tz=get_timezone("UTC")) if sample_exec.start_ts else None
+                                marker_dt = datetime.fromtimestamp(start_ts_marker / 1000, tz=get_timezone("UTC"))
+                                log_info(
+                                    f"Page {page_num}: Sample exec start_ts={sample_exec.start_ts} "
+                                    f"({sample_dt.strftime('%Y-%m-%d %H:%M:%S') if sample_dt else 'None'}), "
+                                    f"marker={start_ts_marker} ({marker_dt.strftime('%Y-%m-%d %H:%M:%S')})"
+                                )
+                            
                             # Filter by timestamp marker
                             filtered_executions = [
                                 exec
@@ -1198,6 +1426,16 @@ class ExecutionMetricsService(TraceableMixin):
                                 if exec.start_ts is None
                                 or exec.start_ts > start_ts_marker
                             ]
+                            
+                            # Log timestamp filtering results
+                            if len(filtered_executions) != len(page_executions):
+                                filtered_out_count = len(page_executions) - len(filtered_executions)
+                                log_info(
+                                    f"Page {page_num}: Timestamp filter removed {filtered_out_count} "
+                                    f"executions (kept {len(filtered_executions)} of {len(page_executions)})"
+                                )
+                            else:
+                                log_info(f"Page {page_num}: All {len(page_executions)} executions passed timestamp filter")
 
                             if filtered_executions:
                                 data_collector.extend(filtered_executions)
@@ -1209,28 +1447,21 @@ class ExecutionMetricsService(TraceableMixin):
                                 for exec in page_executions
                             ):
                                 stop_fetching = True
+                                log_info(f"Page {page_num}: Reached timestamp marker, stopping pagination")
 
-                        # Update progress
-                        task_name = f"fetch_page_{worker_id}"
-                        task_progress_id = progress_tasks[task_name]
+                        # Update main progress
+                        pages_fetched += 1
                         progress.update(
-                            task_progress_id,
-                            description=(
-                                f"Thread {worker_id + 1}: Page {page_num + 1} complete"
-                            ),
-                            completed=True,
+                            task_id,
+                            description=f"📥 Fetching executions (Pages: {pages_fetched}, Total: {len(data_collector)})"
                         )
 
                     except Exception as e:
                         log_error(f"Error processing page {page_num}: {e}")
-                        task_name = f"fetch_page_{worker_id}"
-                        task_progress_id = progress_tasks[task_name]
+                        pages_fetched += 1
                         progress.update(
-                            task_progress_id,
-                            description=(
-                                f"Thread {worker_id + 1}: Error on page {page_num + 1}"
-                            ),
-                            completed=True,
+                            task_id,
+                            description=f"📥 Fetching executions (Pages: {pages_fetched}, Total: {len(data_collector)})"
                         )
                     finally:
                         release_worker(worker_id)
@@ -1239,11 +1470,14 @@ class ExecutionMetricsService(TraceableMixin):
                 if not futures:
                     break
 
-        # Clean up progress tasks
-        for task_id in progress_tasks.values():
-            progress.remove_task(task_id)
-
         policy_executions = data_collector.get_all()
+        
+        # Log final count by policy type after pagination
+        final_exec_type_counts = {}
+        for exec in policy_executions:
+            final_exec_type_counts[exec.policy_type] = final_exec_type_counts.get(exec.policy_type, 0) + 1
+        
+        log_info(f"Total executions after pagination: {len(policy_executions)}, breakdown: {final_exec_type_counts}")
 
         self.trace(
             "fetched_executions_parallel",
@@ -1276,19 +1510,6 @@ class ExecutionMetricsService(TraceableMixin):
         # Determine number of workers (limit to avoid overwhelming the API)
         max_workers = min(len(policy_executions), 10)
 
-        # Create progress tasks for parallel processing
-        progress_tasks = {}
-        for i in range(max_workers):
-            task_name = f"exec_details_{i}"
-            progress_tasks[task_name] = progress.add_task(
-                f"[green]Exec Thread {i + 1}: Waiting...",
-                total=None,
-                columns=[
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                ],
-            )
-
         # Track which worker is available
         available_workers = list(range(max_workers))
         worker_lock = threading.Lock()
@@ -1318,15 +1539,13 @@ class ExecutionMetricsService(TraceableMixin):
                     break
 
                 execution = policy_executions[execution_index]
-                task_name = f"exec_details_{worker_id}"
-                task_progress_id = progress_tasks[task_name]
 
                 future = executor.submit(
                     process_execution_details_parallel,
                     execution,
                     self.http_client,
                     progress,
-                    task_progress_id,
+                    None,  # No individual task progress
                 )
                 futures.append((future, worker_id, execution_index))
                 execution_index += 1
@@ -1350,27 +1569,13 @@ class ExecutionMetricsService(TraceableMixin):
                             execution_details = future.result(timeout=30)
                             data_collector.extend(execution_details)
 
-                            # Update progress
-                            task_name = f"exec_details_{worker_id}"
-                            task_progress_id = progress_tasks[task_name]
-                            progress.update(
-                                task_progress_id,
-                                description=(
-                                    f"Exec Thread {worker_id + 1}: "
-                                    f"{len(execution_details)} details"
-                                ),
-                                completed=True,
-                            )
+                            # Update main progress bar
+                            progress.advance(task_id, advance=1)
 
                         except Exception as e:
                             log_error(f"Error processing execution details: {e}")
-                            task_name = f"exec_details_{worker_id}"
-                            task_progress_id = progress_tasks[task_name]
-                            progress.update(
-                                task_progress_id,
-                                description=f"Exec Thread {worker_id + 1}: Error",
-                                completed=True,
-                            )
+                            # Still advance the main progress bar
+                            progress.advance(task_id, advance=1)
                         finally:
                             release_worker(worker_id)
 
@@ -1381,22 +1586,16 @@ class ExecutionMetricsService(TraceableMixin):
                         break
 
                     execution = policy_executions[execution_index]
-                    task_name = f"exec_details_{worker_id}"
-                    task_progress_id = progress_tasks[task_name]
 
                     future = executor.submit(
                         process_execution_details_parallel,
                         execution,
                         self.http_client,
                         progress,
-                        task_progress_id,
+                        None,  # No individual task progress
                     )
                     futures.append((future, worker_id, execution_index))
                     execution_index += 1
-
-        # Clean up progress tasks
-        for task_id in progress_tasks.values():
-            progress.remove_task(task_id)
 
         execution_details = data_collector.get_all()
 
@@ -1442,19 +1641,6 @@ class ExecutionMetricsService(TraceableMixin):
             len(unique_executions), 8
         )  # Slightly fewer workers for policy details
 
-        # Create progress tasks for parallel processing
-        progress_tasks = {}
-        for i in range(max_workers):
-            task_name = f"policy_details_{i}"
-            progress_tasks[task_name] = progress.add_task(
-                f"[yellow]Policy Thread {i + 1}: Waiting...",
-                total=None,
-                columns=[
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                ],
-            )
-
         # Track which worker is available
         available_workers = list(range(max_workers))
         worker_lock = threading.Lock()
@@ -1484,15 +1670,13 @@ class ExecutionMetricsService(TraceableMixin):
                     break
 
                 execution = unique_executions[policy_index]
-                task_name = f"policy_details_{worker_id}"
-                task_progress_id = progress_tasks[task_name]
 
                 future = executor.submit(
                     process_policy_details_parallel,
                     execution,
                     self.http_client,
                     progress,
-                    task_progress_id,
+                    None,  # No individual task progress
                 )
                 futures.append((future, worker_id, policy_index))
                 policy_index += 1
@@ -1516,27 +1700,13 @@ class ExecutionMetricsService(TraceableMixin):
                             policy_details = future.result(timeout=30)
                             data_collector.extend(policy_details)
 
-                            # Update progress
-                            task_name = f"policy_details_{worker_id}"
-                            task_progress_id = progress_tasks[task_name]
-                            progress.update(
-                                task_progress_id,
-                                description=(
-                                    f"Policy Thread {worker_id + 1}: "
-                                    f"{len(policy_details)} details"
-                                ),
-                                completed=True,
-                            )
+                            # Update main progress bar
+                            progress.advance(task_id, advance=1)
 
                         except Exception as e:
                             log_error(f"Error processing policy details: {e}")
-                            task_name = f"policy_details_{worker_id}"
-                            task_progress_id = progress_tasks[task_name]
-                            progress.update(
-                                task_progress_id,
-                                description=f"Policy Thread {worker_id + 1}: Error",
-                                completed=True,
-                            )
+                            # Still advance the main progress bar
+                            progress.advance(task_id, advance=1)
                         finally:
                             release_worker(worker_id)
 
@@ -1547,22 +1717,16 @@ class ExecutionMetricsService(TraceableMixin):
                         break
 
                     execution = unique_executions[policy_index]
-                    task_name = f"policy_details_{worker_id}"
-                    task_progress_id = progress_tasks[task_name]
 
                     future = executor.submit(
                         process_policy_details_parallel,
                         execution,
                         self.http_client,
                         progress,
-                        task_progress_id,
+                        None,  # No individual task progress
                     )
                     futures.append((future, worker_id, policy_index))
                     policy_index += 1
-
-        # Clean up progress tasks
-        for task_id in progress_tasks.values():
-            progress.remove_task(task_id)
 
         policy_details = data_collector.get_all()
 

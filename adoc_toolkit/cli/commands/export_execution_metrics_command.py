@@ -7,26 +7,27 @@ from typing import Any
 
 import pandas as pd
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from ...http import ADOCHTTPClient, HTTPError
 from ...logs import log_error, log_info
 from ...models import ExecutionMetricsArgs, LastRunInfo
 from ...tracing import TraceableMixin, trace_method
 from .base import Command
-from .execution_metrics_service import ExecutionMetricsService, get_current_datetime
+from .execution_metrics_service import ExecutionMetricsService, get_current_datetime, get_timezone
 
 
 # Pure functional utilities
-def parse_backload_option(backload_str: str) -> datetime:
+def parse_backload_option(backload_str: str, timezone: str = "UTC") -> datetime:
     """Parse backload option string into a datetime.
 
     Args:
-        backload_str: Backload string like "-30d", "-10d", "2024-01-15",
-            "2024-01-15T10:30:00"
+        backload_str: Backload string like "-30d", "-10d", "-12h", "-1h", 
+            "2024-01-15", "2024-01-15T10:30:00"
+        timezone: Timezone to use for relative dates (default: UTC)
 
     Returns:
-        Parsed datetime object
+        Parsed datetime object (timezone-aware)
 
     Raises:
         ValueError: If parsing fails or constraints are violated
@@ -34,18 +35,31 @@ def parse_backload_option(backload_str: str) -> datetime:
     if not backload_str:
         raise ValueError("Backload option cannot be empty")
 
-    # Check for relative day format: -Nd where N is 1-60
-    relative_pattern = r"^-(\d+)d$"
-    match = re.match(relative_pattern, backload_str.strip())
+    # Check for relative hours format: -Nh where N is 1-1440 (60 days)
+    hours_pattern = r"^-(\d+)h$"
+    hours_match = re.match(hours_pattern, backload_str.strip())
+    
+    if hours_match:
+        hours = int(hours_match.group(1))
+        if hours > 1440:  # 60 days = 1440 hours
+            raise ValueError("Backload cannot be more than 1440 hours (-1440h / 60 days)")
+        if hours == 0:
+            raise ValueError("Backload hours must be positive")
 
-    if match:
-        days = int(match.group(1))
+        return get_current_datetime(timezone) - timedelta(hours=hours)
+
+    # Check for relative day format: -Nd where N is 1-60
+    days_pattern = r"^-(\d+)d$"
+    days_match = re.match(days_pattern, backload_str.strip())
+
+    if days_match:
+        days = int(days_match.group(1))
         if days > 60:
             raise ValueError("Backload cannot be more than 60 days (-60d)")
         if days == 0:
             raise ValueError("Backload days must be positive")
 
-        return datetime.now() - timedelta(days=days)
+        return get_current_datetime(timezone) - timedelta(days=days)
 
     # Try parsing as date or datetime string
     try:
@@ -61,14 +75,20 @@ def parse_backload_option(backload_str: str) -> datetime:
         for fmt in date_formats:
             try:
                 parsed_date = datetime.strptime(backload_str.strip(), fmt)
+                
+                # Make parsed_date timezone-aware
+                tz = get_timezone(timezone)
+                if parsed_date.tzinfo is None:
+                    parsed_date = parsed_date.replace(tzinfo=tz)
 
                 # Validate that the date is not more than 60 days ago
-                sixty_days_ago = datetime.now() - timedelta(days=60)
+                current_dt = get_current_datetime(timezone)
+                sixty_days_ago = current_dt - timedelta(days=60)
                 if parsed_date < sixty_days_ago:
                     raise ValueError("Backload date cannot be more than 60 days ago")
 
                 # Validate that the date is not in the future
-                if parsed_date > datetime.now():
+                if parsed_date > current_dt:
                     raise ValueError("Backload date cannot be in the future")
 
                 return parsed_date
@@ -83,7 +103,7 @@ def parse_backload_option(backload_str: str) -> datetime:
         # If no format worked, raise error
         raise ValueError(
             f"Invalid backload format: {backload_str}. "
-            "Use formats like: -30d, 2024-01-15, 2024-01-15T10:30:00"
+            "Use formats like: -1h, -12h, -1d, -30d, 2024-01-15, 2024-01-15T10:30:00"
         )
 
     except Exception as e:
@@ -341,6 +361,12 @@ def get_execution_metrics_completion_suggestions(
             return [t for t in templates if t.startswith(current_word)]
         elif prev_word == "--backload":
             backload_options = [
+                "-1h",
+                "-6h",
+                "-12h",
+                "-24h",
+                "-1d",
+                "-7d",
                 "-10d",
                 "-30d",
                 "-60d",
@@ -361,9 +387,12 @@ def get_execution_metrics_completion_suggestions(
                 parts = current_word.split(",")
                 prefix = ",".join(parts[:-1]) + ","
                 last_part = parts[-1].strip()
+                # Filter out already selected policy types
+                already_selected = [p.strip().upper() for p in parts[:-1] if p.strip()]
+                available_types = [pt for pt in policy_types if pt not in already_selected]
                 return [
                     prefix + pt
-                    for pt in policy_types
+                    for pt in available_types
                     if pt.startswith(last_part.upper())
                 ]
             else:
@@ -430,10 +459,10 @@ Options:
                          execution-metrics-%d-%m-%y-%h-%M)
                          Variables: %y=year, %m=month, %d=day, %h=hour, %M=minute
                          Environment name is automatically added as suffix
-  --backload OPTION       Backload option to override tracking file (e.g. -30d, -10d,
-                         2024-01-15)
-                         Supports: -Nd (1-60 days), date formats, datetime strings
-                         Maximum: 60 days ago. Always overrides existing tracking file.
+  --backload OPTION       Backload option to override tracking file (e.g. -1h, -12h, -1d,
+                         -30d, 2024-01-15)
+                         Supports: -Nh (hours), -Nd (days), date formats, datetime strings
+                         Maximum: 1440 hours (60 days). Always overrides tracking file.
   --policy-types TYPES    Comma-separated policy types to export
                          (default: DATA_QUALITY,EQUALITY)
                          Available: DATA_QUALITY, EQUALITY, DATA_DRIFT, PROFILE_ANOMALY,
@@ -469,6 +498,9 @@ Description:
 
 Examples:
   {self.name}  # Export to CSV with env suffix (uses tracking file or -30d default)
+  {self.name} --backload -1h  # Override tracking file: backload from 1 hour ago
+  {self.name} --backload -12h  # Override tracking file: backload from 12 hours ago
+  {self.name} --backload -1d  # Override tracking file: backload from 1 day ago
   {self.name} --backload -10d  # Override tracking file: backload from 10 days ago
   {self.name} --backload 2024-01-15  # Override tracking file: start from specific date
   {self.name} --backload "2024-01-15T10:30:00"  # Override tracking file:
@@ -511,6 +543,7 @@ Examples:
                 policy_types=parsed_args.get(
                     "policy_types", ["DATA_QUALITY", "EQUALITY"]
                 ),
+                page_size=parsed_args.get("page_size", 100),
                 help=parsed_args.get("help", False),
             )
         except Exception as e:
@@ -564,7 +597,12 @@ Examples:
             backload_datetime = None
             if args_model.backload:
                 try:
-                    backload_datetime = parse_backload_option(args_model.backload)
+                    backload_datetime = parse_backload_option(args_model.backload, timezone)
+                    console.print(
+                        f"📅 Backload option: {args_model.backload} → "
+                        f"{backload_datetime.strftime('%Y-%m-%d %H:%M:%S')} ({timezone})",
+                        style="cyan"
+                    )
                 except ValueError as e:
                     console.print(f"Error parsing backload option: {e}", style="red")
                     return True
@@ -572,6 +610,14 @@ Examples:
             # Load last run info for incremental processing
             last_run_info = service.load_last_run_info(tracking_file, backload_datetime)
             start_ts_marker = last_run_info.last_run_timestamp
+            
+            # Show what timestamp range we're fetching
+            start_dt = datetime.fromtimestamp(start_ts_marker / 1000, tz=get_timezone(timezone))
+            console.print(
+                f"📊 Fetching executions since: {start_dt.strftime('%Y-%m-%d %H:%M:%S')} "
+                f"(timestamp: {start_ts_marker})",
+                style="cyan"
+            )
 
             # Capture new checkpoint timestamp at START (before fetching data)
             # This prevents race condition where jobs complete during processing
@@ -591,8 +637,10 @@ Examples:
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
+                BarColumn(complete_style="green", finished_style="green"),
+                TaskProgressColumn(style="bold green"),
                 console=console,
-                transient=True,
+                transient=False,
             ) as progress:
                 # Fetch execution metrics data
                 self.trace("starting_execution_metrics_fetch", page_size=args_model.page_size)

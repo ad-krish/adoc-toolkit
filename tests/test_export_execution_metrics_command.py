@@ -266,10 +266,32 @@ class TestPureFunctions:
 
         assert "--policy-types" in suggestions
 
+    def test_parse_backload_option_relative_hours_valid(self):
+        """Test parsing relative hour format."""
+        from zoneinfo import ZoneInfo
+        
+        result = parse_backload_option("-12h", "UTC")
+        expected = datetime.now(ZoneInfo("UTC")) - timedelta(hours=12)
+
+        # Allow small time difference due to execution time
+        assert abs((result - expected).total_seconds()) < 1
+
+    def test_parse_backload_option_relative_hours_invalid_too_many(self):
+        """Test parsing relative hour format with too many hours."""
+        with pytest.raises(ValueError, match="cannot be more than 1440 hours"):
+            parse_backload_option("-1441h")
+
+    def test_parse_backload_option_relative_hours_zero(self):
+        """Test parsing relative hour format with zero hours."""
+        with pytest.raises(ValueError, match="must be positive"):
+            parse_backload_option("-0h")
+
     def test_parse_backload_option_relative_days_valid(self):
         """Test parsing relative day format."""
-        result = parse_backload_option("-30d")
-        expected = datetime.now() - timedelta(days=30)
+        from zoneinfo import ZoneInfo
+        
+        result = parse_backload_option("-30d", "UTC")
+        expected = datetime.now(ZoneInfo("UTC")) - timedelta(days=30)
 
         # Allow small time difference due to execution time
         assert abs((result - expected).total_seconds()) < 1
@@ -286,26 +308,28 @@ class TestPureFunctions:
 
     def test_parse_backload_option_iso_date_valid(self):
         """Test parsing ISO date format."""
+        from zoneinfo import ZoneInfo
+        
         with patch(
-            "adoc_toolkit.cli.commands.export_execution_metrics_command.datetime"
-        ) as mock_dt:
-            mock_dt.now.return_value = datetime(2024, 2, 15, 10, 0, 0)
-            mock_dt.strptime = datetime.strptime
+            "adoc_toolkit.cli.commands.export_execution_metrics_command.get_current_datetime"
+        ) as mock_get_current:
+            mock_get_current.return_value = datetime(2024, 2, 15, 10, 0, 0, tzinfo=ZoneInfo("UTC"))
 
-            result = parse_backload_option("2024-01-15")
-            expected = datetime(2024, 1, 15, 0, 0, 0)
+            result = parse_backload_option("2024-01-15", "UTC")
+            expected = datetime(2024, 1, 15, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
             assert result == expected
 
     def test_parse_backload_option_iso_datetime_valid(self):
         """Test parsing ISO datetime format."""
+        from zoneinfo import ZoneInfo
+        
         with patch(
-            "adoc_toolkit.cli.commands.export_execution_metrics_command.datetime"
-        ) as mock_dt:
-            mock_dt.now.return_value = datetime(2024, 2, 15, 10, 0, 0)
-            mock_dt.strptime = datetime.strptime
+            "adoc_toolkit.cli.commands.export_execution_metrics_command.get_current_datetime"
+        ) as mock_get_current:
+            mock_get_current.return_value = datetime(2024, 2, 15, 10, 0, 0, tzinfo=ZoneInfo("UTC"))
 
-            result = parse_backload_option("2024-01-15T10:30:00")
-            expected = datetime(2024, 1, 15, 10, 30, 0)
+            result = parse_backload_option("2024-01-15T10:30:00", "UTC")
+            expected = datetime(2024, 1, 15, 10, 30, 0, tzinfo=ZoneInfo("UTC"))
             assert result == expected
 
     def test_parse_backload_option_date_too_old(self):
