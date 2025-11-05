@@ -60,28 +60,29 @@ def safe_get(data: dict[str, Any], key: str, default: Any = None) -> Any:
 
 
 def get_current_datetime(timezone: str = "UTC") -> datetime:
-    """Get current datetime in specified timezone.
+    """Get current datetime in specified timezone (timezone-aware).
 
     Args:
         timezone: Timezone name (e.g., UTC, US/Eastern, Asia/Kolkata)
 
     Returns:
-        Current datetime object in specified timezone
+        Timezone-aware datetime object in specified timezone
     """
-    if timezone == "UTC":
-        return datetime.utcnow()
-    
-    tz = get_timezone(timezone)
-    if tz:
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo(timezone))
+    except ImportError:
+        import pytz
+        tz = pytz.timezone(timezone)
+        return datetime.now(tz)
+    except Exception:
+        # Fallback to UTC if timezone is invalid
         try:
             from zoneinfo import ZoneInfo
-            return datetime.now(ZoneInfo(timezone))
+            return datetime.now(ZoneInfo("UTC"))
         except ImportError:
             import pytz
-            return datetime.now(pytz.timezone(timezone))
-    
-    # Fallback to UTC if timezone is invalid
-    return datetime.utcnow()
+            return datetime.now(pytz.UTC)
 
 
 def convert_timestamp_to_datetime(
@@ -987,11 +988,17 @@ class ExecutionMetricsService(TraceableMixin):
         try:
             tracking_file.parent.mkdir(parents=True, exist_ok=True)
 
+            # Format datetime without timezone suffix (timezone is stored separately)
+            last_run_dt_str = None
+            if last_run_info.last_run_datetime:
+                # Remove timezone info from string representation
+                dt = last_run_info.last_run_datetime.replace(tzinfo=None)
+                last_run_dt_str = dt.isoformat()
+            
             data = {
                 "last_run_timestamp": last_run_info.last_run_timestamp,
-                "last_run_datetime": last_run_info.last_run_datetime.isoformat()
-                if last_run_info.last_run_datetime
-                else None,
+                "last_run_datetime": last_run_dt_str,
+                "timezone": last_run_info.timezone,
                 "total_records_processed": last_run_info.total_records_processed,
             }
 

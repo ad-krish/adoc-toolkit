@@ -209,6 +209,9 @@ class LastRunInfo(BaseModel):
     last_run_datetime: datetime | None = Field(
         default=None, description="Last run datetime"
     )
+    timezone: str = Field(
+        default="UTC", description="Timezone used for last run datetime"
+    )
     total_records_processed: int = Field(
         default=0, description="Total records processed in last run"
     )

@@ -616,18 +616,6 @@ Examples:
                 df_data = [record.model_dump(exclude={"startedAt", "finishedAt"}) for record in execution_records]
                 df = pd.DataFrame(df_data)
                 
-                # Remove duplicates based on exec_id (handles overlap from checkpoint at START)
-                initial_count = len(df)
-                if 'exec_id' in df.columns:
-                    df = df.drop_duplicates(subset=['exec_id'], keep='first')
-                    duplicates_removed = initial_count - len(df)
-                    if duplicates_removed > 0:
-                        console.print(
-                            f"ℹ️  Removed {duplicates_removed} duplicate execution record(s)",
-                            style="yellow"
-                        )
-                        self.trace("duplicates_removed", count=duplicates_removed)
-                
                 # Add timezone info to datetime column headers
                 datetime_columns = ["started_at", "finished_at", "execution_date"]
                 for col in datetime_columns:
@@ -682,6 +670,7 @@ Examples:
                 new_last_run_info = LastRunInfo(
                     last_run_timestamp=new_checkpoint_timestamp,
                     last_run_datetime=new_checkpoint_dt,
+                    timezone=timezone,  # Store timezone separately for clarity
                     total_records_processed=len(df),  # Use final count after dedup
                 )
                 service.save_last_run_info(tracking_file, new_last_run_info)
@@ -699,7 +688,7 @@ Examples:
                 style="green",
             )
             console.print(
-                f"📈 Fetched {len(execution_records)} records, exported {len(df)} unique records"
+                f"📈 Processed {len(execution_records)} new records since last run"
             )
             console.print(f"🔄 Tracking file updated: {tracking_file}")
 
