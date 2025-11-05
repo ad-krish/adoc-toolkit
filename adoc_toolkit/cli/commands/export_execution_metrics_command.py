@@ -217,7 +217,6 @@ def preprocess_execution_metrics_dataframe(
         "rule_version",
         "rows_scanned",
         "rows_failed",
-        "end_ts",
         "rule_lower_threshold",
         "rule_upper_threshold",
     ]
@@ -227,7 +226,7 @@ def preprocess_execution_metrics_dataframe(
             processed_df[col] = pd.to_numeric(processed_df[col], errors="coerce")
 
     # Convert datetime columns (handle both with and without timezone suffix)
-    datetime_column_patterns = ["execution_date"]
+    datetime_column_patterns = ["started_at", "finished_at", "execution_date"]
 
     for col in processed_df.columns:
         # Check if column matches any datetime pattern (with or without timezone suffix)
@@ -607,14 +606,15 @@ Examples:
                 self.trace("creating_dataframe", records_count=len(execution_records))
 
                 # Convert Pydantic models to dictionaries for DataFrame
-                df_data = [record.model_dump() for record in execution_records]
+                # Exclude epoch timestamp columns (startedAt, finishedAt) - keep only human-readable dates
+                df_data = [record.model_dump(exclude={"startedAt", "finishedAt"}) for record in execution_records]
                 df = pd.DataFrame(df_data)
                 
                 # Add timezone info to datetime column headers
-                datetime_columns = ["execution_date"]
+                datetime_columns = ["started_at", "finished_at", "execution_date"]
                 for col in datetime_columns:
                     if col in df.columns:
-                        # Rename column to include timezone (e.g., "execution_date (UTC)")
+                        # Rename column to include timezone (e.g., "started_at (UTC)")
                         new_col_name = f"{col} ({timezone})"
                         df.rename(columns={col: new_col_name}, inplace=True)
 

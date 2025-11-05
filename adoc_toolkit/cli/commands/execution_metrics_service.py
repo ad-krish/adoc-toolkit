@@ -366,6 +366,7 @@ def process_execution_details_parallel(
                 rows_scanned=rows_scanned,
                 rows_failed=calculate_failed_rows(rows_scanned, rule_result),
                 exec_id=execution.execution_id,
+                start_ts=execution.start_ts,
                 end_ts=execution.end_ts,
             )
             execution_details.append(execution_detail)
@@ -675,6 +676,7 @@ def process_execution_details(
                         rows_scanned=rows_scanned,
                         rows_failed=calculate_failed_rows(rows_scanned, rule_result),
                         exec_id=execution.execution_id,
+                        start_ts=execution.start_ts,
                         end_ts=execution.end_ts,
                     )
                     execution_details.append(execution_detail)
@@ -881,7 +883,10 @@ def merge_execution_data(
                 result=exec_detail.result,
                 rows_scanned=exec_detail.rows_scanned,
                 rows_failed=exec_detail.rows_failed,
-                end_ts=exec_detail.end_ts,
+                startedAt=exec_detail.start_ts,
+                started_at=convert_timestamp_to_datetime(exec_detail.start_ts, timezone),
+                finishedAt=exec_detail.end_ts,
+                finished_at=convert_timestamp_to_datetime(exec_detail.end_ts, timezone),
                 execution_date=convert_timestamp_to_datetime(exec_detail.end_ts, timezone),
                 # Only successful executions are processed
                 execution_status="SUCCESSFUL",

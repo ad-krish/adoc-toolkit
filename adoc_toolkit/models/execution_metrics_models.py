@@ -108,6 +108,7 @@ class ExecutionDetail(BaseModel):
         default=None, description="Number of failed rows"
     )
     exec_id: str = Field(description="Execution identifier")
+    start_ts: int | None = Field(default=None, description="Start timestamp")
     end_ts: int | None = Field(default=None, description="End timestamp")
 
     @field_validator("item_id", "exec_id", mode="before")
@@ -183,9 +184,16 @@ class ExecutionMetricsRecord(BaseModel):
     result: str | None = Field(default=None, description="Result value")
     rows_scanned: int | None = Field(default=None, description="Rows scanned")
     rows_failed: int | None = Field(default=None, description="Rows failed")
-    end_ts: int | None = Field(default=None, description="End timestamp")
+    startedAt: int | None = Field(default=None, description="Start timestamp (milliseconds)")
+    started_at: datetime | None = Field(
+        default=None, description="Start date (human-readable)"
+    )
+    finishedAt: int | None = Field(default=None, description="Finish timestamp (milliseconds)")
+    finished_at: datetime | None = Field(
+        default=None, description="Finish date (human-readable)"
+    )
     execution_date: datetime | None = Field(
-        default=None, description="Execution date"
+        default=None, description="Execution date (deprecated, use finished_at)"
     )
     execution_status: str = Field(description="Execution status")
     policy_type: str = Field(description="Policy type")
