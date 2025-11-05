@@ -234,6 +234,10 @@ def preprocess_execution_metrics_dataframe(
         for pattern in datetime_column_patterns:
             if col == pattern or col.startswith(f"{pattern} ("):
                 processed_df[col] = pd.to_datetime(processed_df[col], errors="coerce")
+                # Replace NaT (Not a Time) / None with "null" string for clarity
+                processed_df[col] = processed_df[col].apply(
+                    lambda x: "null" if pd.isna(x) else x
+                )
                 break
 
     # Convert string columns

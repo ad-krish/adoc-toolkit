@@ -96,8 +96,10 @@ def convert_timestamp_to_datetime(
     Returns:
         Datetime object in specified timezone or None
     """
-    if timestamp is None:
+    # Return None for missing, zero, or invalid timestamps
+    if timestamp is None or timestamp <= 0:
         return None
+    
     try:
         # Convert from milliseconds to seconds and create UTC datetime
         try:

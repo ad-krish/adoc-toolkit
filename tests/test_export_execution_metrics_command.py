@@ -127,8 +127,27 @@ class TestPureFunctions:
 
         assert result["rule_version"].dtype in [pd.Int64Dtype(), "int64"]
         assert result["rows_scanned"].dtype in [pd.Int64Dtype(), "int64"]
-        assert pd.api.types.is_datetime64_any_dtype(result["execution_date"])
+        # After our change, execution_date becomes object type due to "null" strings
         assert result["policy_name"].dtype == object
+
+    def test_preprocess_execution_metrics_dataframe_with_null_dates(self):
+        """Test DataFrame preprocessing with None/NaT datetime values."""
+        df = pd.DataFrame(
+            {
+                "rule_version": ["1", "2", "3"],
+                "rows_scanned": ["100", "200", "300"],
+                "execution_date (UTC)": ["2023-12-25T10:00:00", None, "invalid"],
+                "policy_name": ["Policy1", "Policy2", "Policy3"],
+            }
+        )
+
+        result = preprocess_execution_metrics_dataframe(df, "csv")
+
+        # Check that None and invalid dates become "null"
+        assert result["execution_date (UTC)"].iloc[1] == "null"
+        assert result["execution_date (UTC)"].iloc[2] == "null"
+        # Valid date should remain
+        assert result["execution_date (UTC)"].iloc[0] != "null"
 
     def test_export_execution_metrics_to_format_csv(self):
         """Test exporting DataFrame to CSV format."""
@@ -416,6 +435,17 @@ class TestServiceUtilities:
     def test_convert_timestamp_to_datetime_none(self):
         """Test timestamp conversion with None."""
         result = convert_timestamp_to_datetime(None)
+        assert result is None
+
+    def test_convert_timestamp_to_datetime_zero(self):
+        """Test timestamp conversion with zero (Unix epoch)."""
+        # Zero should return None, not 1970-01-01
+        result = convert_timestamp_to_datetime(0)
+        assert result is None
+
+    def test_convert_timestamp_to_datetime_negative(self):
+        """Test timestamp conversion with negative timestamp."""
+        result = convert_timestamp_to_datetime(-1000)
         assert result is None
 
     def test_convert_timestamp_to_datetime_invalid(self):
