@@ -38,6 +38,96 @@ default_environment: "environment-name"
 | `base_url` | string | Yes | Base URL for the ADOC platform (e.g., `https://environment.acceldata.app`) |
 | `access_key` | string | Yes | Access key for API authentication |
 | `secret_key` | string | Yes | Secret key for API authentication |
+| `timezone` | string | No | IANA timezone name for datetime fields (default: `UTC`) |
+
+### Timezone Configuration
+
+The toolkit supports configurable timezones for datetime fields in exported data. This ensures timestamps are displayed in your preferred timezone.
+
+#### Default Behavior
+
+By default, all timestamps use **UTC** (Coordinated Universal Time). This is recommended for consistency across different locations and teams.
+
+#### Configuring Custom Timezone
+
+Add the `timezone` field to your environment configuration:
+
+```yaml
+environments:
+  cs-india:
+    name: "cs-india"
+    base_url: "https://cs-india.acceldata.app"
+    access_key: "YOUR_ACCESS_KEY"
+    secret_key: "YOUR_SECRET_KEY"
+    timezone: "Asia/Kolkata"  # Optional, defaults to UTC
+```
+
+#### Supported Timezones
+
+**Important**: Use full [IANA timezone names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones), **NOT** abbreviations.
+
+**Common Timezone Examples:**
+
+| Region | IANA Timezone Name | Abbreviation (NOT supported) |
+|--------|-------------------|------------------------------|
+| **India** | `Asia/Kolkata` | IST ❌ |
+| **US East** | `America/New_York` | EST/EDT ❌ |
+| **US West** | `America/Los_Angeles` | PST/PDT ❌ |
+| **US Central** | `America/Chicago` | CST/CDT ❌ |
+| **UK** | `Europe/London` | GMT/BST ❌ |
+| **Europe (Central)** | `Europe/Paris` or `Europe/Berlin` | CET/CEST ❌ |
+| **Japan** | `Asia/Tokyo` | JST ❌ |
+| **Australia (Sydney)** | `Australia/Sydney` | AEST/AEDT ❌ |
+| **New Zealand** | `Pacific/Auckland` | NZST/NZDT ❌ |
+| **Singapore** | `Asia/Singapore` | SGT ❌ |
+| **China** | `Asia/Shanghai` | CST ❌ |
+| **UTC (default)** | `UTC` | UTC ✓ |
+
+**Why Not Abbreviations?**
+- ❌ **Ambiguous**: IST could mean Indian, Irish, or Israel Standard Time
+- ❌ **DST Issues**: PST/PDT requires manual switching for daylight saving
+- ✅ **IANA Names**: Unambiguous and handle DST automatically
+
+#### What Gets Affected
+
+When you configure a timezone:
+
+1. **📊 Exported CSV/Parquet Files**: 
+   - Column headers include timezone: `execution_date (Asia/Kolkata)`
+   - All datetime values automatically converted to configured timezone
+   
+2. **📁 Tracking Files**: 
+   - `.last_run_tracking.json` timestamps use configured timezone
+   
+3. **⏰ All DateTime Fields**:
+   - Automatically converted from UTC to your configured timezone
+   - Displayed consistently throughout exports
+
+#### Example Output
+
+**With `timezone: "UTC"` (default):**
+```csv
+policy_name,execution_date (UTC),rows_scanned
+MyPolicy,2025-11-05 18:24:17,1000
+```
+
+**With `timezone: "Asia/Kolkata"`:**
+```csv
+policy_name,execution_date (Asia/Kolkata),rows_scanned
+MyPolicy,2025-11-05 23:54:17,1000
+```
+*(Same moment in time, displayed in different timezone)*
+
+#### Validation
+
+The toolkit validates your timezone configuration:
+- ✅ Valid IANA timezone name (e.g., `Asia/Kolkata`)
+- ❌ Invalid abbreviation (e.g., `IST`) → Error message
+
+**Example Error:**
+```
+Error: Invalid timezone: IST. Use IANA timezone names like UTC, US/Eastern, Europe/London
+```
 
 ## Example Configuration
 
@@ -51,18 +141,21 @@ environments:
     base_url: "https://dev.acceldata.app"
     access_key: "YH*********4B"
     secret_key: "X*********Y"
+    timezone: "Asia/Kolkata"  # Indian Standard Time
   
   training:
     name: "uat" 
     base_url: "https://uat.acceldata.app"
     access_key: "VL******GV"
     secret_key: "A**Z"
+    timezone: "UTC"  # Default (can be omitted)
   
   se-demo:
     name: "prod"
     base_url: "https://prod.acceldata.app"
     access_key: "G********0"
     secret_key: "H***********R"
+    timezone: "America/New_York"  # US Eastern Time
 
 # Default environment to use if none specified
 default_environment: "se-demo"
@@ -165,6 +258,7 @@ Current Environment: my-environment
 Base URL: https://my-environment.acceldata.app
 Access Key: YH******4B (masked)
 Secret Key: X9******UY (masked)
+Timezone: Asia/Kolkata
 ```
 
 ### Available Environments
@@ -196,6 +290,7 @@ The ADOC Toolkit automatically validates your `environments.yaml` file when load
 - **Base URLs**: Must be valid HTTP/HTTPS URLs with a domain
 - **Access keys**: Must be uppercase letters and numbers, minimum 8 characters
 - **Secret keys**: Must be uppercase letters and numbers, minimum 8 characters
+- **Timezone**: Must be a valid IANA timezone name (e.g., `UTC`, `Asia/Kolkata`, `America/New_York`)
 - **Name consistency**: The `name` field must match the environment key
 
 ### Default Environment
@@ -222,6 +317,9 @@ Error: Environment 'dev' access_key should contain only uppercase letters and nu
 
 # Short key
 Error: Environment 'dev' access_key is too short (minimum 8 characters)
+
+# Invalid timezone
+Error: Invalid timezone: IST. Use IANA timezone names like UTC, US/Eastern, Europe/London
 ```
 
 ## Troubleshooting
@@ -285,6 +383,7 @@ dev:
   base_url: "https://dev.acceldata.app"
   access_key: "DEV_ACCESS_KEY"
   secret_key: "DEV_SECRET_KEY"
+  timezone: "UTC"  # Recommended for development
 ```
 
 ### Staging Environments
@@ -297,6 +396,7 @@ staging:
   base_url: "https://staging.acceldata.app"
   access_key: "STAGING_ACCESS_KEY"
   secret_key: "STAGING_SECRET_KEY"
+  timezone: "America/New_York"  # Match production timezone
 ```
 
 ### Production Environments
@@ -309,6 +409,7 @@ production:
   base_url: "https://production.acceldata.app"
   access_key: "${PROD_ACCESS_KEY}"
   secret_key: "${PROD_SECRET_KEY}"
+  timezone: "America/New_York"  # Your local business timezone
 ```
 
 ## Related Commands

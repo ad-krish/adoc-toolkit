@@ -80,6 +80,44 @@ The ADOC Toolkit provides a rich interactive command-line interface with several
 
 > **📋 Environment Setup**: Configure your environments in `config/environments.yaml`. See the [Environment Setup Guide](docs/environment-setup.md) for detailed instructions.
 
+##### Timezone Configuration
+
+The toolkit supports configurable timezones for datetime fields in exported data. By default, all timestamps use **UTC**, but you can configure each environment to use a specific timezone.
+
+**Configuration** (`config/environments.yaml`):
+```yaml
+environments:
+  cs-india:
+    name: "cs-india"
+    base_url: "https://cs-india.acceldata.app"
+    access_key: "YOUR_ACCESS_KEY"
+    secret_key: "YOUR_SECRET_KEY"
+    timezone: "Asia/Kolkata"  # Optional, defaults to UTC
+```
+
+**Supported Timezones**: Use [IANA timezone names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones):
+- `UTC` (default)
+- `America/New_York` (US Eastern Time)
+- `America/Los_Angeles` (US Pacific Time)
+- `Europe/London` (UK Time)
+- `Asia/Kolkata` (Indian Standard Time)
+- `Asia/Tokyo` (Japan Standard Time)
+- `Australia/Sydney` (Australian Eastern Time)
+- And many more...
+
+**⚠️ Important**: Use full IANA timezone names (e.g., `Asia/Kolkata`), **not** abbreviations (e.g., `IST`, `PST`, `EST`). Abbreviations are ambiguous and not supported.
+
+**What Gets Affected**:
+- 📊 **Exported Data**: Column headers include timezone (e.g., `execution_date (UTC)` or `execution_date (Asia/Kolkata)`)
+- 📁 **Tracking Files**: Timestamps in `.last_run_tracking.json` use configured timezone
+- ⏰ **All DateTime Fields**: Automatically converted to your configured timezone
+
+**Example Output**:
+```csv
+policy_name,execution_date (Asia/Kolkata),rows_scanned
+MyPolicy,2025-11-05 23:54:17,1000
+```
+
 #### API Access
 - **[`get`](docs/get.md)** - Make GET requests to ADOC API endpoints
   ```bash
@@ -110,8 +148,9 @@ The ADOC Toolkit provides a rich interactive command-line interface with several
 - **Interactive Shell**: Rich command-line interface with auto-completion and command history navigation
 - **Command History**: Use ↑/↓ arrow keys to navigate through previous commands
 - **Environment Management**: Easy switching between different ADOC environments
+- **Timezone Support**: Configurable timezone for datetime fields with automatic conversion (UTC default)
 - **API Integration**: Direct access to ADOC platform APIs with automatic authentication
-- **Data Export**: Export metrics in multiple formats (JSON, CSV, Parquet, Avro)
+- **Data Export**: Export metrics in multiple formats (JSON, CSV, Parquet, Avro) with timezone-aware timestamps
 - **AI Integration**: Generate data quality policies using LLM models
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 - **Auto-completion**: Intelligent suggestions for commands and parameters
@@ -134,6 +173,17 @@ ADOC > export-execution-metrics --status completed --days 7
 #### AI-Powered Policy Generation
 ```bash
 ADOC > text-to-dq-policy "Check that customer email addresses are valid and not null"
+```
+
+#### Timezone-Aware Data Export
+```bash
+# Configure timezone in config/environments.yaml:
+# timezone: "Asia/Kolkata"
+
+ADOC > use cs-india
+ADOC > export-execution-metrics
+# Output CSV will have: execution_date (Asia/Kolkata) column
+# All timestamps automatically converted to Indian Standard Time
 ```
 
 ## 📚 Documentation
