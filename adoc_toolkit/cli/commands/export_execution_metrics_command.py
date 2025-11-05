@@ -573,6 +573,11 @@ Examples:
             last_run_info = service.load_last_run_info(tracking_file, backload_datetime)
             start_ts_marker = last_run_info.last_run_timestamp
 
+            # Capture new checkpoint timestamp at START (before fetching data)
+            # This prevents race condition where jobs complete during processing
+            new_checkpoint_dt = get_current_datetime(timezone)
+            new_checkpoint_timestamp = int(new_checkpoint_dt.timestamp() * 1000)
+
             self.trace(
                 "execution_metrics_started",
                 output_type=args_model.output_type,
@@ -580,6 +585,7 @@ Examples:
                 filename_template=args_model.output_filename
                 or "execution-metrics-%d-%m-%y-%h-%M",
                 start_ts_marker=start_ts_marker,
+                new_checkpoint_timestamp=new_checkpoint_timestamp,
             )
 
             with Progress(
@@ -609,6 +615,18 @@ Examples:
                 # Exclude epoch timestamp columns (startedAt, finishedAt) - keep only human-readable dates
                 df_data = [record.model_dump(exclude={"startedAt", "finishedAt"}) for record in execution_records]
                 df = pd.DataFrame(df_data)
+                
+                # Remove duplicates based on exec_id (handles overlap from checkpoint at START)
+                initial_count = len(df)
+                if 'exec_id' in df.columns:
+                    df = df.drop_duplicates(subset=['exec_id'], keep='first')
+                    duplicates_removed = initial_count - len(df)
+                    if duplicates_removed > 0:
+                        console.print(
+                            f"ℹ️  Removed {duplicates_removed} duplicate execution record(s)",
+                            style="yellow"
+                        )
+                        self.trace("duplicates_removed", count=duplicates_removed)
                 
                 # Add timezone info to datetime column headers
                 datetime_columns = ["started_at", "finished_at", "execution_date"]
@@ -659,15 +677,21 @@ Examples:
                     export_task, description="Export completed!", completed=True
                 )
 
-                # Update tracking information
-                current_dt = get_current_datetime(timezone)
-                current_timestamp = int(current_dt.timestamp() * 1000)
+                # Update tracking information using checkpoint captured at START
+                # This prevents data loss from jobs that complete during processing
                 new_last_run_info = LastRunInfo(
-                    last_run_timestamp=current_timestamp,
-                    last_run_datetime=current_dt,
-                    total_records_processed=len(execution_records),
+                    last_run_timestamp=new_checkpoint_timestamp,
+                    last_run_datetime=new_checkpoint_dt,
+                    total_records_processed=len(df),  # Use final count after dedup
                 )
                 service.save_last_run_info(tracking_file, new_last_run_info)
+                
+                self.trace(
+                    "checkpoint_saved",
+                    checkpoint_timestamp=new_checkpoint_timestamp,
+                    checkpoint_datetime=new_checkpoint_dt.isoformat(),
+                    records_processed=len(df),
+                )
 
             console.print(
                 f"✅ Successfully exported {len(df)} execution metrics records to "
@@ -675,7 +699,7 @@ Examples:
                 style="green",
             )
             console.print(
-                f"📈 Processed {len(execution_records)} new records since last run"
+                f"📈 Fetched {len(execution_records)} records, exported {len(df)} unique records"
             )
             console.print(f"🔄 Tracking file updated: {tracking_file}")
 
