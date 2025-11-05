@@ -22,6 +22,28 @@ from ...models import (
 )
 from ...tracing import TraceableMixin, trace_method
 
+# Try to import zoneinfo (Python 3.9+), fall back to pytz
+try:
+    from zoneinfo import ZoneInfo
+
+    def get_timezone(tz_name: str):
+        """Get timezone object using zoneinfo."""
+        return ZoneInfo(tz_name)
+
+except ImportError:
+    try:
+        import pytz
+
+        def get_timezone(tz_name: str):
+            """Get timezone object using pytz."""
+            return pytz.timezone(tz_name)
+
+    except ImportError:
+
+        def get_timezone(tz_name: str):
+            """Fallback: return None if no timezone library available."""
+            return None
+
 
 def safe_get(data: dict[str, Any], key: str, default: Any = None) -> Any:
     """Safely get value from dictionary with default fallback.
@@ -37,19 +59,65 @@ def safe_get(data: dict[str, Any], key: str, default: Any = None) -> Any:
     return data.get(key, default) if data else default
 
 
-def convert_timestamp_to_datetime(timestamp: int | None) -> datetime | None:
-    """Convert millisecond timestamp to datetime.
+def get_current_datetime(timezone: str = "UTC") -> datetime:
+    """Get current datetime in specified timezone.
+
+    Args:
+        timezone: Timezone name (e.g., UTC, US/Eastern, Asia/Kolkata)
+
+    Returns:
+        Current datetime object in specified timezone
+    """
+    if timezone == "UTC":
+        return datetime.utcnow()
+    
+    tz = get_timezone(timezone)
+    if tz:
+        try:
+            from zoneinfo import ZoneInfo
+            return datetime.now(ZoneInfo(timezone))
+        except ImportError:
+            import pytz
+            return datetime.now(pytz.timezone(timezone))
+    
+    # Fallback to UTC if timezone is invalid
+    return datetime.utcnow()
+
+
+def convert_timestamp_to_datetime(
+    timestamp: int | None, timezone: str = "UTC"
+) -> datetime | None:
+    """Convert millisecond timestamp to datetime in specified timezone.
 
     Args:
         timestamp: Timestamp in milliseconds
+        timezone: Timezone name (e.g., UTC, US/Eastern, Asia/Kolkata)
 
     Returns:
-        Datetime object or None
+        Datetime object in specified timezone or None
     """
     if timestamp is None:
         return None
     try:
-        return datetime.fromtimestamp(timestamp / 1000)
+        # Convert from milliseconds to seconds and create UTC datetime
+        try:
+            from zoneinfo import ZoneInfo
+            dt_utc = datetime.fromtimestamp(timestamp / 1000, tz=ZoneInfo("UTC"))
+        except ImportError:
+            import pytz
+            dt_utc = datetime.utcfromtimestamp(timestamp / 1000)
+            dt_utc = pytz.UTC.localize(dt_utc)
+        
+        # If timezone is not UTC, convert to target timezone
+        if timezone != "UTC":
+            tz = get_timezone(timezone)
+            if tz:
+                return dt_utc.astimezone(tz)
+            # If timezone conversion fails, return UTC datetime without tzinfo
+            return dt_utc.replace(tzinfo=None)
+        
+        # Return UTC datetime without tzinfo for consistency
+        return dt_utc.replace(tzinfo=None)
     except (ValueError, OSError):
         return None
 
@@ -111,6 +179,7 @@ def fetch_execution_page(
     http_client: ADOCHTTPClient,
     progress: Progress,
     task_id: str,
+    timezone: str = "UTC",
 ) -> tuple[int, list[PolicyExecution], bool]:
     """Fetch a single page of policy executions.
 
@@ -150,7 +219,7 @@ def fetch_execution_page(
             return page, [], True  # No more data, stop
 
         # Process the executions (we'll filter by timestamp later)
-        page_executions = process_policy_executions(exec_data, 0, policy_types)
+        page_executions = process_policy_executions(exec_data, 0, policy_types, timezone)
 
         progress.update(
             task_id,
@@ -414,6 +483,7 @@ def process_policy_executions(
     executions_data: dict[str, Any],
     start_ts_marker: int,
     policy_types: list[str] | None = None,
+    timezone: str = "UTC",
 ) -> list[PolicyExecution]:
     """Process policy executions data into PolicyExecution models.
 
@@ -461,9 +531,9 @@ def process_policy_executions(
                 failed_rows=safe_get(result, "failedRows"),
                 success_rules=safe_get(result, "successCount"),
                 failure_rules=safe_get(result, "failureCount"),
-                start_timestamp=convert_timestamp_to_datetime(start_ts),
+                start_timestamp=convert_timestamp_to_datetime(start_ts, timezone),
                 start_ts=start_ts,
-                end_timestamp=convert_timestamp_to_datetime(safe_get(ex, "finishedAt")),
+                end_timestamp=convert_timestamp_to_datetime(safe_get(ex, "finishedAt"), timezone),
                 end_ts=safe_get(ex, "finishedAt"),
             )
             policy_executions.append(policy_execution)
@@ -752,7 +822,7 @@ def process_policy_details(
 
 
 def merge_execution_data(
-    execution_details: list[ExecutionDetail], policy_details: list[PolicyDetail]
+    execution_details: list[ExecutionDetail], policy_details: list[PolicyDetail], timezone: str = "UTC"
 ) -> list[ExecutionMetricsRecord]:
     """Merge execution details with policy details.
 
@@ -792,7 +862,7 @@ def merge_execution_data(
                 rows_scanned=exec_detail.rows_scanned,
                 rows_failed=exec_detail.rows_failed,
                 end_ts=exec_detail.end_ts,
-                execution_date=convert_timestamp_to_datetime(exec_detail.end_ts),
+                execution_date=convert_timestamp_to_datetime(exec_detail.end_ts, timezone),
                 # Only successful executions are processed
                 execution_status="SUCCESSFUL",
                 policy_type=policy_detail.policy_type,
@@ -805,13 +875,15 @@ def merge_execution_data(
 class ExecutionMetricsService(TraceableMixin):
     """Service for fetching and processing execution metrics data."""
 
-    def __init__(self, http_client: ADOCHTTPClient):
+    def __init__(self, http_client: ADOCHTTPClient, timezone: str = "UTC"):
         """Initialize ExecutionMetricsService.
 
         Args:
             http_client: HTTP client for API interactions
+            timezone: Timezone for datetime conversions (default: UTC)
         """
         self.http_client = http_client
+        self.timezone = timezone
 
     @property
     def trace_prefix(self) -> str | None:
@@ -972,7 +1044,7 @@ class ExecutionMetricsService(TraceableMixin):
 
             # Step 4: Merge data
             task4 = progress.add_task("Merging execution data...", total=None)
-            merged_records = merge_execution_data(execution_details, policy_details)
+            merged_records = merge_execution_data(execution_details, policy_details, self.timezone)
             progress.update(
                 task4,
                 description=f"Created {len(merged_records)} merged records",
@@ -1074,6 +1146,7 @@ class ExecutionMetricsService(TraceableMixin):
                         self.http_client,
                         progress,
                         task_progress_id,
+                        self.timezone,
                     )
                     futures.append((future, worker_id, page))
                     page += 1

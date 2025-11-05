@@ -14,7 +14,7 @@ from ...logs import log_error, log_info
 from ...models import ExecutionMetricsArgs, LastRunInfo
 from ...tracing import TraceableMixin, trace_method
 from .base import Command
-from .execution_metrics_service import ExecutionMetricsService
+from .execution_metrics_service import ExecutionMetricsService, get_current_datetime
 
 
 # Pure functional utilities
@@ -226,12 +226,15 @@ def preprocess_execution_metrics_dataframe(
         if col in processed_df.columns:
             processed_df[col] = pd.to_numeric(processed_df[col], errors="coerce")
 
-    # Convert datetime columns
-    datetime_columns = ["execution_date"]
+    # Convert datetime columns (handle both with and without timezone suffix)
+    datetime_column_patterns = ["execution_date"]
 
-    for col in datetime_columns:
-        if col in processed_df.columns:
-            processed_df[col] = pd.to_datetime(processed_df[col], errors="coerce")
+    for col in processed_df.columns:
+        # Check if column matches any datetime pattern (with or without timezone suffix)
+        for pattern in datetime_column_patterns:
+            if col == pattern or col.startswith(f"{pattern} ("):
+                processed_df[col] = pd.to_datetime(processed_df[col], errors="coerce")
+                break
 
     # Convert string columns
     string_columns = [
@@ -530,17 +533,22 @@ Examples:
             return True
 
         try:
+            # Get environment info for timezone configuration
+            env_info = self._get_environment_info()
+            timezone = env_info.get("timezone", "UTC") if env_info else "UTC"
+            
             # Initialize HTTP client
             self.trace(
                 "initializing_http_client",
                 environment_callback=bool(self.environment_info_callback),
+                timezone=timezone,
             )
             http_client = ADOCHTTPClient(
                 environment_info_callback=self._get_environment_info
             )
 
-            # Initialize execution metrics service
-            service = ExecutionMetricsService(http_client)
+            # Initialize execution metrics service with timezone
+            service = ExecutionMetricsService(http_client, timezone)
 
             # Setup tracking
             default_output_dir = Path.cwd() / "output" / "execution-metrics"
@@ -597,6 +605,14 @@ Examples:
                 # Convert Pydantic models to dictionaries for DataFrame
                 df_data = [record.model_dump() for record in execution_records]
                 df = pd.DataFrame(df_data)
+                
+                # Add timezone info to datetime column headers
+                datetime_columns = ["execution_date"]
+                for col in datetime_columns:
+                    if col in df.columns:
+                        # Rename column to include timezone (e.g., "execution_date (UTC)")
+                        new_col_name = f"{col} ({timezone})"
+                        df.rename(columns={col: new_col_name}, inplace=True)
 
                 progress.update(
                     progress_task, description="DataFrame created", completed=True
@@ -640,10 +656,11 @@ Examples:
                 )
 
                 # Update tracking information
-                current_timestamp = int(datetime.now().timestamp() * 1000)
+                current_dt = get_current_datetime(timezone)
+                current_timestamp = int(current_dt.timestamp() * 1000)
                 new_last_run_info = LastRunInfo(
                     last_run_timestamp=current_timestamp,
-                    last_run_datetime=datetime.now(),
+                    last_run_datetime=current_dt,
                     total_records_processed=len(execution_records),
                 )
                 service.save_last_run_info(tracking_file, new_last_run_info)
