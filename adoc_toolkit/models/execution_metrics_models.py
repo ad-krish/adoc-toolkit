@@ -110,6 +110,7 @@ class ExecutionDetail(BaseModel):
     exec_id: str = Field(description="Execution identifier")
     start_ts: int | None = Field(default=None, description="Start timestamp")
     end_ts: int | None = Field(default=None, description="End timestamp")
+    execution_status: str = Field(description="Execution status")
 
     @field_validator("item_id", "exec_id", mode="before")
     @classmethod

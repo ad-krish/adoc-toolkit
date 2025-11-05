@@ -819,6 +819,7 @@ class TestPydanticModels:
             exec_id=5805917,  # Integer ID
             rule_item_id=238228,  # Integer ID (optional)
             item_ver=1,
+            execution_status="SUCCESSFUL",
         )
 
         assert detail.item_id == "238228"
@@ -832,6 +833,7 @@ class TestPydanticModels:
             exec_id="exec-456",
             rule_item_id=None,  # None value for optional field
             item_ver=1,
+            execution_status="SUCCESSFUL",
         )
 
         assert detail.item_id == "item-123"
@@ -1159,6 +1161,7 @@ class TestMergeExecutionData:
                 rows_scanned=1000,
                 rows_failed=50,
                 end_ts=1703505600000,
+                execution_status="SUCCESSFUL",
             )
         ]
 
@@ -1197,6 +1200,7 @@ class TestMergeExecutionData:
                 rows_scanned=1000,
                 rows_failed=50,
                 end_ts=1703505600000,
+                execution_status="SUCCESSFUL",
             ),
             ExecutionDetail(
                 item_id="item-456",
@@ -1206,6 +1210,7 @@ class TestMergeExecutionData:
                 rows_scanned=500,
                 rows_failed=10,
                 end_ts=1703505700000,
+                execution_status="SUCCESSFUL",
             ),
         ]
 
@@ -1253,6 +1258,7 @@ class TestMergeExecutionData:
                 rows_scanned=1000,
                 rows_failed=50,
                 end_ts=1703505600000,
+                execution_status="SUCCESSFUL",
             )
         ]
 
@@ -1283,6 +1289,7 @@ class TestMergeExecutionData:
                 rows_scanned=1000,
                 rows_failed=50,
                 end_ts=1703505600000,
+                execution_status="SUCCESSFUL",
             )
             for i in range(1, 6)
         ]
@@ -1478,6 +1485,7 @@ class TestExecutionMetricsService:
                 rows_scanned=1000,
                 rows_failed=50,
                 end_ts=1703505600000,
+                execution_status="SUCCESSFUL",
             )
         ]
         mock_policy_details.return_value = [

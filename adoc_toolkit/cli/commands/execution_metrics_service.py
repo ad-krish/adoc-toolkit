@@ -273,9 +273,6 @@ def process_execution_details_parallel(
     """
     execution_details = []
 
-    if execution.execution_status != "SUCCESSFUL":
-        return execution_details
-
     try:
         progress.update(
             task_id,
@@ -368,6 +365,7 @@ def process_execution_details_parallel(
                 exec_id=execution.execution_id,
                 start_ts=execution.start_ts,
                 end_ts=execution.end_ts,
+                execution_status=execution.execution_status,
             )
             execution_details.append(execution_detail)
 
@@ -583,107 +581,107 @@ def process_execution_details(
     processed_count = 0
 
     for execution in policy_executions:
-        if execution.execution_status == "SUCCESSFUL":
-            try:
-                progress.update(
-                    task_id,
-                    description=(
-                        f"Processing {execution.policy_type} execution "
-                        f"{processed_count + 1}..."
+        try:
+            progress.update(
+                task_id,
+                description=(
+                    f"Processing {execution.policy_type} execution "
+                    f"{processed_count + 1}..."
+                ),
+            )
+
+            # Build endpoint based on policy type
+            if execution.policy_type == "DATA_QUALITY":
+                endpoint = (
+                    f"/catalog-server/api/rules/data-quality/executions/"
+                    f"{execution.execution_id}"
+                )
+            elif execution.policy_type == "EQUALITY":
+                endpoint = (
+                    f"/catalog-server/api/rules/equality/executions/"
+                    f"{execution.execution_id}"
+                )
+            elif execution.policy_type == "DATA_DRIFT":
+                endpoint = (
+                    f"/catalog-server/api/rules/data-drift/executions/"
+                    f"{execution.execution_id}"
+                )
+            elif execution.policy_type == "PROFILE_ANOMALY":
+                endpoint = (
+                    f"/catalog-server/api/rules/profile-anomaly/executions/"
+                    f"{execution.execution_id}"
+                )
+            elif execution.policy_type == "SCHEMA_DRIFT":
+                endpoint = (
+                    f"/catalog-server/api/rules/schema-drift/executions/"
+                    f"{execution.execution_id}"
+                )
+            else:
+                log_error(f"Unsupported policy type: {execution.policy_type}")
+                continue
+
+            response = http_client.get(endpoint)
+
+            if not response.is_success:
+                log_error(
+                    f"Failed to fetch execution details for "
+                    f"{execution.execution_id}"
+                )
+                continue
+
+            exec_result_data = response.json()
+
+            for item in safe_get(exec_result_data, "items", []):
+                labels = safe_get(item, "labels", [])
+                pde_value = next(
+                    (
+                        safe_get(label, "value")
+                        for label in labels
+                        if safe_get(label, "key") == "PDE"
                     ),
+                    None,
                 )
 
-                # Build endpoint based on policy type
-                if execution.policy_type == "DATA_QUALITY":
-                    endpoint = (
-                        f"/catalog-server/api/rules/data-quality/executions/"
-                        f"{execution.execution_id}"
-                    )
-                elif execution.policy_type == "EQUALITY":
-                    endpoint = (
-                        f"/catalog-server/api/rules/equality/executions/"
-                        f"{execution.execution_id}"
-                    )
-                elif execution.policy_type == "DATA_DRIFT":
-                    endpoint = (
-                        f"/catalog-server/api/rules/data-drift/executions/"
-                        f"{execution.execution_id}"
-                    )
-                elif execution.policy_type == "PROFILE_ANOMALY":
-                    endpoint = (
-                        f"/catalog-server/api/rules/profile-anomaly/executions/"
-                        f"{execution.execution_id}"
-                    )
-                elif execution.policy_type == "SCHEMA_DRIFT":
-                    endpoint = (
-                        f"/catalog-server/api/rules/schema-drift/executions/"
-                        f"{execution.execution_id}"
-                    )
-                else:
-                    log_error(f"Unsupported policy type: {execution.policy_type}")
-                    continue
+                item_data = safe_get(item, "item", {})
+                item_labels = safe_get(item_data, "labels", [])
+                pde_label = next(
+                    (
+                        safe_get(label, "value")
+                        for label in item_labels
+                        if safe_get(label, "key") == "PDE"
+                    ),
+                    None,
+                )
 
-                response = http_client.get(endpoint)
+                rows_scanned = safe_get(item, "rowsScanned")
+                rule_result = safe_get(item, "result")
 
-                if not response.is_success:
-                    log_error(
-                        f"Failed to fetch execution details for "
-                        f"{execution.execution_id}"
-                    )
-                    continue
+                threshold_config = safe_get(item, "thresholdConfig", {})
 
-                exec_result_data = response.json()
+                execution_detail = ExecutionDetail(
+                    item_id=safe_get(item_data, "id", ""),
+                    item_column_name=safe_get(item_data, "columnName"),
+                    item_ver=safe_get(item_data, "ruleVersion", 1),
+                    pde_name=pde_value,
+                    pde=pde_label,
+                    item_measurement_type=safe_get(item_data, "measurementType"),
+                    rule_item_id=safe_get(item, "ruleItemId"),
+                    rule_strategy=safe_get(threshold_config, "strategy"),
+                    rule_lower_threshold=safe_get(threshold_config, "lower"),
+                    rule_upper_threshold=safe_get(threshold_config, "upper"),
+                    result=rule_result,
+                    rows_scanned=rows_scanned,
+                    rows_failed=calculate_failed_rows(rows_scanned, rule_result),
+                    exec_id=execution.execution_id,
+                    start_ts=execution.start_ts,
+                    end_ts=execution.end_ts,
+                    execution_status=execution.execution_status,
+                )
+                execution_details.append(execution_detail)
 
-                for item in safe_get(exec_result_data, "items", []):
-                    labels = safe_get(item, "labels", [])
-                    pde_value = next(
-                        (
-                            safe_get(label, "value")
-                            for label in labels
-                            if safe_get(label, "key") == "PDE"
-                        ),
-                        None,
-                    )
-
-                    item_data = safe_get(item, "item", {})
-                    item_labels = safe_get(item_data, "labels", [])
-                    pde_label = next(
-                        (
-                            safe_get(label, "value")
-                            for label in item_labels
-                            if safe_get(label, "key") == "PDE"
-                        ),
-                        None,
-                    )
-
-                    rows_scanned = safe_get(item, "rowsScanned")
-                    rule_result = safe_get(item, "result")
-
-                    threshold_config = safe_get(item, "thresholdConfig", {})
-
-                    execution_detail = ExecutionDetail(
-                        item_id=safe_get(item_data, "id", ""),
-                        item_column_name=safe_get(item_data, "columnName"),
-                        item_ver=safe_get(item_data, "ruleVersion", 1),
-                        pde_name=pde_value,
-                        pde=pde_label,
-                        item_measurement_type=safe_get(item_data, "measurementType"),
-                        rule_item_id=safe_get(item, "ruleItemId"),
-                        rule_strategy=safe_get(threshold_config, "strategy"),
-                        rule_lower_threshold=safe_get(threshold_config, "lower"),
-                        rule_upper_threshold=safe_get(threshold_config, "upper"),
-                        result=rule_result,
-                        rows_scanned=rows_scanned,
-                        rows_failed=calculate_failed_rows(rows_scanned, rule_result),
-                        exec_id=execution.execution_id,
-                        start_ts=execution.start_ts,
-                        end_ts=execution.end_ts,
-                    )
-                    execution_details.append(execution_detail)
-
-            except Exception as e:
-                log_error(f"Error processing execution {execution.execution_id}: {e}")
-                continue
+        except Exception as e:
+            log_error(f"Error processing execution {execution.execution_id}: {e}")
+            continue
 
         processed_count += 1
         if processed_count % 25 == 0:
@@ -888,8 +886,7 @@ def merge_execution_data(
                 finishedAt=exec_detail.end_ts,
                 finished_at=convert_timestamp_to_datetime(exec_detail.end_ts, timezone),
                 execution_date=convert_timestamp_to_datetime(exec_detail.end_ts, timezone),
-                # Only successful executions are processed
-                execution_status="SUCCESSFUL",
+                execution_status=exec_detail.execution_status,
                 policy_type=policy_detail.policy_type,
             )
             merged_records.append(record)
@@ -1263,19 +1260,14 @@ class ExecutionMetricsService(TraceableMixin):
         Returns:
             List of ExecutionDetail models
         """
-        # Filter to only successful executions
-        successful_executions = [
-            exec for exec in policy_executions if exec.execution_status == "SUCCESSFUL"
-        ]
-
-        if not successful_executions:
+        if not policy_executions:
             return []
 
         # Create thread-safe data collector
         data_collector = ThreadSafeDataCollector()
 
         # Determine number of workers (limit to avoid overwhelming the API)
-        max_workers = min(len(successful_executions), 10)
+        max_workers = min(len(policy_executions), 10)
 
         # Create progress tasks for parallel processing
         progress_tasks = {}
@@ -1313,12 +1305,12 @@ class ExecutionMetricsService(TraceableMixin):
             futures = []
 
             # Submit initial batch of tasks
-            while execution_index < len(successful_executions):
+            while execution_index < len(policy_executions):
                 worker_id = get_available_worker()
                 if worker_id is None:
                     break
 
-                execution = successful_executions[execution_index]
+                execution = policy_executions[execution_index]
                 task_name = f"exec_details_{worker_id}"
                 task_progress_id = progress_tasks[task_name]
 
@@ -1333,7 +1325,7 @@ class ExecutionMetricsService(TraceableMixin):
                 execution_index += 1
 
             # Process completed tasks and submit new ones
-            while futures or execution_index < len(successful_executions):
+            while futures or execution_index < len(policy_executions):
                 # Wait for at least one task to complete
                 if futures:
                     # Wait for any future to complete
@@ -1376,12 +1368,12 @@ class ExecutionMetricsService(TraceableMixin):
                             release_worker(worker_id)
 
                 # Submit new tasks if we have more executions to process
-                while execution_index < len(successful_executions):
+                while execution_index < len(policy_executions):
                     worker_id = get_available_worker()
                     if worker_id is None:
                         break
 
-                    execution = successful_executions[execution_index]
+                    execution = policy_executions[execution_index]
                     task_name = f"exec_details_{worker_id}"
                     task_progress_id = progress_tasks[task_name]
 
@@ -1404,7 +1396,7 @@ class ExecutionMetricsService(TraceableMixin):
         self.trace(
             "execution_details_parallel_completed",
             total_details=len(execution_details),
-            executions_processed=len(successful_executions),
+            executions_processed=len(policy_executions),
         )
 
         return execution_details
