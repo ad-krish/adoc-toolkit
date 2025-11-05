@@ -448,6 +448,29 @@ class TestServiceUtilities:
         result = convert_timestamp_to_datetime(-1000)
         assert result is None
 
+    def test_convert_timestamp_to_datetime_string_iso(self):
+        """Test that ISO string timestamps are converted correctly."""
+        # Test ISO format with Z suffix
+        result = convert_timestamp_to_datetime("2024-01-01T12:00:00Z", "UTC")
+        assert result is not None
+        assert result.year == 2024
+        assert result.month == 1
+        assert result.day == 1
+        assert result.hour == 12
+        
+        # Test ISO format with timezone
+        result2 = convert_timestamp_to_datetime("2024-01-01T12:00:00+00:00", "UTC")
+        assert result2 is not None
+        assert result2.year == 2024
+
+    def test_convert_timestamp_to_datetime_string_invalid(self):
+        """Test that invalid string timestamps return None."""
+        result = convert_timestamp_to_datetime("invalid-date", "UTC")
+        assert result is None
+        
+        result2 = convert_timestamp_to_datetime("", "UTC")
+        assert result2 is None
+
     def test_convert_timestamp_to_datetime_invalid(self):
         """Test timestamp conversion with invalid timestamp."""
         # Use a very large timestamp that would cause overflow

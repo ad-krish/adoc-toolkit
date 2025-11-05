@@ -15,6 +15,7 @@ from ...http import ADOCHTTPClient, HTTPError
 from ...logs import log_error, log_info
 from ...tracing import TraceableMixin, trace_method
 from .base import Command
+from .execution_metrics_service import convert_timestamp_to_datetime
 
 
 # Pure functional utilities
@@ -140,7 +141,7 @@ def preprocess_dataframe_for_format(df: pd.DataFrame, output_type: str) -> pd.Da
     numeric_columns = [
         "Quality Score",
         "Records Processed",
-        "Execution Duration (s)",
+        "Execution Duration (ms)",
         "Open Alerts",
         "Asset Quality Score",
         "Open Alert Count",
@@ -152,17 +153,31 @@ def preprocess_dataframe_for_format(df: pd.DataFrame, output_type: str) -> pd.Da
         if col in processed_df.columns:
             processed_df[col] = pd.to_numeric(processed_df[col], errors="coerce")
 
-    datetime_columns = ["Execution Date", "Alert Created At", "Alert Updated At"]
+    # Handle datetime columns with timezone suffixes (e.g., "Execution Date (UTC)")
+    # Find all datetime columns that match the pattern
+    datetime_column_patterns = ["Execution Date", "Alert Created At", "Alert Updated At"]
+    datetime_columns = [
+        col for col in processed_df.columns
+        if any(pattern in col for pattern in datetime_column_patterns)
+    ]
 
-    # Apply datetime conversion
+    # Apply datetime conversion and null replacement
     for col in datetime_columns:
         if col in processed_df.columns:
+            # Replace "null" string with actual None for proper datetime conversion
+            processed_df[col] = processed_df[col].replace("null", None)
             processed_df[col] = pd.to_datetime(processed_df[col], errors="coerce")
+            
             if output_type == "avro":
                 processed_df[col] = processed_df[col].apply(
                     lambda x: x.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
                     if pd.notna(x)
                     else None
+                )
+            elif output_type == "csv":
+                # Replace NaT and None with "null" for CSV output
+                processed_df[col] = processed_df[col].apply(
+                    lambda x: "null" if pd.isna(x) else x
                 )
 
     string_list_columns = ["Tags", "Open Alert ID", "Open Alert States"]
@@ -227,6 +242,7 @@ def extract_rule_data(
     rule: dict[str, Any],
     catalog_assets: dict[str, dict[str, Any]],
     alert_assets: dict[str, dict[str, Any]],
+    timezone: str = "UTC",
 ) -> dict[str, Any]:
     """Extract and format rule data into a record.
 
@@ -234,6 +250,7 @@ def extract_rule_data(
         rule: Rule data from API
         catalog_assets: Asset lookup dictionary
         alert_assets: Alert lookup dictionary
+        timezone: Timezone for datetime conversions (default: UTC)
 
     Returns:
         Formatted rule record
@@ -244,6 +261,10 @@ def extract_rule_data(
 
     asset_id = rule_info.get("backingAssets", [{}])[0].get("tableAssetId", "N/A")
     tags = {tag["name"] for tag in rule_info.get("tags", [])} or "N/A"
+    
+    # Convert execution timestamp to datetime in configured timezone
+    finished_at_raw = execution.get("finishedAt")
+    execution_date = convert_timestamp_to_datetime(finished_at_raw, timezone) if finished_at_raw not in ("N/A", None) else None
 
     record = {
         "Rule Name": rule_info.get("name", "N/A"),
@@ -251,10 +272,10 @@ def extract_rule_data(
         "Rule Type": rule_info.get("type", "N/A"),
         "Asset ID": asset_id,
         "Execution Status": execution.get("executionStatus", "NOT EXECUTED"),
-        "Execution Date": execution.get("finishedAt", "N/A"),
+        f"Execution Date ({timezone})": execution_date if execution_date else "null",
         "Quality Score": metrics.get("qualityScore", "N/A"),
         "Records Processed": metrics.get("totalRecordsProcessed", "N/A"),
-        "Execution Duration (s)": metrics.get("lastExecutionDuration", "N/A"),
+        "Execution Duration (ms)": metrics.get("lastExecutionDuration", "N/A"),
         "Open Alerts": metrics.get("openAlertsCount", "N/A"),
         "Tags": str(tags) if tags != "N/A" else "N/A",
     }
@@ -276,12 +297,19 @@ def extract_rule_data(
 
     # Add alert information if available
     if alert := alert_assets.get(asset_id):
+        # Convert alert timestamps to datetime in configured timezone
+        created_at_raw = alert.get("createdAt")
+        updated_at_raw = alert.get("updatedAt")
+        
+        created_at = convert_timestamp_to_datetime(created_at_raw, timezone) if created_at_raw not in ("N/A", None) else None
+        updated_at = convert_timestamp_to_datetime(updated_at_raw, timezone) if updated_at_raw not in ("N/A", None) else None
+        
         record.update(
             {
                 "Alert ID": alert.get("id", "N/A"),
                 "Alert Total Count": alert.get("totalCount", "N/A"),
-                "Alert Created At": alert.get("createdAt", "N/A"),
-                "Alert Updated At": alert.get("updatedAt", "N/A"),
+                f"Alert Created At ({timezone})": created_at if created_at else "null",
+                f"Alert Updated At ({timezone})": updated_at if updated_at else "null",
                 "Alert Status": alert.get("status", "N/A"),
                 "Alert Assignee": alert.get("assignee", "N/A"),
                 "Alert Updated By": alert.get("updatedBy", "N/A"),
@@ -292,11 +320,12 @@ def extract_rule_data(
     return record
 
 
-def process_metrics_data(data: dict[str, Any]) -> list[dict[str, Any]]:
+def process_metrics_data(data: dict[str, Any], timezone: str = "UTC") -> list[dict[str, Any]]:
     """Process and combine the fetched data into report records.
 
     Args:
         data: Raw data from API endpoints
+        timezone: Timezone for datetime conversions (default: UTC)
 
     Returns:
         List of processed report records
@@ -319,7 +348,7 @@ def process_metrics_data(data: dict[str, Any]) -> list[dict[str, Any]]:
 
     # Process each rule
     report_data = [
-        extract_rule_data(rule, catalog_assets, alert_assets)
+        extract_rule_data(rule, catalog_assets, alert_assets, timezone)
         for rule in rules
     ]
 
@@ -775,6 +804,11 @@ Examples:
             http_client = ADOCHTTPClient(
                 environment_info_callback=self._get_environment_info
             )
+            
+            # Get timezone from environment configuration
+            env_info = self._get_environment_info()
+            timezone = env_info.get("timezone", "UTC") if env_info else "UTC"
+            self.trace("using_timezone", timezone=timezone)
 
             # Log the export operation start
             self.trace(
@@ -802,8 +836,8 @@ Examples:
 
                 # Process data using functional approach
                 progress.update(task, description="Processing and combining data...")
-                self.trace("starting_data_processing", raw_data_keys=list(data.keys()))
-                report_data = process_metrics_data(data)
+                self.trace("starting_data_processing", raw_data_keys=list(data.keys()), timezone=timezone)
+                report_data = process_metrics_data(data, timezone)
 
                 # Create DataFrame
                 progress.update(task, description="Creating DataFrame...")

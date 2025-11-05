@@ -108,7 +108,7 @@ environments:
 **⚠️ Important**: Use full IANA timezone names (e.g., `Asia/Kolkata`), **not** abbreviations (e.g., `IST`, `PST`, `EST`). Abbreviations are ambiguous and not supported.
 
 **What Gets Affected**:
-- 📊 **Exported Data**: Column headers include timezone (e.g., `execution_date (UTC)` or `execution_date (Asia/Kolkata)`)
+- 📊 **Exported Data**: Column headers include timezone (e.g., `execution_date (UTC)` or `execution_date (Asia/Kolkata)`) in both `export-execution-metrics` and `export-metrics` commands
 - 📁 **Tracking Files**: Timestamps in `.last_run_tracking.json` use configured timezone
 - ⏰ **All DateTime Fields**: Automatically converted to your configured timezone
 

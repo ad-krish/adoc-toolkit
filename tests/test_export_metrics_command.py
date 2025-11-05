@@ -390,7 +390,7 @@ class TestExportMetricsCommand:
                         },
                         "execution": {
                             "executionStatus": "SUCCESS",
-                            "finishedAt": "2024-01-01T12:00:00Z",
+                            "finishedAt": 1704110400000,  # 2024-01-01T12:00:00Z in milliseconds
                         },
                         "executionMetrics": {
                             "qualityScore": 90,
@@ -410,6 +410,8 @@ class TestExportMetricsCommand:
         assert record["Asset ID"] == "asset1"
         assert record["Asset Name"] == "Test Asset"
         assert record["Quality Score"] == 90
+        # Verify timezone suffix is added to datetime column
+        assert "Execution Date (UTC)" in record
 
     def test_export_data_csv(self):
         """Test CSV export functionality."""
@@ -807,3 +809,94 @@ class TestExportMetricsCommand:
                             assert result is True
                             # The warning should be printed to stdout
                             # (captured in pytest output)
+
+    def test_timezone_support_in_process_metrics_data(self):
+        """Test that timezone parameter is correctly used in process_metrics_data."""
+        # Create mock data with timestamps
+        data = {
+            "catalog": [
+                {
+                    "id": "asset-1",
+                    "name": "Test Asset",
+                    "assetUid": "test-uid-1",
+                    "sourceType": "Test Source",
+                    "assetType": "Table",
+                    "qualityScore": 95.5,
+                    "openAlertCount": 2,
+                }
+            ],
+            "dq_policies": [
+                {
+                    "rule": {
+                        "id": "rule-1",
+                        "name": "Test Rule",
+                        "type": "completeness",
+                        "backingAssets": [{"tableAssetId": "asset-1"}],
+                        "tags": [],
+                    },
+                    "execution": {
+                        "executionStatus": "SUCCESS",
+                        "finishedAt": 1698768000000,  # Nov 1, 2023, 00:00:00 UTC
+                    },
+                    "executionMetrics": {
+                        "qualityScore": 98.5,
+                        "totalRecordsProcessed": 1000,
+                        "lastExecutionDuration": 120,
+                        "openAlertsCount": 1,
+                    },
+                }
+            ],
+            "alerts": {"items": []},
+        }
+
+        # Test with UTC timezone (default)
+        result_utc = process_metrics_data(data, timezone="UTC")
+        assert len(result_utc) == 1
+        assert "Execution Date (UTC)" in result_utc[0]
+        assert result_utc[0]["Execution Date (UTC)"] is not None
+
+        # Test with different timezone
+        result_ist = process_metrics_data(data, timezone="Asia/Kolkata")
+        assert len(result_ist) == 1
+        assert "Execution Date (Asia/Kolkata)" in result_ist[0]
+        assert result_ist[0]["Execution Date (Asia/Kolkata)"] is not None
+        
+        # Verify the column name includes timezone
+        assert "Execution Date (Asia/Kolkata)" in result_ist[0]
+
+    def test_timezone_support_with_null_dates(self):
+        """Test that null dates are correctly handled with timezone support."""
+        # Create mock data with null/missing timestamps
+        data = {
+            "catalog": [
+                {
+                    "id": "asset-1",
+                    "name": "Test Asset",
+                    "assetUid": "test-uid-1",
+                    "sourceType": "Test Source",
+                    "assetType": "Table",
+                }
+            ],
+            "dq_policies": [
+                {
+                    "rule": {
+                        "id": "rule-1",
+                        "name": "Test Rule",
+                        "type": "completeness",
+                        "backingAssets": [{"tableAssetId": "asset-1"}],
+                        "tags": [],
+                    },
+                    "execution": {
+                        "executionStatus": "NOT EXECUTED",
+                        "finishedAt": None,  # Null timestamp
+                    },
+                    "executionMetrics": {},
+                }
+            ],
+            "alerts": {"items": []},
+        }
+
+        result = process_metrics_data(data, timezone="UTC")
+        assert len(result) == 1
+        assert "Execution Date (UTC)" in result[0]
+        assert result[0]["Execution Date (UTC)"] == "null"

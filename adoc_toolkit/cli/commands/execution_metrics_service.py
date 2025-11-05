@@ -85,30 +85,48 @@ def get_current_datetime(timezone: str = "UTC") -> datetime:
 
 
 def convert_timestamp_to_datetime(
-    timestamp: int | None, timezone: str = "UTC"
+    timestamp: int | str | None, timezone: str = "UTC"
 ) -> datetime | None:
-    """Convert millisecond timestamp to datetime in specified timezone.
+    """Convert millisecond timestamp or ISO string to datetime in specified timezone.
 
     Args:
-        timestamp: Timestamp in milliseconds
+        timestamp: Timestamp in milliseconds (int) or ISO format string (str)
         timezone: Timezone name (e.g., UTC, US/Eastern, Asia/Kolkata)
 
     Returns:
         Datetime object in specified timezone or None
     """
-    # Return None for missing, zero, or invalid timestamps
-    if timestamp is None or timestamp <= 0:
+    # Return None for missing timestamps
+    if timestamp is None:
         return None
     
     try:
-        # Convert from milliseconds to seconds and create UTC datetime
-        try:
-            from zoneinfo import ZoneInfo
-            dt_utc = datetime.fromtimestamp(timestamp / 1000, tz=ZoneInfo("UTC"))
-        except ImportError:
-            import pytz
-            dt_utc = datetime.utcfromtimestamp(timestamp / 1000)
-            dt_utc = pytz.UTC.localize(dt_utc)
+        # Handle string timestamps (ISO format)
+        if isinstance(timestamp, str):
+            # Try parsing as ISO format datetime string
+            dt_utc = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            if dt_utc.tzinfo is None:
+                # Assume UTC if no timezone info
+                try:
+                    from zoneinfo import ZoneInfo
+                    dt_utc = dt_utc.replace(tzinfo=ZoneInfo("UTC"))
+                except ImportError:
+                    import pytz
+                    dt_utc = pytz.UTC.localize(dt_utc)
+        else:
+            # Handle numeric timestamps
+            # Return None for zero or invalid timestamps
+            if timestamp <= 0:
+                return None
+            
+            # Convert from milliseconds to seconds and create UTC datetime
+            try:
+                from zoneinfo import ZoneInfo
+                dt_utc = datetime.fromtimestamp(timestamp / 1000, tz=ZoneInfo("UTC"))
+            except ImportError:
+                import pytz
+                dt_utc = datetime.utcfromtimestamp(timestamp / 1000)
+                dt_utc = pytz.UTC.localize(dt_utc)
         
         # If timezone is not UTC, convert to target timezone
         if timezone != "UTC":
@@ -120,7 +138,7 @@ def convert_timestamp_to_datetime(
         
         # Return UTC datetime without tzinfo for consistency
         return dt_utc.replace(tzinfo=None)
-    except (ValueError, OSError):
+    except (ValueError, OSError, AttributeError):
         return None
 
 
