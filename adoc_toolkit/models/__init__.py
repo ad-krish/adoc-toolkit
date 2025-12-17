@@ -12,6 +12,7 @@ from .execution_metrics_models import (
     LastRunInfo,
     PolicyDetail,
     PolicyExecution,
+    ReconciliationRecord,
 )
 from .get_command_args import APIEndpoint, APIReference, GetCommandArgs, QueryParameter
 from .llm_config import LLMConfig, LLMVendor
@@ -62,6 +63,7 @@ __all__ = [
     "ExecutionDetail",
     "PolicyDetail",
     "ExecutionMetricsRecord",
+    "ReconciliationRecord",
     "LastRunInfo",
     "ExecutionMetricsArgs",
 ]

@@ -712,6 +712,67 @@ Examples:
                 progress.update(
                     export_task, description="Export completed!", completed=True
                 )
+                
+                # Export reconciliation records separately if available
+                reconciliation_records = getattr(service, '_reconciliation_records', [])
+                if reconciliation_records:
+                    recon_task = progress.add_task(
+                        "📊 Exporting reconciliation records...", total=None
+                    )
+                    self.trace(
+                        "starting_reconciliation_export",
+                        records_count=len(reconciliation_records),
+                    )
+                    
+                    # Create DataFrame for reconciliation records
+                    recon_df_data = [record.model_dump() for record in reconciliation_records]
+                    recon_df = pd.DataFrame(recon_df_data)
+                    
+                    # Rename Rows_Failed to Rows_Failed/Drift if any records have Row_Count_Match
+                    # The column will contain drift for Row_Count_Match and failedRows for Equality_Match
+                    if "Recon_Type" in recon_df.columns and "Rows_Failed" in recon_df.columns:
+                        row_count_match_mask = recon_df["Recon_Type"] == "Row_Count_Match"
+                        if row_count_match_mask.any():
+                            # Rename the column for all records
+                            recon_df.rename(columns={"Rows_Failed": "Rows_Failed/Drift"}, inplace=True)
+                    
+                    # Rename columns to match user requirements (with parentheses)
+                    column_rename_map = {
+                        "Result_Percentage": "Result(Percentage)",
+                        "Started_At_UTC": "Started_At(UTC)",
+                        "Finished_At_UTC": "Finished_At(UTC)",
+                        "Execution_Date_UTC": "Execution_Date(UTC)",
+                    }
+                    recon_df.rename(columns=column_rename_map, inplace=True)
+                    
+                    # Generate reconciliation filename
+                    recon_filename = generate_execution_metrics_filename(
+                        "reconciliation-metrics-%d-%m-%y-%h-%M",
+                        args_model.output_type,
+                        env_name,
+                    )
+                    recon_output_path = output_dir / recon_filename
+                    
+                    # Export reconciliation data
+                    export_execution_metrics_to_format(
+                        recon_df, recon_output_path, args_model.output_type
+                    )
+                    
+                    progress.update(
+                        recon_task, description="Reconciliation export completed!", completed=True
+                    )
+                    
+                    console.print(
+                        f"✅ Successfully exported {len(recon_df)} reconciliation records to "
+                        f"{recon_output_path}",
+                        style="green",
+                    )
+                    
+                    self.trace(
+                        "reconciliation_export_completed",
+                        records_count=len(recon_df),
+                        output_file=str(recon_output_path),
+                    )
 
                 # Update tracking information using checkpoint captured at START
                 # This prevents data loss from jobs that complete during processing

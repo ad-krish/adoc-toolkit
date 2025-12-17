@@ -200,6 +200,42 @@ class ExecutionMetricsRecord(BaseModel):
     policy_type: str = Field(description="Policy type")
 
 
+class ReconciliationRecord(BaseModel):
+    """Model for reconciliation (EQUALITY) specific export record."""
+
+    Policy_Name: str = Field(description="Policy name from execution.ruleName")
+    Policy_ID: str = Field(description="Policy ID from execution.ruleId")
+    Rule_Version: int = Field(description="Rule version from execution.ruleVersion")
+    Execution_ID: str = Field(description="Execution ID from execution.id")
+    Left_Column: str | None = Field(default=None, description="Left column name from items.columnMapping.leftColumnName")
+    Right_Column: str | None = Field(default=None, description="Right column name from items.columnMapping.rightColumnName")
+    Rule_ID: str = Field(description="Rule item ID from items.ruleItemId")
+    Recon_Type: str | None = Field(default=None, description="Reconciliation type based on dimension (Equality_Match or Row_Count_Match)")
+    Result_Percentage: float | None = Field(default=None, description="Result percentage from items.resultPercent")
+    Total_Rows: int | None = Field(default=None, description="Total rows from result.rows")
+    Rows_Failed: int | None = Field(default=None, description="Failed rows from result.failedRows or drift for Row_Count_Match")
+    Left_Rows_Scanned: int | str | None = Field(default=None, description="Left rows scanned from result.leftRowsScanned (only for Row_Count_Match)")
+    Right_Rows_Scanned: int | str | None = Field(default=None, description="Right rows scanned from result.rightRowsScanned (only for Row_Count_Match)")
+    Use_For_Joining: str | None = Field(default=None, description="Use for joining from details.columnMappings.useForJoining")
+    Policy_Description: str | None = Field(default=None, description="Policy description from rule.description")
+    Rule_Description: str | None = Field(default=None, description="Rule description from details.columnMappings.businessExplanation")
+    Left_ASSET_UID: str | None = Field(default=None, description="Left asset UID from rule.leftBackingAsset.tableAssetId")
+    Right_ASSET_UID: str | None = Field(default=None, description="Right asset UID from rule.rightBackingAsset.tableAssetId")
+    Join_Type: str | None = Field(default=None, description="Join type from details.joinType")
+    Started_At_UTC: datetime | None = Field(default=None, description="Start time from execution.startedAt")
+    Finished_At_UTC: datetime | None = Field(default=None, description="Finish time from execution.finishedAt")
+    Execution_Date_UTC: datetime | None = Field(default=None, description="Execution date from execution.finishedAt")
+    Execution_Status: str = Field(description="Execution status from execution.executionStatus")
+    Result_Status: str | None = Field(default=None, description="Result status from execution.resultStatus")
+    Policy_Type: str = Field(description="Policy type from execution.ruleType")
+
+    @field_validator("Policy_ID", "Execution_ID", "Rule_ID", mode="before")
+    @classmethod
+    def validate_id_fields(cls, v: Any) -> str:
+        """Convert integer IDs to strings."""
+        return str(v)
+
+
 class LastRunInfo(BaseModel):
     """Model for tracking last run information."""
 
