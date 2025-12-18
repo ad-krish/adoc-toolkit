@@ -11,7 +11,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 
 from ...http import ADOCHTTPClient, HTTPError
 from ...logs import log_error, log_info
-from ...models import ExecutionMetricsArgs, LastRunInfo
+from ...models import ExecutionMetricsArgs, ExecutionMetricsRecord, LastRunInfo, ReconciliationRecord
 from ...tracing import TraceableMixin, trace_method
 from .base import Command
 from .execution_metrics_service import ExecutionMetricsService, get_current_datetime, get_timezone
@@ -216,6 +216,74 @@ def check_execution_metrics_dependencies(output_type: str) -> tuple[bool, str | 
                 "with: uv add pyarrow"
             )
     return True, None
+
+
+def convert_reconciliation_to_execution_metrics(
+    recon_record: ReconciliationRecord,
+) -> ExecutionMetricsRecord:
+    """Convert ReconciliationRecord to ExecutionMetricsRecord format for consolidated export.
+    
+    Args:
+        recon_record: ReconciliationRecord to convert
+        
+    Returns:
+        ExecutionMetricsRecord with standardized column names
+    """
+    # Map ReconciliationRecord fields to ExecutionMetricsRecord fields
+    # Standardize: Recon_Type -> item_measurement_type, Result_Percentage -> result
+    return ExecutionMetricsRecord(
+        policy_name=recon_record.Policy_Name,
+        policy_id=recon_record.Policy_ID,
+        rule_version=recon_record.Rule_Version,
+        exec_id=recon_record.Execution_ID,  # Standardized: Execution_ID
+        table_asset_name=None,  # Not available in reconciliation
+        item_column_name=None,  # Use Left_Column/Right_Column separately if needed
+        pde=None,  # Not available in reconciliation
+        item_measurement_type=recon_record.Recon_Type,  # Map Recon_Type to item_measurement_type
+        rule_strategy=None,  # Not available in reconciliation
+        rule_lower_threshold=None,  # Not available in reconciliation
+        rule_upper_threshold=None,  # Not available in reconciliation
+        item_id=recon_record.Rule_ID,  # Standardized: Rule_ID
+        result=str(recon_record.Result_Percentage) if recon_record.Result_Percentage is not None else None,
+        rows_scanned=None,  # Use Total_Rows or Left_Rows_Scanned/Right_Rows_Scanned separately
+        rows_failed=recon_record.Rows_Failed,
+        startedAt=None,  # Will be excluded from export
+        started_at=recon_record.Started_At_UTC,
+        finishedAt=None,  # Will be excluded from export
+        finished_at=recon_record.Finished_At_UTC,
+        execution_date=recon_record.Execution_Date_UTC,
+        execution_status=recon_record.Execution_Status,
+        policy_type=recon_record.Policy_Type,
+        policy_enabled=recon_record.Policy_Enabled,
+        label_key=recon_record.Label_Key,
+        label_value=recon_record.Label_Value,
+    )
+
+
+def convert_column_names_to_title_case(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert all column names to Title Case (first letter of each word capitalized).
+    
+    Args:
+        df: DataFrame with column names to convert
+        
+    Returns:
+        DataFrame with converted column names
+    """
+    new_columns = {}
+    for col in df.columns:
+        # Handle columns with timezone info like "started_at (UTC)"
+        if " (" in col:
+            base_name, tz_info = col.rsplit(" (", 1)
+            tz_info = "(" + tz_info  # Restore the parenthesis
+            # Convert base name to title case
+            title_base = "_".join(word.capitalize() for word in base_name.split("_"))
+            new_columns[col] = f"{title_base} {tz_info}"
+        else:
+            # Convert snake_case to Title_Case
+            new_columns[col] = "_".join(word.capitalize() for word in col.split("_"))
+    
+    df_renamed = df.rename(columns=new_columns)
+    return df_renamed
 
 
 def preprocess_execution_metrics_dataframe(
@@ -657,20 +725,154 @@ Examples:
 
                 # Create DataFrame
                 progress_task = progress.add_task("Creating DataFrame...", total=None)
-                self.trace("creating_dataframe", records_count=len(execution_records))
-
-                # Convert Pydantic models to dictionaries for DataFrame
-                # Exclude epoch timestamp columns (startedAt, finishedAt) - keep only human-readable dates
-                df_data = [record.model_dump(exclude={"startedAt", "finishedAt"}) for record in execution_records]
-                df = pd.DataFrame(df_data)
                 
-                # Add timezone info to datetime column headers
-                datetime_columns = ["started_at", "finished_at", "execution_date"]
-                for col in datetime_columns:
-                    if col in df.columns:
-                        # Rename column to include timezone (e.g., "started_at (UTC)")
-                        new_col_name = f"{col} ({timezone})"
-                        df.rename(columns={col: new_col_name}, inplace=True)
+                # Get reconciliation records
+                reconciliation_records = getattr(service, '_reconciliation_records', [])
+                
+                # Create separate DataFrames for execution records and reconciliation records
+                # to preserve ALL columns from both
+                
+                # Convert execution records to DataFrame (exclude epoch timestamps)
+                exec_df_data = [record.model_dump(exclude={"startedAt", "finishedAt"}) for record in execution_records]
+                exec_df = pd.DataFrame(exec_df_data) if exec_df_data else pd.DataFrame()
+                
+                # Convert reconciliation records to DataFrame (keep all columns)
+                recon_df_data = [record.model_dump() for record in reconciliation_records]
+                recon_df_raw = pd.DataFrame(recon_df_data) if recon_df_data else pd.DataFrame()
+                
+                # Process execution records DataFrame
+                if not exec_df.empty:
+                    # Add timezone info to datetime column headers
+                    datetime_columns = ["started_at", "finished_at", "execution_date"]
+                    for col in datetime_columns:
+                        if col in exec_df.columns:
+                            new_col_name = f"{col} ({timezone})"
+                            exec_df.rename(columns={col: new_col_name}, inplace=True)
+                    
+                    # Convert all column names to Title Case
+                    exec_df = convert_column_names_to_title_case(exec_df)
+                    
+                    # Standardize datetime column format to use (UTC) without space
+                    datetime_rename_map = {
+                        "Started_At (UTC)": "Started_At(UTC)",
+                        "Finished_At (UTC)": "Finished_At(UTC)",
+                        "Execution_Date (UTC)": "Execution_Date(UTC)",
+                    }
+                    exec_df.rename(columns=datetime_rename_map, inplace=True)
+                    
+                    # Standardize column names
+                    if "Exec_Id" in exec_df.columns:
+                        exec_df.rename(columns={"Exec_Id": "Execution_ID"}, inplace=True)
+                    if "Policy_Id" in exec_df.columns:
+                        exec_df.rename(columns={"Policy_Id": "Policy_ID"}, inplace=True)
+                    if "Item_Id" in exec_df.columns:
+                        exec_df.rename(columns={"Item_Id": "Rule_ID"}, inplace=True)
+                    if "Result" in exec_df.columns:
+                        exec_df.rename(columns={"Result": "Rule_Success_Rate"}, inplace=True)
+                    # Rename Overall_Policy_Quality_Score to Overall_Policy_Quality_Score(Percentage)
+                    if "Overall_Policy_Quality_Score" in exec_df.columns:
+                        exec_df.rename(columns={"Overall_Policy_Quality_Score": "Overall_Policy_Quality_Score(Percentage)"}, inplace=True)
+                    # Rename Result_Status to Rule_Result_Status
+                    if "Result_Status" in exec_df.columns:
+                        exec_df.rename(columns={"Result_Status": "Rule_Result_Status"}, inplace=True)
+                
+                # Process reconciliation records DataFrame
+                if not recon_df_raw.empty:
+                    # Rename Recon_Type to Item_Measurement_Type
+                    if "Recon_Type" in recon_df_raw.columns:
+                        recon_df_raw.rename(columns={"Recon_Type": "Item_Measurement_Type"}, inplace=True)
+                    
+                    # Rename datetime columns to match standardized format
+                    recon_datetime_map = {
+                        "Started_At_UTC": "Started_At(UTC)",
+                        "Finished_At_UTC": "Finished_At(UTC)",
+                        "Execution_Date_UTC": "Execution_Date(UTC)",
+                    }
+                    recon_df_raw.rename(columns=recon_datetime_map, inplace=True)
+                    
+                    # Rename Result_Percentage to Rule_Success_Rate
+                    if "Result_Percentage" in recon_df_raw.columns:
+                        recon_df_raw.rename(columns={"Result_Percentage": "Rule_Success_Rate"}, inplace=True)
+                    # Rename Overall_Policy_Quality_Score to Overall_Policy_Quality_Score(Percentage)
+                    if "Overall_Policy_Quality_Score" in recon_df_raw.columns:
+                        recon_df_raw.rename(columns={"Overall_Policy_Quality_Score": "Overall_Policy_Quality_Score(Percentage)"}, inplace=True)
+                    # Rename Result_Status to Rule_Result_Status
+                    if "Result_Status" in recon_df_raw.columns:
+                        recon_df_raw.rename(columns={"Result_Status": "Rule_Result_Status"}, inplace=True)
+                
+                # Merge both DataFrames to include ALL columns from both
+                # This will create a DataFrame with all columns, with NaN for missing values
+                if not exec_df.empty and not recon_df_raw.empty:
+                    df = pd.concat([exec_df, recon_df_raw], ignore_index=True, sort=False)
+                elif not exec_df.empty:
+                    df = exec_df.copy()
+                elif not recon_df_raw.empty:
+                    df = recon_df_raw.copy()
+                else:
+                    df = pd.DataFrame()
+                
+                self.trace("creating_dataframe", records_count=len(df), exec_records=len(execution_records), recon_records=len(reconciliation_records))
+                
+                # Remove PDE column if it exists
+                if "Pde" in df.columns:
+                    df = df.drop(columns=["Pde"])
+                
+                # Fill unique columns with "NOT_APPLICABLE" based on policy type
+                if not df.empty and "Policy_Type" in df.columns:
+                    # Reconciliation-specific columns (should be NOT_APPLICABLE for DATA_QUALITY)
+                    # Note: Policy_Description and Rule_Description are applicable for both DATA_QUALITY and RECONCILIATION
+                    recon_unique_columns = [
+                        "Left_Column", "Right_Column", "Left_Rows_Scanned", "Right_Rows_Scanned",
+                        "Use_For_Joining", "Left_ASSET_UID", "Right_ASSET_UID", "Join_Type", "Operation"
+                    ]
+                    
+                    # For DATA_QUALITY records, set reconciliation-specific columns to NOT_APPLICABLE
+                    dq_mask = df["Policy_Type"] == "DATA_QUALITY"
+                    for col in recon_unique_columns:
+                        if col in df.columns:
+                            # Fill NaN values with NOT_APPLICABLE for DATA_QUALITY records
+                            df.loc[dq_mask & df[col].isna(), col] = "NOT_APPLICABLE"
+                    
+                    # For RECONCILIATION (EQUALITY) records, set DATA_QUALITY-specific columns to NOT_APPLICABLE
+                    # Note: Most columns are shared, but any columns that only exist in DATA_QUALITY
+                    # should be set to NOT_APPLICABLE for RECONCILIATION records
+                    recon_mask = df["Policy_Type"] == "EQUALITY"
+                    # Get all columns that exist in the DataFrame
+                    all_columns = df.columns.tolist()
+                    # Find columns that are not in reconciliation unique columns and not common columns
+                    # These might be DATA_QUALITY-specific
+                    common_columns = [
+                        "Policy_Name", "Policy_ID", "Rule_Version", "Execution_ID", "Rule_ID",
+                        "Item_Measurement_Type", "Rule_Success_Rate", "Rows_Scanned", "Rows_Failed",
+                        "Started_At(UTC)", "Finished_At(UTC)", "Execution_Date(UTC)", "Execution_Status",
+                        "Rule_Result_Status", "Overall_Policy_Status", "Overall_Policy_Quality_Score(Percentage)",
+                        "Policy_Type", "Policy_Enabled", "Label_Key", "Label_Value"
+                    ]
+                    # For any column that's not common and not reconciliation-specific, 
+                    # set to NOT_APPLICABLE for RECONCILIATION records
+                    for col in all_columns:
+                        if col not in recon_unique_columns and col not in common_columns and col != "Policy_Type":
+                            if col in df.columns:
+                                df.loc[recon_mask & df[col].isna(), col] = "NOT_APPLICABLE"
+                
+                # Reorder columns: put Label_Key and Label_Value right after Rule_ID
+                if "Rule_ID" in df.columns:
+                    cols = list(df.columns)
+                    # Remove Label_Key and Label_Value if they exist
+                    label_cols = []
+                    if "Label_Key" in cols:
+                        cols.remove("Label_Key")
+                        label_cols.append("Label_Key")
+                    if "Label_Value" in cols:
+                        cols.remove("Label_Value")
+                        label_cols.append("Label_Value")
+                    
+                        # Find Rule_ID position and insert Label_Key and Label_Value after it
+                        if label_cols and "Rule_ID" in cols:
+                            rule_id_idx = cols.index("Rule_ID")
+                            # Insert after Rule_ID
+                            cols = cols[:rule_id_idx + 1] + label_cols + cols[rule_id_idx + 1:]
+                            df = df[cols]
 
                 progress.update(
                     progress_task, description="DataFrame created", completed=True
@@ -713,6 +915,115 @@ Examples:
                     export_task, description="Export completed!", completed=True
                 )
                 
+                # Export DATA_QUALITY records separately if available
+                dq_records = [record for record in execution_records if record.policy_type == "DATA_QUALITY"]
+                if dq_records:
+                    dq_task = progress.add_task(
+                        "📊 Exporting DATA_QUALITY records...", total=None
+                    )
+                    self.trace(
+                        "starting_data_quality_export",
+                        records_count=len(dq_records),
+                    )
+                    
+                    # Create DataFrame for DATA_QUALITY records
+                    # Exclude epoch timestamp columns (startedAt, finishedAt) - keep only human-readable dates
+                    dq_df_data = [record.model_dump(exclude={"startedAt", "finishedAt"}) for record in dq_records]
+                    dq_df = pd.DataFrame(dq_df_data)
+                    
+                    # Add timezone info to datetime column headers
+                    datetime_columns = ["started_at", "finished_at", "execution_date"]
+                    for col in datetime_columns:
+                        if col in dq_df.columns:
+                            new_col_name = f"{col} ({timezone})"
+                            dq_df.rename(columns={col: new_col_name}, inplace=True)
+                    
+                    # Convert all column names to Title Case
+                    dq_df = convert_column_names_to_title_case(dq_df)
+                    
+                    # Standardize datetime column format to use (UTC) without space
+                    datetime_rename_map = {
+                        "Started_At (UTC)": "Started_At(UTC)",
+                        "Finished_At (UTC)": "Finished_At(UTC)",
+                        "Execution_Date (UTC)": "Execution_Date(UTC)",
+                    }
+                    dq_df.rename(columns=datetime_rename_map, inplace=True)
+                    
+                    # Standardize column names for DATA_QUALITY
+                    # Exec_Id → Execution_ID
+                    if "Exec_Id" in dq_df.columns:
+                        dq_df.rename(columns={"Exec_Id": "Execution_ID"}, inplace=True)
+                    # Policy_Id → Policy_ID
+                    if "Policy_Id" in dq_df.columns:
+                        dq_df.rename(columns={"Policy_Id": "Policy_ID"}, inplace=True)
+                    # Item_Id → Rule_ID
+                    if "Item_Id" in dq_df.columns:
+                        dq_df.rename(columns={"Item_Id": "Rule_ID"}, inplace=True)
+                    
+                    # Standardize Result column to Rule_Success_Rate for DATA_QUALITY
+                    if "Result" in dq_df.columns:
+                        dq_df.rename(columns={"Result": "Rule_Success_Rate"}, inplace=True)
+                    
+                    # Rename Overall_Policy_Quality_Score to Overall_Policy_Quality_Score(Percentage)
+                    if "Overall_Policy_Quality_Score" in dq_df.columns:
+                        dq_df.rename(columns={"Overall_Policy_Quality_Score": "Overall_Policy_Quality_Score(Percentage)"}, inplace=True)
+                    
+                    # Rename Result_Status to Rule_Result_Status
+                    if "Result_Status" in dq_df.columns:
+                        dq_df.rename(columns={"Result_Status": "Rule_Result_Status"}, inplace=True)
+                    
+                    # Remove PDE column if it exists
+                    if "Pde" in dq_df.columns:
+                        dq_df = dq_df.drop(columns=["Pde"])
+                    
+                    # Reorder columns: put Label_Key and Label_Value right after Rule_ID
+                    if "Rule_ID" in dq_df.columns:
+                        cols = list(dq_df.columns)
+                        # Remove Label_Key and Label_Value if they exist
+                        label_cols = []
+                        if "Label_Key" in cols:
+                            cols.remove("Label_Key")
+                            label_cols.append("Label_Key")
+                        if "Label_Value" in cols:
+                            cols.remove("Label_Value")
+                            label_cols.append("Label_Value")
+                        
+                        # Find Rule_ID position and insert Label_Key and Label_Value after it
+                        if label_cols and "Rule_ID" in cols:
+                            rule_id_idx = cols.index("Rule_ID")
+                            # Insert after Rule_ID
+                            cols = cols[:rule_id_idx + 1] + label_cols + cols[rule_id_idx + 1:]
+                            dq_df = dq_df[cols]
+                    
+                    # Generate DATA_QUALITY filename
+                    dq_filename = generate_execution_metrics_filename(
+                        "data-quality-metrics-%d-%m-%y-%h-%M",
+                        args_model.output_type,
+                        env_name,
+                    )
+                    dq_output_path = output_dir / dq_filename
+                    
+                    # Export DATA_QUALITY data
+                    export_execution_metrics_to_format(
+                        dq_df, dq_output_path, args_model.output_type
+                    )
+                    
+                    progress.update(
+                        dq_task, description="DATA_QUALITY export completed!", completed=True
+                    )
+                    
+                    console.print(
+                        f"✅ Successfully exported {len(dq_df)} DATA_QUALITY records to "
+                        f"{dq_output_path}",
+                        style="green",
+                    )
+                    
+                    self.trace(
+                        "data_quality_export_completed",
+                        records_count=len(dq_df),
+                        output_file=str(dq_output_path),
+                    )
+                
                 # Export reconciliation records separately if available
                 reconciliation_records = getattr(service, '_reconciliation_records', [])
                 if reconciliation_records:
@@ -728,22 +1039,47 @@ Examples:
                     recon_df_data = [record.model_dump() for record in reconciliation_records]
                     recon_df = pd.DataFrame(recon_df_data)
                     
-                    # Rename Rows_Failed to Rows_Failed/Drift if any records have Row_Count_Match
-                    # The column will contain drift for Row_Count_Match and failedRows for Equality_Match
-                    if "Recon_Type" in recon_df.columns and "Rows_Failed" in recon_df.columns:
-                        row_count_match_mask = recon_df["Recon_Type"] == "Row_Count_Match"
+                    # Rename Recon_Type to Item_Measurement_Type for consistency
+                    if "Recon_Type" in recon_df.columns:
+                        recon_df.rename(columns={"Recon_Type": "Item_Measurement_Type"}, inplace=True)
+                    
+                    # Rename Rows_Failed to Rows_Failed/Drift if any records have ROW_COUNT_MATCH
+                    # The column will contain drift for ROW_COUNT_MATCH and failedRows for EQUALITY_MATCH
+                    if "Item_Measurement_Type" in recon_df.columns and "Rows_Failed" in recon_df.columns:
+                        row_count_match_mask = recon_df["Item_Measurement_Type"] == "ROW_COUNT_MATCH"
                         if row_count_match_mask.any():
                             # Rename the column for all records
                             recon_df.rename(columns={"Rows_Failed": "Rows_Failed/Drift"}, inplace=True)
                     
                     # Rename columns to match user requirements (with parentheses)
                     column_rename_map = {
-                        "Result_Percentage": "Result(Percentage)",
+                        "Result_Percentage": "Rule_Success_Rate",
                         "Started_At_UTC": "Started_At(UTC)",
                         "Finished_At_UTC": "Finished_At(UTC)",
                         "Execution_Date_UTC": "Execution_Date(UTC)",
+                        "Overall_Policy_Quality_Score": "Overall_Policy_Quality_Score(Percentage)",
+                        "Result_Status": "Rule_Result_Status",
                     }
                     recon_df.rename(columns=column_rename_map, inplace=True)
+                    
+                    # Reorder columns: put Label_Key and Label_Value right after Rule_ID
+                    if "Rule_ID" in recon_df.columns:
+                        cols = list(recon_df.columns)
+                        # Remove Label_Key and Label_Value if they exist
+                        label_cols = []
+                        if "Label_Key" in cols:
+                            cols.remove("Label_Key")
+                            label_cols.append("Label_Key")
+                        if "Label_Value" in cols:
+                            cols.remove("Label_Value")
+                            label_cols.append("Label_Value")
+                        
+                        # Find Rule_ID position and insert Label_Key and Label_Value after it
+                        if label_cols and "Rule_ID" in cols:
+                            rule_id_idx = cols.index("Rule_ID")
+                            # Insert after Rule_ID
+                            cols = cols[:rule_id_idx + 1] + label_cols + cols[rule_id_idx + 1:]
+                            recon_df = recon_df[cols]
                     
                     # Generate reconciliation filename
                     recon_filename = generate_execution_metrics_filename(

@@ -335,9 +335,10 @@ def process_execution_details_parallel(
 
         # Build endpoint based on policy type
         if execution.policy_type == "DATA_QUALITY":
+            # DATA_QUALITY requires /result suffix to get resultPercent
             endpoint = (
                 f"/catalog-server/api/rules/data-quality/executions/"
-                f"{execution.execution_id}"
+                f"{execution.execution_id}/result"
             )
         elif execution.policy_type == "EQUALITY":
             # EQUALITY uses the reconciliation endpoint with /result suffix
@@ -383,6 +384,11 @@ def process_execution_details_parallel(
 
         exec_result_data = response.json()
         items = safe_get(exec_result_data, "items", [])
+        
+        # Extract result-level fields (same for all items in this execution)
+        result_data = safe_get(exec_result_data, "result", {})
+        overall_policy_status = safe_get(result_data, "status")
+        overall_policy_quality_score = safe_get(result_data, "qualityScore")
         
         # Log if no items found (might indicate incomplete execution)
         if not items and execution.policy_type == "EQUALITY":
@@ -464,10 +470,13 @@ def process_execution_details_parallel(
         result_data = safe_get(exec_result_data, "result", {})
         equality_rows_scanned = None
         if execution.policy_type == "EQUALITY" and result_data:
-            left_rows = safe_get(result_data, "leftRowsScanned", 0) or 0
-            right_rows = safe_get(result_data, "rightRowsScanned", 0) or 0
-            equality_rows_scanned = left_rows + right_rows if (left_rows or right_rows) else None
+            # For reconciliation, use result.rows (same as DATA_QUALITY)
+            equality_rows_scanned = safe_get(result_data, "rows")
 
+        # Log DATA_QUALITY items count for debugging
+        if execution.policy_type == "DATA_QUALITY":
+            log_info(f"DEBUG DATA_QUALITY execution {execution.execution_id}: Processing {len(items)} items from /result endpoint")
+        
         for item in items:
             labels = safe_get(item, "labels", [])
             pde_value = next(
@@ -479,13 +488,18 @@ def process_execution_details_parallel(
                 None,
             )
 
-            item_data = safe_get(item, "item", {})
-            
+            # For DATA_QUALITY with /result endpoint, items don't have nested "item" structure
+            # Items are flat: items[].id, items[].ruleItemId, etc.
             # For non-DATA_QUALITY policies, item structure is different
-            # SCHEMA_DRIFT, EQUALITY, etc. don't have nested 'item' objects
-            if not item_data and execution.policy_type != "DATA_QUALITY":
-                # Use the item itself as item_data
+            if execution.policy_type == "DATA_QUALITY":
+                # DATA_QUALITY items are flat - use item directly
                 item_data = item
+            else:
+                # For other policies, check for nested item structure
+                item_data = safe_get(item, "item", {})
+                if not item_data:
+                    # Use the item itself as item_data
+                    item_data = item
             
             item_labels = safe_get(item_data, "labels", [])
             pde_label = next(
@@ -515,9 +529,20 @@ def process_execution_details_parallel(
                 if threshold_value is not None:
                     threshold_config = {"upper": threshold_value}
             else:
-                # For other policy types, use standard extraction
-                rows_scanned = safe_get(item, "rowsScanned")
-                rule_result = safe_get(item, "result")
+                # For DATA_QUALITY, use result.rows for rows_scanned and items[].rowsFailed for rows_failed
+                if execution.policy_type == "DATA_QUALITY":
+                    # Rows scanned comes from result object (shared across all items)
+                    rows_scanned = safe_get(result_data, "rows")
+                    # Use resultPercent for rule_result
+                    rule_result = safe_get(item, "resultPercent")
+                    if rule_result is not None:
+                        # Convert to string percentage format
+                        rule_result = str(rule_result)
+                else:
+                    # For other policy types, use standard extraction
+                    rows_scanned = safe_get(item, "rowsScanned")
+                    # For other non-EQUALITY policy types, use result
+                    rule_result = safe_get(item, "result")
                 
                 # Safely extract threshold_config - handle both dict and primitive types
                 threshold_config_raw = safe_get(item, "thresholdConfig")
@@ -538,20 +563,52 @@ def process_execution_details_parallel(
             # For SCHEMA_DRIFT and other non-DATA_QUALITY policies:
             # - Execution details use "ruleItemId" to reference the policy item
             # - Policy details use "id" for the item ID
+            # For EQUALITY:
+            # - Execution details use item.columnMapping.id to match details.columnMappings[].id
+            # - Policy details use details.columnMappings[].id
             # For DATA_QUALITY:
             # - Both use nested item.id
-            if execution.policy_type != "DATA_QUALITY":
-                # Use ruleItemId from the top-level item for non-DATA_QUALITY policies
+            if execution.policy_type == "EQUALITY":
+                # For EQUALITY, use columnMapping.id from execution details
+                column_mapping = safe_get(item_data, "columnMapping", {})
+                if column_mapping and isinstance(column_mapping, dict):
+                    extracted_item_id = str(safe_get(column_mapping, "id", ""))
+                else:
+                    # Fallback to ruleItemId if columnMapping is not available
+                    extracted_item_id = str(safe_get(item, "ruleItemId", ""))
+                extracted_item_ver = safe_get(item, "ruleVersion", 1)
+            elif execution.policy_type != "DATA_QUALITY":
+                # Use ruleItemId from the top-level item for other non-DATA_QUALITY policies
                 extracted_item_id = str(safe_get(item, "ruleItemId", ""))
                 # Default version depends on policy type:
                 # - DATA_DRIFT uses version 0
-                # - EQUALITY and PROFILE_ANOMALY use version 1
+                # - PROFILE_ANOMALY uses version 1
                 default_version = 0 if execution.policy_type == "DATA_DRIFT" else 1
                 extracted_item_ver = safe_get(item, "ruleVersion", default_version)
             else:
-                # Use nested item.id for DATA_QUALITY
-                extracted_item_id = safe_get(item_data, "id", "")
-                extracted_item_ver = safe_get(item_data, "ruleVersion", 1)
+                # For DATA_QUALITY:
+                # - Use ruleItemId for merge key (to match policy details item.id)
+                # - Use items.id for Rule_ID display (user requirement)
+                rule_item_id = safe_get(item, "ruleItemId", "")
+                execution_item_id = str(safe_get(item, "id", ""))  # items.id for Rule_ID display
+                
+                # Use ruleItemId for merge key (extracted_item_id)
+                if rule_item_id:
+                    extracted_item_id = str(rule_item_id)
+                else:
+                    # Fallback to top-level item.id if ruleItemId is missing
+                    extracted_item_id = execution_item_id
+                
+                # For DATA_QUALITY, items don't have ruleVersion - use execution-level policy_version
+                # This matches the policy details ruleVersion which comes from the policy API
+                extracted_item_ver = execution.policy_version
+                
+                # Debug log for first item of each DATA_QUALITY execution
+                if execution.execution_id not in getattr(process_execution_details_parallel, '_logged_exec_ids', set()):
+                    if not hasattr(process_execution_details_parallel, '_logged_exec_ids'):
+                        process_execution_details_parallel._logged_exec_ids = set()
+                    process_execution_details_parallel._logged_exec_ids.add(execution.execution_id)
+                    log_info(f"DEBUG DATA_QUALITY execution detail: ruleItemId={rule_item_id} (for merge), item.id={execution_item_id} (for Rule_ID), using item_id={extracted_item_id} (merge key), item_ver={extracted_item_ver}")
             
             # Log extraction details for first item of each execution (for debugging merge)
             if execution_details == [] and execution.policy_type != "DATA_QUALITY":
@@ -568,8 +625,13 @@ def process_execution_details_parallel(
                     f"item keys: {list(item.keys())}"
                 )
 
+            # Extract column name - for DATA_QUALITY, use top-level item.columnName (no nested structure)
+            if execution.policy_type == "DATA_QUALITY":
+                column_name = safe_get(item, "columnName")
+            else:
+                column_name = safe_get(item_data, "columnName")
+            
             # For EQUALITY, try alternative column name locations
-            column_name = safe_get(item_data, "columnName")
             if not column_name and execution.policy_type == "EQUALITY":
                 # EQUALITY items don't have columnName - extract from columnMapping or use dimension
                 column_mapping = safe_get(item_data, "columnMapping", {})
@@ -580,20 +642,42 @@ def process_execution_details_parallel(
                 if not column_name:
                     column_name = safe_get(item_data, "dimension")
             
-            # For EQUALITY, measurementType might not exist
-            measurement_type = safe_get(item_data, "measurementType")
-            if not measurement_type and execution.policy_type == "EQUALITY":
-                # EQUALITY uses dimension field instead of measurementType
-                measurement_type = safe_get(item_data, "dimension")
+            # Extract measurement type - for DATA_QUALITY, use top-level item.dimension (no nested structure)
+            if execution.policy_type == "DATA_QUALITY":
+                measurement_type = safe_get(item, "dimension")
+            else:
+                measurement_type = safe_get(item_data, "measurementType")
+                if not measurement_type and execution.policy_type == "EQUALITY":
+                    # EQUALITY uses dimension field instead of measurementType
+                    measurement_type = safe_get(item_data, "dimension")
             
-            # For EQUALITY, calculate rows_failed from leftRowsFailed
+            # For EQUALITY, use items[].leftRowsFailed for rows_failed
             if execution.policy_type == "EQUALITY":
-                left_rows_failed = safe_get(item, "leftRowsFailed", 0) or 0
-                right_rows_failed = safe_get(item, "rightRowsFailed", 0) or 0
-                rows_failed = left_rows_failed + right_rows_failed if (left_rows_failed or right_rows_failed) else None
+                # For reconciliation, use items[].leftRowsFailed only (not the sum)
+                rows_failed = safe_get(item, "leftRowsFailed")
+            elif execution.policy_type == "DATA_QUALITY":
+                # For DATA_QUALITY, use items[].rowsFailed directly
+                rows_failed = safe_get(item, "rowsFailed")
             else:
                 rows_failed = calculate_failed_rows(rows_scanned, rule_result)
+            
+            # Extract Result_Status from items[].success
+            # If items.success is true then "SUCCESSFUL", else "FAILED" (all caps for consistency)
+            item_success = safe_get(item, "success")
+            if item_success is True:
+                result_status = "SUCCESSFUL"
+            elif item_success is False:
+                result_status = "FAILED"
+            else:
+                result_status = None
 
+            # For DATA_QUALITY, store items.id in rule_item_id for Rule_ID display
+            # Keep item_id as ruleItemId for merge key
+            if execution.policy_type == "DATA_QUALITY":
+                display_rule_id = str(safe_get(item, "id", ""))  # items.id for Rule_ID
+            else:
+                display_rule_id = safe_get(item, "ruleItemId")
+            
             execution_detail = ExecutionDetail(
                 item_id=extracted_item_id,
                 item_column_name=column_name,
@@ -601,11 +685,14 @@ def process_execution_details_parallel(
                 pde_name=pde_value,
                 pde=pde_label,
                 item_measurement_type=measurement_type,
-                rule_item_id=safe_get(item, "ruleItemId"),
+                rule_item_id=display_rule_id,  # For DATA_QUALITY: items.id, for others: ruleItemId
                 rule_strategy=safe_get(threshold_config, "strategy"),
                 rule_lower_threshold=safe_get(threshold_config, "lower"),
                 rule_upper_threshold=safe_get(threshold_config, "upper"),
                 result=rule_result,
+                result_status=result_status,
+                overall_policy_status=overall_policy_status,
+                overall_policy_quality_score=overall_policy_quality_score,
                 rows_scanned=rows_scanned,
                 rows_failed=rows_failed,
                 exec_id=execution.execution_id,
@@ -614,6 +701,10 @@ def process_execution_details_parallel(
                 execution_status=execution.execution_status,
             )
             execution_details.append(execution_detail)
+        
+        # Log DATA_QUALITY execution details count
+        if execution.policy_type == "DATA_QUALITY":
+            log_info(f"DEBUG DATA_QUALITY execution {execution.execution_id}: Created {len(execution_details)} execution details from {len(items)} items")
         
         # For EQUALITY, also create reconciliation records
         if execution.policy_type == "EQUALITY" and items:
@@ -719,49 +810,160 @@ def process_policy_details_parallel(
         backing_asset = safe_get(rule_data, "backingAsset", {})
         table_asset_id = safe_get(backing_asset, "tableAssetId")
 
+        # Extract policy enabled status from rule.enabled
+        policy_enabled = safe_get(rule_data, "enabled")
+        
+        # Extract policy description from rule.description
+        policy_description = safe_get(rule_data, "description")
+
         # Fetch table asset name
         table_asset_name = (
             fetch_asset_name(table_asset_id, http_client) if table_asset_id else None
         )
 
         details_data = safe_get(policy_detail_data, "details", {})
-        for item in safe_get(details_data, "items", []):
-            pde_value = next(
-                (
-                    safe_get(label, "value")
-                    for label in safe_get(item, "labels", [])
-                    if safe_get(label, "key") == "PDE"
-                ),
-                None,
-            )
-
-            # For non-DATA_QUALITY types, use id to match execution details' ruleItemId
-            # For DATA_QUALITY, the nested item.item.id is used via parallel path
+        
+        # For EQUALITY (reconciliation), use columnMappings instead of items
+        if execution.policy_type == "EQUALITY":
+            # Iterate over columnMappings for EQUALITY policies
+            column_mappings = safe_get(details_data, "columnMappings", [])
+            for col_map in column_mappings:
+                # Use columnMapping.id as item_id for EQUALITY
+                item_id = str(safe_get(col_map, "id", ""))
+                
+                # Extract PDE value from labels
+                pde_value = next(
+                    (
+                        safe_get(label, "value")
+                        for label in safe_get(col_map, "labels", [])
+                        if safe_get(label, "key") == "PDE"
+                    ),
+                    None,
+                )
+                
+                # Extract column name (use leftColumnName for EQUALITY)
+                column_name = safe_get(col_map, "leftColumnName")
+                
+                # Extract labels from columnMapping - create one PolicyDetail per label
+                item_labels = safe_get(col_map, "labels", [])
+                if item_labels:
+                    # Create one PolicyDetail per label (flatten labels)
+                    for label in item_labels:
+                        label_key = safe_get(label, "key")
+                        label_value = safe_get(label, "value")
+                        
+                        policy_detail = PolicyDetail(
+                            policy_name=execution.policy_name,
+                            policy_id=execution.policy_id,
+                            policy_type=execution.policy_type,
+                            id=item_id,
+                            rule_version=safe_get(col_map, "ruleVersion", execution.policy_version),
+                            column_name=column_name,
+                            pde_value=pde_value,
+                            table_asset_id=table_asset_id,
+                            table_asset_name=table_asset_name,
+                            policy_enabled=policy_enabled,
+                            label_key=label_key,
+                            label_value=label_value,
+                        )
+                        policy_details.append(policy_detail)
+                else:
+                    # If no labels, create one PolicyDetail without label fields
+                    policy_detail = PolicyDetail(
+                        policy_name=execution.policy_name,
+                        policy_id=execution.policy_id,
+                        policy_type=execution.policy_type,
+                        id=item_id,
+                        rule_version=safe_get(col_map, "ruleVersion", execution.policy_version),
+                        column_name=column_name,
+                        pde_value=pde_value,
+                        table_asset_id=table_asset_id,
+                        table_asset_name=table_asset_name,
+                        policy_enabled=policy_enabled,
+                        label_key=None,
+                        label_value=None,
+                    )
+                    policy_details.append(policy_detail)
+        else:
+            # For other policy types (DATA_QUALITY, DATA_DRIFT, etc.), use items
+            items = safe_get(details_data, "items", [])
             if execution.policy_type == "DATA_QUALITY":
-                item_id = str(safe_get(item, "id", ""))
-            else:
-                # For EQUALITY, DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT
-                # Policy details have "id" field that matches execution details' "ruleItemId"
-                item_id = str(safe_get(item, "id", ""))
-                log_info(
-                    f"DEBUG {execution.policy_type} policy detail - "
-                    f"item keys: {list(item.keys())}, "
-                    f"id: {safe_get(item, 'id')}, "
-                    f"using item_id: '{item_id}'"
-            )
+                log_info(f"DEBUG DATA_QUALITY policy {execution.policy_id}: Processing {len(items)} items from policy details endpoint")
+            
+            for item in items:
+                pde_value = next(
+                    (
+                        safe_get(label, "value")
+                        for label in safe_get(item, "labels", [])
+                        if safe_get(label, "key") == "PDE"
+                    ),
+                    None,
+                )
 
-            policy_detail = PolicyDetail(
-                policy_name=execution.policy_name,
-                policy_id=execution.policy_id,
-                policy_type=execution.policy_type,
-                id=item_id,
-                rule_version=safe_get(item, "ruleVersion", 1),
-                column_name=safe_get(item, "columnName"),
-                pde_value=pde_value,
-                table_asset_id=table_asset_id,
-                table_asset_name=table_asset_name,
-            )
-            policy_details.append(policy_detail)
+                # For DATA_QUALITY, policy details API uses top-level item.id (not nested)
+                # This matches execution details top-level item.id for merge key
+                if execution.policy_type == "DATA_QUALITY":
+                    item_id = str(safe_get(item, "id", ""))
+                    rule_version = safe_get(item, "ruleVersion", 1)
+                else:
+                    # For DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT
+                    # Policy details have "id" field that matches execution details' "ruleItemId"
+                    item_id = str(safe_get(item, "id", ""))
+                    rule_version = safe_get(item, "ruleVersion", 1)
+                    log_info(
+                        f"DEBUG {execution.policy_type} policy detail - "
+                        f"item keys: {list(item.keys())}, "
+                        f"id: {safe_get(item, 'id')}, "
+                        f"using item_id: '{item_id}'"
+                    )
+
+                # Extract rule description from details.items.businessExplanation (for DATA_QUALITY)
+                rule_description = safe_get(item, "businessExplanation") if execution.policy_type == "DATA_QUALITY" else None
+                
+                # Extract labels from item - create one PolicyDetail per label
+                item_labels = safe_get(item, "labels", [])
+                if item_labels:
+                    # Create one PolicyDetail per label (flatten labels)
+                    for label in item_labels:
+                        label_key = safe_get(label, "key")
+                        label_value = safe_get(label, "value")
+                        
+                        policy_detail = PolicyDetail(
+                            policy_name=execution.policy_name,
+                            policy_id=execution.policy_id,
+                            policy_type=execution.policy_type,
+                            id=item_id,
+                            rule_version=rule_version,
+                            column_name=safe_get(item, "columnName"),
+                            pde_value=pde_value,
+                            table_asset_id=table_asset_id,
+                            table_asset_name=table_asset_name,
+                            policy_enabled=policy_enabled,
+                            label_key=label_key,
+                            label_value=label_value,
+                            policy_description=policy_description,
+                            rule_description=rule_description,
+                        )
+                        policy_details.append(policy_detail)
+                else:
+                    # If no labels, create one PolicyDetail without label fields
+                    policy_detail = PolicyDetail(
+                        policy_name=execution.policy_name,
+                        policy_id=execution.policy_id,
+                        policy_type=execution.policy_type,
+                        id=item_id,
+                        rule_version=rule_version,
+                        column_name=safe_get(item, "columnName"),
+                        pde_value=pde_value,
+                        table_asset_id=table_asset_id,
+                        table_asset_name=table_asset_name,
+                        policy_enabled=policy_enabled,
+                        label_key=None,
+                        label_value=None,
+                        policy_description=policy_description,
+                        rule_description=rule_description,
+                    )
+                    policy_details.append(policy_detail)
 
         if task_id:
             progress.update(
@@ -884,9 +1086,10 @@ def process_execution_details(
 
             # Build endpoint based on policy type
             if execution.policy_type == "DATA_QUALITY":
+                # DATA_QUALITY requires /result suffix to get resultPercent
                 endpoint = (
                     f"/catalog-server/api/rules/data-quality/executions/"
-                    f"{execution.execution_id}"
+                    f"{execution.execution_id}/result"
                 )
             elif execution.policy_type == "EQUALITY":
                 # EQUALITY uses the reconciliation endpoint with /result suffix
@@ -925,13 +1128,16 @@ def process_execution_details(
 
             exec_result_data = response.json()
             
-            # For EQUALITY, get rows_scanned from result object (not items)
+            # Extract result-level fields (same for all items in this execution)
             result_data = safe_get(exec_result_data, "result", {})
+            overall_policy_status = safe_get(result_data, "status")
+            overall_policy_quality_score = safe_get(result_data, "qualityScore")
+            
+            # For EQUALITY, get rows_scanned from result object (not items)
             equality_rows_scanned = None
             if execution.policy_type == "EQUALITY" and result_data:
-                left_rows = safe_get(result_data, "leftRowsScanned", 0) or 0
-                right_rows = safe_get(result_data, "rightRowsScanned", 0) or 0
-                equality_rows_scanned = left_rows + right_rows if (left_rows or right_rows) else None
+                # For reconciliation, use result.rows (same as DATA_QUALITY)
+                equality_rows_scanned = safe_get(result_data, "rows")
 
             for item in safe_get(exec_result_data, "items", []):
                 labels = safe_get(item, "labels", [])
@@ -944,13 +1150,18 @@ def process_execution_details(
                     None,
                 )
 
-                item_data = safe_get(item, "item", {})
-                
+                # For DATA_QUALITY with /result endpoint, items don't have nested "item" structure
+                # Items are flat: items[].id, items[].ruleItemId, etc.
                 # For non-DATA_QUALITY policies, item structure is different
-                # SCHEMA_DRIFT, EQUALITY, etc. don't have nested 'item' objects
-                if not item_data and execution.policy_type != "DATA_QUALITY":
-                    # Use the item itself as item_data
+                if execution.policy_type == "DATA_QUALITY":
+                    # DATA_QUALITY items are flat - use item directly
                     item_data = item
+                else:
+                    # For other policies, check for nested item structure
+                    item_data = safe_get(item, "item", {})
+                    if not item_data:
+                        # Use the item itself as item_data
+                        item_data = item
                 
                 item_labels = safe_get(item_data, "labels", [])
                 pde_label = next(
@@ -980,9 +1191,20 @@ def process_execution_details(
                     if threshold_value is not None:
                         threshold_config = {"upper": threshold_value}
                 else:
-                    # For other policy types, use standard extraction
-                    rows_scanned = safe_get(item, "rowsScanned")
-                    rule_result = safe_get(item, "result")
+                    # For DATA_QUALITY, use result.rows for rows_scanned and items[].rowsFailed for rows_failed
+                    if execution.policy_type == "DATA_QUALITY":
+                        # Rows scanned comes from result object (shared across all items)
+                        rows_scanned = safe_get(result_data, "rows")
+                        # Use resultPercent for rule_result
+                        rule_result = safe_get(item, "resultPercent")
+                        if rule_result is not None:
+                            # Convert to string percentage format
+                            rule_result = str(rule_result)
+                    else:
+                        # For other policy types, use standard extraction
+                        rows_scanned = safe_get(item, "rowsScanned")
+                        # For other non-EQUALITY policy types, use result
+                        rule_result = safe_get(item, "result")
                     
                     # Safely extract threshold_config - handle both dict and primitive types
                     threshold_config_raw = safe_get(item, "thresholdConfig")
@@ -1001,19 +1223,46 @@ def process_execution_details(
                         threshold_config = {}
 
                 # Extract item_id and item_ver based on policy type
-                if execution.policy_type != "DATA_QUALITY":
-                    # Use ruleItemId from top-level for non-DATA_QUALITY policies
+                if execution.policy_type == "EQUALITY":
+                    # For EQUALITY, use columnMapping.id from execution details
+                    column_mapping = safe_get(item_data, "columnMapping", {})
+                    if column_mapping and isinstance(column_mapping, dict):
+                        extracted_item_id = str(safe_get(column_mapping, "id", ""))
+                    else:
+                        # Fallback to ruleItemId if columnMapping is not available
+                        extracted_item_id = str(safe_get(item, "ruleItemId", ""))
+                    extracted_item_ver = safe_get(item, "ruleVersion", 1)
+                elif execution.policy_type != "DATA_QUALITY":
+                    # Use ruleItemId from top-level for other non-DATA_QUALITY policies
                     extracted_item_id = str(safe_get(item, "ruleItemId", ""))
                     # Default version depends on policy type
                     default_version = 0 if execution.policy_type == "DATA_DRIFT" else 1
                     extracted_item_ver = safe_get(item, "ruleVersion", default_version)
                 else:
-                    # Use nested item.id for DATA_QUALITY
-                    extracted_item_id = safe_get(item_data, "id", "")
-                    extracted_item_ver = safe_get(item_data, "ruleVersion", 1)
+                    # For DATA_QUALITY:
+                    # - Use ruleItemId for merge key (to match policy details item.id)
+                    # - Use items.id for Rule_ID display (user requirement)
+                    rule_item_id = safe_get(item, "ruleItemId", "")
+                    execution_item_id = str(safe_get(item, "id", ""))  # items.id for Rule_ID display
+                    
+                    # Use ruleItemId for merge key (extracted_item_id)
+                    if rule_item_id:
+                        extracted_item_id = str(rule_item_id)
+                    else:
+                        # Fallback to top-level item.id if ruleItemId is missing
+                        extracted_item_id = execution_item_id
+                    
+                    # For DATA_QUALITY, items don't have ruleVersion - use execution-level policy_version
+                    # This matches the policy details ruleVersion which comes from the policy API
+                    extracted_item_ver = execution.policy_version
 
+                # Extract column name - for DATA_QUALITY, use top-level item.columnName (no nested structure)
+                if execution.policy_type == "DATA_QUALITY":
+                    column_name = safe_get(item, "columnName")
+                else:
+                    column_name = safe_get(item_data, "columnName")
+                
                 # For EQUALITY, try alternative column name locations
-                column_name = safe_get(item_data, "columnName")
                 if not column_name and execution.policy_type == "EQUALITY":
                     # EQUALITY items don't have columnName - extract from columnMapping or use dimension
                     column_mapping = safe_get(item_data, "columnMapping", {})
@@ -1024,20 +1273,42 @@ def process_execution_details(
                     if not column_name:
                         column_name = safe_get(item_data, "dimension")
                 
-                # For EQUALITY, measurementType might not exist
-                measurement_type = safe_get(item_data, "measurementType")
-                if not measurement_type and execution.policy_type == "EQUALITY":
-                    # EQUALITY uses dimension field instead of measurementType
-                    measurement_type = safe_get(item_data, "dimension")
+                # Extract measurement type - for DATA_QUALITY, use top-level item.dimension (no nested structure)
+                if execution.policy_type == "DATA_QUALITY":
+                    measurement_type = safe_get(item, "dimension")
+                else:
+                    measurement_type = safe_get(item_data, "measurementType")
+                    if not measurement_type and execution.policy_type == "EQUALITY":
+                        # EQUALITY uses dimension field instead of measurementType
+                        measurement_type = safe_get(item_data, "dimension")
                 
-                # For EQUALITY, calculate rows_failed from leftRowsFailed
+                # For EQUALITY, use items[].leftRowsFailed for rows_failed
                 if execution.policy_type == "EQUALITY":
-                    left_rows_failed = safe_get(item, "leftRowsFailed", 0) or 0
-                    right_rows_failed = safe_get(item, "rightRowsFailed", 0) or 0
-                    rows_failed = left_rows_failed + right_rows_failed if (left_rows_failed or right_rows_failed) else None
+                    # For reconciliation, use items[].leftRowsFailed only (not the sum)
+                    rows_failed = safe_get(item, "leftRowsFailed")
+                elif execution.policy_type == "DATA_QUALITY":
+                    # For DATA_QUALITY, use items[].rowsFailed directly
+                    rows_failed = safe_get(item, "rowsFailed")
                 else:
                     rows_failed = calculate_failed_rows(rows_scanned, rule_result)
+                
+                # Extract Result_Status from items[].success
+                # If items.success is true then "SUCCESSFUL", else "FAILED" (all caps for consistency)
+                item_success = safe_get(item, "success")
+                if item_success is True:
+                    result_status = "SUCCESSFUL"
+                elif item_success is False:
+                    result_status = "FAILED"
+                else:
+                    result_status = None
 
+                # For DATA_QUALITY, store items.id in rule_item_id for Rule_ID display
+                # Keep item_id as ruleItemId for merge key
+                if execution.policy_type == "DATA_QUALITY":
+                    display_rule_id = str(safe_get(item, "id", ""))  # items.id for Rule_ID
+                else:
+                    display_rule_id = safe_get(item, "ruleItemId")
+                
                 execution_detail = ExecutionDetail(
                     item_id=extracted_item_id,
                     item_column_name=column_name,
@@ -1045,11 +1316,14 @@ def process_execution_details(
                     pde_name=pde_value,
                     pde=pde_label,
                     item_measurement_type=measurement_type,
-                    rule_item_id=safe_get(item, "ruleItemId"),
+                    rule_item_id=display_rule_id,  # For DATA_QUALITY: items.id, for others: ruleItemId
                     rule_strategy=safe_get(threshold_config, "strategy"),
                     rule_lower_threshold=safe_get(threshold_config, "lower"),
                     rule_upper_threshold=safe_get(threshold_config, "upper"),
                     result=rule_result,
+                    result_status=result_status,
+                    overall_policy_status=overall_policy_status,
+                    overall_policy_quality_score=overall_policy_quality_score,
                     rows_scanned=rows_scanned,
                     rows_failed=rows_failed,
                     exec_id=execution.execution_id,
@@ -1248,6 +1522,12 @@ def process_policy_details(
             backing_asset = safe_get(rule_data, "backingAsset", {})
             table_asset_id = safe_get(backing_asset, "tableAssetId")
 
+            # Extract policy enabled status from rule.enabled
+            policy_enabled = safe_get(rule_data, "enabled")
+            
+            # Extract policy description from rule.description
+            policy_description = safe_get(rule_data, "description")
+
             # Fetch table asset name
             table_asset_name = (
                 fetch_asset_name(table_asset_id, http_client)
@@ -1256,50 +1536,155 @@ def process_policy_details(
             )
 
             details_data = safe_get(policy_detail_data, "details", {})
-            items = safe_get(details_data, "items", [])
             
-            log_info(
-                f"Fetched policy details for {execution.policy_type} "
-                f"policy_id={execution.policy_id}: {len(items)} items"
-            )
-            
-            for item in items:
-                pde_value = next(
-                    (
-                        safe_get(label, "value")
-                        for label in safe_get(item, "labels", [])
-                        if safe_get(label, "key") == "PDE"
-                    ),
-                    None,
+            # For EQUALITY (reconciliation), use columnMappings instead of items
+            if execution.policy_type == "EQUALITY":
+                # Iterate over columnMappings for EQUALITY policies
+                column_mappings = safe_get(details_data, "columnMappings", [])
+                log_info(
+                    f"Fetched policy details for {execution.policy_type} "
+                    f"policy_id={execution.policy_id}: {len(column_mappings)} columnMappings"
                 )
+                
+                for col_map in column_mappings:
+                    # Use columnMapping.id as item_id for EQUALITY
+                    item_id = str(safe_get(col_map, "id", ""))
+                    
+                    # Extract PDE value from labels
+                    pde_value = next(
+                        (
+                            safe_get(label, "value")
+                            for label in safe_get(col_map, "labels", [])
+                            if safe_get(label, "key") == "PDE"
+                        ),
+                        None,
+                    )
+                    
+                    # Extract column name (use leftColumnName for EQUALITY)
+                    column_name = safe_get(col_map, "leftColumnName")
+                    
+                    # Extract labels from columnMapping - create one PolicyDetail per label
+                    item_labels = safe_get(col_map, "labels", [])
+                    if item_labels:
+                        # Create one PolicyDetail per label (flatten labels)
+                        for label in item_labels:
+                            label_key = safe_get(label, "key")
+                            label_value = safe_get(label, "value")
+                            
+                            policy_detail = PolicyDetail(
+                                policy_name=execution.policy_name,
+                                policy_id=execution.policy_id,
+                                policy_type=execution.policy_type,
+                                id=item_id,
+                                rule_version=safe_get(col_map, "ruleVersion", execution.policy_version),
+                                column_name=column_name,
+                                pde_value=pde_value,
+                                table_asset_id=table_asset_id,
+                                table_asset_name=table_asset_name,
+                                policy_enabled=policy_enabled,
+                                label_key=label_key,
+                                label_value=label_value,
+                            )
+                            policy_details.append(policy_detail)
+                    else:
+                        # If no labels, create one PolicyDetail without label fields
+                        policy_detail = PolicyDetail(
+                            policy_name=execution.policy_name,
+                            policy_id=execution.policy_id,
+                            policy_type=execution.policy_type,
+                            id=item_id,
+                            rule_version=safe_get(col_map, "ruleVersion", execution.policy_version),
+                            column_name=column_name,
+                            pde_value=pde_value,
+                            table_asset_id=table_asset_id,
+                            table_asset_name=table_asset_name,
+                            policy_enabled=policy_enabled,
+                            label_key=None,
+                            label_value=None,
+                        )
+                        policy_details.append(policy_detail)
+            else:
+                # For other policy types (DATA_QUALITY, DATA_DRIFT, etc.), use items
+                items = safe_get(details_data, "items", [])
+                log_info(
+                    f"Fetched policy details for {execution.policy_type} "
+                    f"policy_id={execution.policy_id}: {len(items)} items"
+                )
+                
+                for item in items:
+                    pde_value = next(
+                        (
+                            safe_get(label, "value")
+                            for label in safe_get(item, "labels", [])
+                            if safe_get(label, "key") == "PDE"
+                        ),
+                        None,
+                    )
 
-                # Convert ID to string for consistent merge key matching
-                # For non-DATA_QUALITY types, use id to match execution details' ruleItemId
-                if execution.policy_type == "DATA_QUALITY":
-                    item_id = str(safe_get(item, "id", ""))
-                else:
-                    # For EQUALITY, DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT
-                    # Policy details have "id" field that matches execution details' "ruleItemId"
-                    item_id = str(safe_get(item, "id", ""))
-                    log_info(
-                        f"DEBUG {execution.policy_type} policy detail (non-parallel) - "
-                        f"item keys: {list(item.keys())}, "
-                        f"id: {safe_get(item, 'id')}, "
-                        f"using item_id: '{item_id}'"
-                )
+                    # For DATA_QUALITY, policy details API uses top-level item.id (not nested)
+                    # This matches execution details top-level item.id for merge key
+                    if execution.policy_type == "DATA_QUALITY":
+                        item_id = str(safe_get(item, "id", ""))
+                        rule_version = safe_get(item, "ruleVersion", 1)
+                    else:
+                        # For DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT
+                        # Policy details have "id" field that matches execution details' "ruleItemId"
+                        item_id = str(safe_get(item, "id", ""))
+                        rule_version = safe_get(item, "ruleVersion", 1)
+                        log_info(
+                            f"DEBUG {execution.policy_type} policy detail (non-parallel) - "
+                            f"item keys: {list(item.keys())}, "
+                            f"id: {safe_get(item, 'id')}, "
+                            f"using item_id: '{item_id}'"
+                        )
 
-                policy_detail = PolicyDetail(
-                    policy_name=execution.policy_name,
-                    policy_id=execution.policy_id,
-                    policy_type=execution.policy_type,
-                    id=item_id,
-                    rule_version=safe_get(item, "ruleVersion", 1),
-                    column_name=safe_get(item, "columnName"),
-                    pde_value=pde_value,
-                    table_asset_id=table_asset_id,
-                    table_asset_name=table_asset_name,
-                )
-                policy_details.append(policy_detail)
+                    # Extract rule description from details.items.businessExplanation (for DATA_QUALITY)
+                    rule_description = safe_get(item, "businessExplanation") if execution.policy_type == "DATA_QUALITY" else None
+                    
+                    # Extract labels from item - create one PolicyDetail per label
+                    item_labels = safe_get(item, "labels", [])
+                    if item_labels:
+                        # Create one PolicyDetail per label (flatten labels)
+                        for label in item_labels:
+                            label_key = safe_get(label, "key")
+                            label_value = safe_get(label, "value")
+                            
+                            policy_detail = PolicyDetail(
+                                policy_name=execution.policy_name,
+                                policy_id=execution.policy_id,
+                                policy_type=execution.policy_type,
+                                id=item_id,
+                                rule_version=rule_version,
+                                column_name=safe_get(item, "columnName"),
+                                pde_value=pde_value,
+                                table_asset_id=table_asset_id,
+                                table_asset_name=table_asset_name,
+                                policy_enabled=policy_enabled,
+                                label_key=label_key,
+                                label_value=label_value,
+                                policy_description=policy_description,
+                                rule_description=rule_description,
+                            )
+                            policy_details.append(policy_detail)
+                    else:
+                        # If no labels, create one PolicyDetail without label fields
+                        policy_detail = PolicyDetail(
+                            policy_name=execution.policy_name,
+                            policy_id=execution.policy_id,
+                            policy_type=execution.policy_type,
+                            id=item_id,
+                            rule_version=rule_version,
+                            column_name=safe_get(item, "columnName"),
+                            pde_value=pde_value,
+                            table_asset_id=table_asset_id,
+                            table_asset_name=table_asset_name,
+                            policy_enabled=policy_enabled,
+                            label_key=None,
+                            label_value=None,
+                            policy_description=policy_description,
+                            rule_description=rule_description,
+                        )
+                        policy_details.append(policy_detail)
 
         except Exception as e:
             log_error(f"Error processing policy details for {execution.policy_id}: {e}")
@@ -1350,9 +1735,12 @@ def process_reconciliation_records(
     right_asset_id = None
     column_mappings_lookup = {}  # Map by columnMapping id or ruleItemId
     
+    # Extract policy enabled status
+    policy_enabled = None
     if policy_details_data:
         rule_data = safe_get(policy_details_data, "rule", {})
         policy_description = safe_get(rule_data, "description")
+        policy_enabled = safe_get(rule_data, "enabled")
         
         # Extract backing assets
         left_backing_asset = safe_get(rule_data, "leftBackingAsset", {})
@@ -1388,14 +1776,16 @@ def process_reconciliation_records(
     rule_version = safe_get(execution_data, "ruleVersion", 1)
     execution_id = str(safe_get(execution_data, "id", ""))
     execution_status = safe_get(execution_data, "executionStatus", "")
-    result_status = safe_get(execution_data, "resultStatus")
+    # Note: result_status will be extracted per item from items[].success
     policy_type = safe_get(execution_data, "ruleType", "EQUALITY")
     
     # Extract result-level fields
-    total_rows = safe_get(result_data, "rows")
-    rows_failed = safe_get(result_data, "failedRows")
+    # For reconciliation, Rows_Scanned = result.rows
+    rows_scanned = safe_get(result_data, "rows")
     left_rows_scanned = safe_get(result_data, "leftRowsScanned")
     right_rows_scanned = safe_get(result_data, "rightRowsScanned")
+    overall_policy_status = safe_get(result_data, "status")
+    overall_policy_quality_score = safe_get(result_data, "qualityScore")
     
     # Extract timestamps
     started_at_ts = safe_get(execution_data, "startedAt")
@@ -1407,32 +1797,48 @@ def process_reconciliation_records(
     
     # Process each item
     for item in items:
-        # Determine Recon_Type based on dimension first
+        # For reconciliation, Rows_Failed comes from items[].leftRowsFailed
+        rows_failed = safe_get(item, "leftRowsFailed")
+        # Determine Recon_Type based on dimension first (all caps for consistency)
         dimension = safe_get(item, "dimension", "")
         if dimension == "ACCURACY":
-            recon_type = "Equality_Match"
+            recon_type = "EQUALITY_MATCH"
         elif dimension == "TIMELINESS":
-            recon_type = "Row_Count_Match"
+            recon_type = "ROW_COUNT_MATCH"
         else:
             recon_type = None
         
         # Extract column mapping from item
         column_mapping = safe_get(item, "columnMapping", {})
         
-        # Extract column names - only for Equality_Match
-        if recon_type == "Equality_Match":
+        # Extract column names - only for EQUALITY_MATCH
+        if recon_type == "EQUALITY_MATCH":
             left_column = safe_get(column_mapping, "leftColumnName") if column_mapping else None
             right_column = safe_get(column_mapping, "rightColumnName") if column_mapping else None
         else:
-            # For Row_Count_Match, set to "Not_Applicable"
-            left_column = "Not_Applicable"
-            right_column = "Not_Applicable"
+            # For ROW_COUNT_MATCH, set to "NOT_APPLICABLE" (all caps for consistency)
+            left_column = "NOT_APPLICABLE"
+            right_column = "NOT_APPLICABLE"
         
-        # Extract rule item ID
-        rule_id = str(safe_get(item, "ruleItemId", ""))
+        # Extract rule item ID from items.columnMapping.id (not items.ruleItemId)
+        if column_mapping:
+            rule_id = str(safe_get(column_mapping, "id", ""))
+        else:
+            # Fallback to ruleItemId if columnMapping is not available
+            rule_id = str(safe_get(item, "ruleItemId", ""))
         
         # Extract result percentage
         result_percentage = safe_get(item, "resultPercent")
+        
+        # Extract Result_Status from items[].success (same as DATA_QUALITY)
+        # If items.success is true then "SUCCESSFUL", else "FAILED" (all caps for consistency)
+        item_success = safe_get(item, "success")
+        if item_success is True:
+            result_status = "SUCCESSFUL"
+        elif item_success is False:
+            result_status = "FAILED"
+        else:
+            result_status = None
         
         # Find matching columnMapping from policy details for this item
         # Match by item.columnMapping.id
@@ -1442,14 +1848,16 @@ def process_reconciliation_records(
             if col_map_id and col_map_id in column_mappings_lookup:
                 matched_col_map = column_mappings_lookup[col_map_id]
         
-        # Extract Use_For_Joining and Rule_Description from columnMapping
-        if recon_type == "Row_Count_Match":
-            use_for_joining = "Not_Applicable"
+        # Extract Operation, Use_For_Joining and Rule_Description from columnMapping
+        operation = None
+        if recon_type == "ROW_COUNT_MATCH":
+            use_for_joining = "NOT_APPLICABLE"  # All caps for consistency
             rule_description = None
         else:
-            # For Equality_Match, get from matched columnMapping (from policy details) or item.columnMapping
+            # For EQUALITY_MATCH, get from matched columnMapping (from policy details) or item.columnMapping
             if matched_col_map:
                 # Prefer policy details columnMapping
+                operation = safe_get(matched_col_map, "operation")
                 use_for_joining_val = safe_get(matched_col_map, "useForJoining")
                 # Convert boolean to string (True/False) or keep as string
                 if use_for_joining_val is not None:
@@ -1462,6 +1870,7 @@ def process_reconciliation_records(
                 rule_description = safe_get(matched_col_map, "businessExplanation")
             elif column_mapping:
                 # Fallback to item.columnMapping
+                operation = safe_get(column_mapping, "operation")
                 use_for_joining_val = safe_get(column_mapping, "useForJoining")
                 # Convert boolean to string (True/False) or keep as string
                 if use_for_joining_val is not None:
@@ -1477,51 +1886,107 @@ def process_reconciliation_records(
                 rule_description = None
         
         # Calculate rows_failed/drift based on Recon_Type
-        if recon_type == "Row_Count_Match":
+        # For reconciliation, Rows_Failed always uses items[].leftRowsFailed (already extracted above)
+        if recon_type == "ROW_COUNT_MATCH":
             # Calculate drift: abs(rightRowsScanned - leftRowsScanned)
             if left_rows_scanned is not None and right_rows_scanned is not None:
                 drift = abs(right_rows_scanned - left_rows_scanned)
             else:
                 drift = None
-            rows_failed_value = drift
+            # Use items[].leftRowsFailed for Rows_Failed (not drift calculation)
+            rows_failed_value = rows_failed
             # Set Left_Rows_Scanned and Right_Rows_Scanned
             left_rows_value = left_rows_scanned
             right_rows_value = right_rows_scanned
         else:
-            # For Equality_Match, use result.failedRows
+            # For EQUALITY_MATCH, use items[].leftRowsFailed
             rows_failed_value = rows_failed
-            # Set to "Not_Applicable" for Equality_Match
-            left_rows_value = "Not_Applicable"
-            right_rows_value = "Not_Applicable"
+            # Set to "NOT_APPLICABLE" for EQUALITY_MATCH (all caps for consistency)
+            left_rows_value = "NOT_APPLICABLE"
+            right_rows_value = "NOT_APPLICABLE"
         
-        record = ReconciliationRecord(
-            Policy_Name=policy_name,
-            Policy_ID=policy_id,
-            Rule_Version=rule_version,
-            Execution_ID=execution_id,
-            Left_Column=left_column,
-            Right_Column=right_column,
-            Rule_ID=rule_id,
-            Recon_Type=recon_type,
-            Result_Percentage=result_percentage,
-            Total_Rows=total_rows,
-            Rows_Failed=rows_failed_value,
-            Left_Rows_Scanned=left_rows_value,
-            Right_Rows_Scanned=right_rows_value,
-            Use_For_Joining=use_for_joining,
-            Policy_Description=policy_description,
-            Rule_Description=rule_description,
-            Left_ASSET_UID=left_asset_uid,
-            Right_ASSET_UID=right_asset_uid,
-            Join_Type=join_type,
-            Started_At_UTC=started_at,
-            Finished_At_UTC=finished_at,
-            Execution_Date_UTC=execution_date,
-            Execution_Status=execution_status,
-            Result_Status=result_status,
-            Policy_Type=policy_type,
-        )
-        records.append(record)
+        # Extract labels from matched columnMapping (from policy details)
+        # Create one ReconciliationRecord per label (flatten labels)
+        col_map_labels = []
+        if matched_col_map:
+            col_map_labels = safe_get(matched_col_map, "labels", [])
+        
+        if col_map_labels:
+            # Create one record per label
+            for label in col_map_labels:
+                label_key = safe_get(label, "key")
+                label_value = safe_get(label, "value")
+                
+                record = ReconciliationRecord(
+                    Policy_Name=policy_name,
+                    Policy_ID=policy_id,
+                    Rule_Version=rule_version,
+                    Execution_ID=execution_id,
+                    Left_Column=left_column,
+                    Right_Column=right_column,
+                    Rule_ID=rule_id,
+                    Recon_Type=recon_type,
+                    Result_Percentage=result_percentage,
+                    Rows_Scanned=rows_scanned,
+                    Rows_Failed=rows_failed_value,
+                    Left_Rows_Scanned=left_rows_value,
+                    Right_Rows_Scanned=right_rows_value,
+                    Use_For_Joining=use_for_joining,
+                    Policy_Description=policy_description,
+                    Rule_Description=rule_description,
+                    Left_ASSET_UID=left_asset_uid,
+                    Right_ASSET_UID=right_asset_uid,
+                    Join_Type=join_type,
+                    Started_At_UTC=started_at,
+                    Finished_At_UTC=finished_at,
+                    Execution_Date_UTC=execution_date,
+                    Execution_Status=execution_status,
+                    Rule_Result_Status=result_status,
+                    Overall_Policy_Status=overall_policy_status,
+                    Overall_Policy_Quality_Score=overall_policy_quality_score,
+                    Policy_Type=policy_type,
+                    Policy_Enabled=policy_enabled,
+                    Operation=operation,
+                    Label_Key=label_key,
+                    Label_Value=label_value,
+                )
+                records.append(record)
+        else:
+            # If no labels, create one record without label fields
+            record = ReconciliationRecord(
+                Policy_Name=policy_name,
+                Policy_ID=policy_id,
+                Rule_Version=rule_version,
+                Execution_ID=execution_id,
+                Left_Column=left_column,
+                Right_Column=right_column,
+                Rule_ID=rule_id,
+                Recon_Type=recon_type,
+                Result_Percentage=result_percentage,
+                Total_Rows=total_rows,
+                Rows_Failed=rows_failed_value,
+                Left_Rows_Scanned=left_rows_value,
+                Right_Rows_Scanned=right_rows_value,
+                Use_For_Joining=use_for_joining,
+                Policy_Description=policy_description,
+                Rule_Description=rule_description,
+                Left_ASSET_UID=left_asset_uid,
+                Right_ASSET_UID=right_asset_uid,
+                Join_Type=join_type,
+                Started_At_UTC=started_at,
+                Finished_At_UTC=finished_at,
+                Execution_Date_UTC=execution_date,
+                Execution_Status=execution_status,
+                Result_Status=result_status,
+                Overall_Policy_Status=overall_policy_status,
+                Overall_Policy_Quality_Score=overall_policy_quality_score,
+                Policy_Type=policy_type,
+                Policy_Enabled=policy_enabled,
+                Operation=operation,
+                Label_Key=None,
+                Label_Value=None,
+            )
+            records.append(record)
     
     return records
 
@@ -1554,48 +2019,109 @@ def merge_execution_data(
     log_info(f"Merge input: {len(execution_details)} execution details from {len(exec_type_counts)} unique exec_ids")
     log_info(f"Merge input: {len(policy_details)} policy details, breakdown: {policy_type_counts}")
     
-    # Create lookup dictionary for policy details
-    policy_lookup = {}
+    # Create lookup dictionary for policy details - handle multiple labels per item
+    # Use list to store all PolicyDetail records for the same (id, rule_version) key
+    policy_lookup: dict[tuple[str, int], list[PolicyDetail]] = {}
     for detail in policy_details:
         key = (detail.id, detail.rule_version)
-        policy_lookup[key] = detail
+        if key not in policy_lookup:
+            policy_lookup[key] = []
+        policy_lookup[key].append(detail)
 
     merged_records = []
     unmatched_exec_details = 0
+    unmatched_keys = []
+    
+    # Build a set of DATA_QUALITY execution IDs from policy_details
+    # This helps us identify which execution_details are for DATA_QUALITY
+    dq_policy_details = [d for d in policy_details if d.policy_type == "DATA_QUALITY"]
+    dq_policy_count = len(dq_policy_details)
+    
+    # Create a set of DATA_QUALITY item keys for quick lookup
+    dq_policy_keys = {(d.id, d.rule_version) for d in dq_policy_details}
+    
+    # Debug: Log sample keys from both sides for DATA_QUALITY
+    dq_exec_details = [d for d in execution_details if (d.item_id, d.item_ver) in dq_policy_keys][:10]
+    
+    if dq_exec_details:
+        log_info(f"DEBUG Merge: Sample DATA_QUALITY execution detail keys (first 10): {[(d.item_id, d.item_ver, getattr(d, 'rule_item_id', None)) for d in dq_exec_details]}")
+    if dq_policy_details:
+        log_info(f"DEBUG Merge: Sample DATA_QUALITY policy detail keys (first 10): {[(d.id, d.rule_version) for d in dq_policy_details[:10]]}")
+    
+    # Also check if ruleItemId matches policy details id
+    if dq_exec_details and dq_policy_details:
+        exec_rule_item_ids = [getattr(d, 'rule_item_id', None) for d in dq_exec_details if hasattr(d, 'rule_item_id')]
+        policy_ids = [d.id for d in dq_policy_details[:5]]
+        log_info(f"DEBUG Merge: Execution ruleItemId sample: {exec_rule_item_ids[:5]}")
+        log_info(f"DEBUG Merge: Policy id sample: {policy_ids}")
+    
+    # Count DATA_QUALITY records specifically
+    dq_exec_count = 0
+    dq_merged_count = 0
+    dq_unmatched_count = 0
     
     for exec_detail in execution_details:
         key = (exec_detail.item_id, exec_detail.item_ver)
         
-        policy_detail = policy_lookup.get(key)
+        # Check if this is a DATA_QUALITY record by checking if key exists in DQ policy keys
+        is_dq = key in dq_policy_keys
+        if is_dq:
+            dq_exec_count += 1
+        
+        policy_detail_list = policy_lookup.get(key, [])
 
-        if policy_detail:
-            record = ExecutionMetricsRecord(
-                policy_name=policy_detail.policy_name,
-                policy_id=policy_detail.policy_id,
-                rule_version=exec_detail.item_ver,
-                exec_id=exec_detail.exec_id,
-                table_asset_name=policy_detail.table_asset_name,
-                item_column_name=exec_detail.item_column_name,
-                pde=exec_detail.pde,
-                item_measurement_type=exec_detail.item_measurement_type,
-                rule_strategy=exec_detail.rule_strategy,
-                rule_lower_threshold=exec_detail.rule_lower_threshold,
-                rule_upper_threshold=exec_detail.rule_upper_threshold,
-                item_id=exec_detail.item_id,
-                result=exec_detail.result,
-                rows_scanned=exec_detail.rows_scanned,
-                rows_failed=exec_detail.rows_failed,
-                startedAt=exec_detail.start_ts,
-                started_at=convert_timestamp_to_datetime(exec_detail.start_ts, timezone),
-                finishedAt=exec_detail.end_ts,
-                finished_at=convert_timestamp_to_datetime(exec_detail.end_ts, timezone),
-                execution_date=convert_timestamp_to_datetime(exec_detail.end_ts, timezone),
-                execution_status=exec_detail.execution_status,
-                policy_type=policy_detail.policy_type,
-            )
-            merged_records.append(record)
+        if policy_detail_list:
+            # Create one ExecutionMetricsRecord per PolicyDetail (to handle multiple labels)
+            for policy_detail in policy_detail_list:
+                if policy_detail.policy_type == "DATA_QUALITY":
+                    dq_merged_count += 1
+                # For DATA_QUALITY, use rule_item_id (items.id) for Rule_ID display
+                # For other policy types, use item_id (which is already correct)
+                if policy_detail.policy_type == "DATA_QUALITY" and exec_detail.rule_item_id:
+                    display_item_id = str(exec_detail.rule_item_id)  # items.id for Rule_ID
+                else:
+                    display_item_id = exec_detail.item_id  # Use merge key for other types
+                
+                record = ExecutionMetricsRecord(
+                    policy_name=policy_detail.policy_name,
+                    policy_id=policy_detail.policy_id,
+                    rule_version=exec_detail.item_ver,
+                    exec_id=exec_detail.exec_id,
+                    table_asset_name=policy_detail.table_asset_name,
+                    item_column_name=exec_detail.item_column_name,
+                    pde=exec_detail.pde,
+                    item_measurement_type=exec_detail.item_measurement_type,
+                    rule_strategy=exec_detail.rule_strategy,
+                    rule_lower_threshold=exec_detail.rule_lower_threshold,
+                    rule_upper_threshold=exec_detail.rule_upper_threshold,
+                    item_id=display_item_id,  # For DATA_QUALITY: items.id, for others: merge key
+                    result=exec_detail.result,
+                    result_status=exec_detail.result_status,
+                    overall_policy_status=exec_detail.overall_policy_status,
+                    overall_policy_quality_score=exec_detail.overall_policy_quality_score,
+                    rows_scanned=exec_detail.rows_scanned,
+                    rows_failed=exec_detail.rows_failed,
+                    startedAt=exec_detail.start_ts,
+                    started_at=convert_timestamp_to_datetime(exec_detail.start_ts, timezone),
+                    finishedAt=exec_detail.end_ts,
+                    finished_at=convert_timestamp_to_datetime(exec_detail.end_ts, timezone),
+                    execution_date=convert_timestamp_to_datetime(exec_detail.end_ts, timezone),
+                    execution_status=exec_detail.execution_status,
+                    policy_type=policy_detail.policy_type,
+                    policy_enabled=policy_detail.policy_enabled,
+                    label_key=policy_detail.label_key,
+                    label_value=policy_detail.label_value,
+                    policy_description=policy_detail.policy_description,
+                    rule_description=policy_detail.rule_description,
+                )
+                merged_records.append(record)
         else:
             unmatched_exec_details += 1
+            unmatched_keys.append(key)
+            if is_dq:
+                dq_unmatched_count += 1
+            # Even if no policy detail found, we might want to create a record with execution data only
+            # For now, we skip it to maintain backward compatibility
     
     # Log output counts by policy type
     merged_type_counts = {}
@@ -1603,6 +2129,35 @@ def merge_execution_data(
         merged_type_counts[record.policy_type] = merged_type_counts.get(record.policy_type, 0) + 1
     
     log_info(f"Merge output: {len(merged_records)} merged records, breakdown: {merged_type_counts}")
+    log_info(f"Merge unmatched: {unmatched_exec_details} execution details without policy match")
+    
+    # Log DATA_QUALITY specific statistics
+    log_info(f"DATA_QUALITY merge stats: {dq_exec_count} execution details (with matching policy keys), {dq_policy_count} policy details, {dq_merged_count} merged, {dq_unmatched_count} unmatched")
+    
+    # Find all DATA_QUALITY execution details that don't match (by checking rule_item_id)
+    dq_unmatched_details = []
+    for exec_detail in execution_details:
+        key = (exec_detail.item_id, exec_detail.item_ver)
+        if key not in policy_lookup:
+            # Check if this might be DATA_QUALITY by checking if rule_item_id exists
+            if hasattr(exec_detail, 'rule_item_id') and exec_detail.rule_item_id:
+                # Check if rule_item_id matches any policy detail id
+                matches_any = any(
+                    detail.id == exec_detail.rule_item_id 
+                    for detail_list in policy_lookup.values() 
+                    for detail in detail_list 
+                    if detail.policy_type == "DATA_QUALITY"
+                )
+                if not matches_any:
+                    dq_unmatched_details.append((exec_detail.rule_item_id, exec_detail.item_id, exec_detail.item_ver))
+    
+    if dq_unmatched_count > 0 or dq_unmatched_details:
+        log_info(f"DATA_QUALITY unmatched keys (first 10): {unmatched_keys[:10]}")
+        if dq_unmatched_details:
+            log_info(f"DATA_QUALITY execution details with rule_item_id but no match (first 10): {dq_unmatched_details[:10]}")
+        # Show sample unmatched keys vs available policy keys
+        available_policy_keys = list(policy_lookup.keys())[:20]
+        log_info(f"Available DATA_QUALITY policy keys (first 20): {[k for k in available_policy_keys if any(d.policy_type == 'DATA_QUALITY' for d in policy_lookup.get(k, []))]}")
     if unmatched_exec_details > 0:
         log_info(f"Merge warning: {unmatched_exec_details} execution details had no matching policy details")
 
@@ -1928,10 +2483,9 @@ class ExecutionMetricsService(TraceableMixin):
         # Create a thread-safe data collector
         data_collector = ThreadSafeDataCollector()
 
-        # First, let's determine how many pages we need to fetch
-        # We'll start with a small batch to estimate the total
-        initial_pages = 3
-        max_workers = min(initial_pages, 10)  # Limit concurrent workers
+        # Limit concurrent workers to avoid overwhelming the API
+        # Start with a smaller batch to check if there's data
+        max_workers = min(3, 10)  # Limit to 3 concurrent workers initially
 
         # Track pages fetched for progress display
         pages_fetched = 0
@@ -1955,13 +2509,15 @@ class ExecutionMetricsService(TraceableMixin):
         # Fetch initial pages in parallel
         page = 0
         stop_fetching = False
+        page_0_processed = False  # Track if Page 0 has been processed
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             while not stop_fetching and page < 50:  # Safety limit
                 # Submit tasks for parallel execution
                 futures = []
+                pages_to_submit = max_workers
 
-                for _ in range(max_workers):
+                for _ in range(pages_to_submit):
                     if stop_fetching:
                         break
 
@@ -1981,17 +2537,77 @@ class ExecutionMetricsService(TraceableMixin):
                     )
                     futures.append((future, worker_id, page))
                     page += 1
+                
+                # If no futures were submitted, break
+                if not futures:
+                    break
+
+                # If no futures to process, break
+                if not futures:
+                    break
 
                 # Wait for all submitted tasks to complete
-                for future, worker_id, page_num in futures:
+                # Sort futures by page number to process Page 0 first
+                futures_sorted = sorted(futures, key=lambda x: x[2])  # Sort by page_num (index 2)
+                
+                for future, worker_id, page_num in futures_sorted:
                     try:
+                        # Use longer timeout for Page 0 when page_size is large (1000 items can take 2+ minutes to process)
+                        # Also use longer timeout for larger page sizes
+                        if page_num == 0 and page_size >= 1000:
+                            timeout_seconds = 180  # 3 minutes for Page 0 with 1000 items
+                        elif page_num == 0 and page_size >= 500:
+                            timeout_seconds = 120  # 2 minutes for Page 0 with 500 items
+                        elif page_size >= 1000:
+                            timeout_seconds = 90  # 1.5 minutes for other pages with 1000 items
+                        elif page_size >= 500:
+                            timeout_seconds = 60  # 1 minute for other pages with 500 items
+                        else:
+                            timeout_seconds = 30  # 30 seconds for smaller page sizes
                         result_page, page_executions, should_stop = future.result(
-                            timeout=30
+                            timeout=timeout_seconds
                         )
 
                         if should_stop:
                             stop_fetching = True
+                            log_info(f"Page {page_num}: API returned no executions (empty page), stopping pagination")
+                            release_worker(worker_id)
+                            pages_fetched += 1
+                            progress.update(
+                                task_id,
+                                description=f"📥 Fetching executions (Pages: {pages_fetched}, Total: {len(data_collector)})"
+                            )
+                            # Cancel remaining futures in this batch and release workers
+                            for remaining_future, remaining_worker_id, remaining_page_num in futures_sorted:
+                                if remaining_future != future:
+                                    try:
+                                        remaining_future.cancel()
+                                        log_info(f"Cancelled page {remaining_page_num} fetch (no more data available)")
+                                    except Exception:
+                                        pass
+                                    release_worker(remaining_worker_id)
+                            break  # Break out of the futures loop immediately
 
+                        # Track when Page 0 is processed
+                        if page_num == 0:
+                            page_0_processed = True
+                            log_info(f"Page 0 processed: {len(page_executions)} executions from API")
+                            # Debug: Log first few execution timestamps from Page 0
+                            if page_executions:
+                                for i, exec in enumerate(page_executions[:5]):
+                                    log_info(f"Page 0 execution {i}: id={exec.execution_id}, start_ts={exec.start_ts}, policy_type={exec.policy_type}")
+
+                        # Initialize filtered_executions for the stop check later
+                        filtered_executions = []
+                        filtered_out_ids = []
+                        
+                        # If page_executions is empty, we've reached the end
+                        if not page_executions:
+                            # No executions on this page - this means we've reached the end
+                            # (API returned empty page)
+                            log_info(f"Page {page_num}: No executions returned from API (end of data)")
+                            # Don't set stop_fetching here - let should_stop handle it
+                        
                         if page_executions:
                             # DEBUG: Log sample timestamps BEFORE filtering
                             if page_executions:
@@ -2005,8 +2621,6 @@ class ExecutionMetricsService(TraceableMixin):
                                 )
                             
                             # Filter by timestamp marker
-                            filtered_executions = []
-                            filtered_out_ids = []
                             for exec in page_executions:
                                 if exec.start_ts is None or exec.start_ts > start_ts_marker:
                                     filtered_executions.append(exec)
@@ -2029,29 +2643,70 @@ class ExecutionMetricsService(TraceableMixin):
                             if filtered_executions and page_num <= 2:  # Only log first few pages to avoid spam
                                 passed_ids = [exec.execution_id for exec in filtered_executions[:10]]
                                 log_info(f"Page {page_num}: Execution IDs that passed filter: {passed_ids}")
+                            
+                            # Special logging for Page 0 to debug issues
+                            if page_num == 0:
+                                log_info(
+                                    f"Page 0: Processed {len(page_executions)} executions, "
+                                    f"{len(filtered_executions)} passed timestamp filter, "
+                                    f"{len(filtered_out_ids)} filtered out"
+                                )
+                                if filtered_executions:
+                                    log_info(f"Page 0: First 10 execution IDs that passed: {[e.execution_id for e in filtered_executions[:10]]}")
+                                if filtered_out_ids:
+                                    log_info(f"Page 0: First 10 execution IDs filtered out: {filtered_out_ids[:10]}")
 
                             if filtered_executions:
                                 data_collector.extend(filtered_executions)
 
                             # Check if we've reached the timestamp marker
-                            # IMPORTANT: Only stop if ALL executions on the page are before the marker
-                            # Since results are sorted DESC, if we find one execution before marker,
-                            # all subsequent pages will also be before marker
+                            # IMPORTANT: Since results are sorted DESC (newest first), we should only stop
+                            # if we've processed Page 0 (the newest page) and it has executions before the marker.
+                            # Don't stop based on later pages (Page 1, 2, etc.) until we've checked Page 0.
+                            
+                            # Count executions before marker (filtered out)
                             executions_before_marker = [
                                 exec for exec in page_executions
                                 if exec.start_ts is not None and exec.start_ts <= start_ts_marker
                             ]
-                            if executions_before_marker:
-                                # Check if target execution is in this page
-                                if any(exec.execution_id == "10410555" for exec in page_executions):
+                            
+                            # Stop pagination if ALL executions on a page are before the marker
+                            # Since results are sorted DESC (newest first):
+                            # - Page 0 has the newest executions
+                            # - If Page 0 has all executions before marker, we can stop immediately
+                            # - If a later page (Page 1+) has all executions before marker AND Page 0 is processed, we can stop
+                            #   (because DESC sort means all subsequent pages will be older)
+                            if len(executions_before_marker) == len(page_executions) and len(page_executions) > 0:
+                                # All executions on this page are before the marker
+                                if page_num == 0:
+                                    # Page 0 is the newest page - if all are before marker, we can stop
+                                    stop_fetching = True
                                     log_info(
-                                        f"🔍 DEBUG: Execution 10410555 found on page {page_num} "
-                                        f"but pagination stopping due to timestamp marker"
+                                        f"Page 0: All {len(executions_before_marker)} executions are before marker "
+                                        f"({start_ts_marker}), stopping pagination"
                                     )
+                                elif page_0_processed:
+                                    # For later pages, only stop if Page 0 has been processed
+                                    # (since DESC sort means Page 1, 2, etc. are older)
+                                    stop_fetching = True
+                                    log_info(
+                                        f"Page {page_num}: All {len(executions_before_marker)} executions are before marker "
+                                        f"(Page 0 already processed), stopping pagination"
+                                    )
+                                else:
+                                    # Don't stop yet - wait for Page 0 to be processed first
+                                    log_info(
+                                        f"Page {page_num}: All executions before marker, but waiting for Page 0 to complete"
+                                    )
+                            
+                            # Also stop if Page 0 has been processed and we got no filtered executions from it
+                            # This handles the case where all executions are filtered out
+                            if (page_num == 0 and page_0_processed and 
+                                len(filtered_executions) == 0 and len(page_executions) > 0):
                                 stop_fetching = True
                                 log_info(
-                                    f"Page {page_num}: Reached timestamp marker ({len(executions_before_marker)} "
-                                    f"executions before marker), stopping pagination"
+                                    f"Page 0: All {len(page_executions)} executions filtered out (all before marker), "
+                                    f"stopping pagination"
                                 )
 
                         # Update main progress
@@ -2062,17 +2717,56 @@ class ExecutionMetricsService(TraceableMixin):
                         )
 
                     except Exception as e:
+                        import traceback
+                        error_details = traceback.format_exc()
                         log_error(f"Error processing page {page_num}: {e}")
+                        log_error(f"Error details for page {page_num}: {error_details}")
                         pages_fetched += 1
                         progress.update(
                             task_id,
                             description=f"📥 Fetching executions (Pages: {pages_fetched}, Total: {len(data_collector)})"
                         )
                     finally:
-                        release_worker(worker_id)
-
-                # If we didn't get any data, stop
-                if not futures:
+                        # Release worker (unless already released in should_stop block)
+                        if not (stop_fetching and page_num == 0):
+                            release_worker(worker_id)
+                    
+                    # If should_stop was set, break immediately to stop submitting more pages
+                    if stop_fetching:
+                        # Cancel any remaining futures in this batch
+                        for remaining_future, remaining_worker_id, _ in futures_sorted:
+                            if remaining_future != future:
+                                try:
+                                    remaining_future.cancel()
+                                except Exception:
+                                    pass
+                                release_worker(remaining_worker_id)
+                        break
+                    
+                    # Also stop if Page 0 has been processed and we got no filtered executions from it
+                    # AND we have no executions collected so far (meaning all were filtered out)
+                    if (page_0_processed and page_num == 0 and 
+                        not filtered_executions and len(data_collector) == 0):
+                        # Page 0 had executions but all were filtered out, and we have nothing collected
+                        # This means all executions are before the marker - we can stop
+                        stop_fetching = True
+                        log_info(
+                            f"Page 0 processed: {len(page_executions)} executions found but all filtered out "
+                            f"(all before timestamp marker). Stopping pagination."
+                        )
+                        # Cancel remaining futures
+                        for remaining_future, remaining_worker_id, _ in futures_sorted:
+                            if remaining_future != future:
+                                try:
+                                    remaining_future.cancel()
+                                except Exception:
+                                    pass
+                                release_worker(remaining_worker_id)
+                        break
+                
+                # If we didn't get any data or should_stop was set, break the outer loop
+                if stop_fetching:
+                    log_info("Stopping pagination - no more executions to fetch")
                     break
 
         policy_executions = data_collector.get_all()
@@ -2164,6 +2858,7 @@ class ExecutionMetricsService(TraceableMixin):
 
         # Process executions in parallel
         execution_index = 0
+        page_0_processed = False  # Track if Page 0 has been processed
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []

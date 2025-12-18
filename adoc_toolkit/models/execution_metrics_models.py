@@ -101,6 +101,15 @@ class ExecutionDetail(BaseModel):
         default=None, description="Rule upper threshold"
     )
     result: str | None = Field(default=None, description="Execution result")
+    result_status: str | None = Field(
+        default=None, description="Rule result status (SUCCESSFUL if items.success is true, FAILED otherwise)"
+    )
+    overall_policy_status: str | None = Field(
+        default=None, description="Overall policy status from result.status"
+    )
+    overall_policy_quality_score: float | None = Field(
+        default=None, description="Overall policy quality score from result.qualityScore"
+    )
     rows_scanned: int | None = Field(
         default=None, description="Number of rows scanned"
     )
@@ -143,6 +152,21 @@ class PolicyDetail(BaseModel):
     table_asset_name: str | None = Field(
         default=None, description="Table asset name"
     )
+    policy_enabled: bool | None = Field(
+        default=None, description="Whether the policy is enabled (from rule.enabled)"
+    )
+    label_key: str | None = Field(
+        default=None, description="Label key from details.items.labels.key"
+    )
+    label_value: str | None = Field(
+        default=None, description="Label value from details.items.labels.value"
+    )
+    policy_description: str | None = Field(
+        default=None, description="Policy description from rule.description"
+    )
+    rule_description: str | None = Field(
+        default=None, description="Rule description from details.items.businessExplanation (for DATA_QUALITY)"
+    )
 
     @field_validator("policy_id", "id", mode="before")
     @classmethod
@@ -183,6 +207,15 @@ class ExecutionMetricsRecord(BaseModel):
     )
     item_id: str = Field(description="Item identifier")
     result: str | None = Field(default=None, description="Result value")
+    result_status: str | None = Field(
+        default=None, description="Rule result status (SUCCESSFUL if items.success is true, FAILED otherwise)"
+    )
+    overall_policy_status: str | None = Field(
+        default=None, description="Overall policy status from result.status"
+    )
+    overall_policy_quality_score: float | None = Field(
+        default=None, description="Overall policy quality score from result.qualityScore"
+    )
     rows_scanned: int | None = Field(default=None, description="Rows scanned")
     rows_failed: int | None = Field(default=None, description="Rows failed")
     startedAt: int | None = Field(default=None, description="Start timestamp (milliseconds)")
@@ -198,6 +231,21 @@ class ExecutionMetricsRecord(BaseModel):
     )
     execution_status: str = Field(description="Execution status")
     policy_type: str = Field(description="Policy type")
+    policy_enabled: bool | None = Field(
+        default=None, description="Whether the policy is enabled"
+    )
+    label_key: str | None = Field(
+        default=None, description="Label key from policy details"
+    )
+    label_value: str | None = Field(
+        default=None, description="Label value from policy details"
+    )
+    policy_description: str | None = Field(
+        default=None, description="Policy description from rule.description"
+    )
+    rule_description: str | None = Field(
+        default=None, description="Rule description from details.items.businessExplanation (for DATA_QUALITY)"
+    )
 
 
 class ReconciliationRecord(BaseModel):
@@ -212,7 +260,7 @@ class ReconciliationRecord(BaseModel):
     Rule_ID: str = Field(description="Rule item ID from items.ruleItemId")
     Recon_Type: str | None = Field(default=None, description="Reconciliation type based on dimension (Equality_Match or Row_Count_Match)")
     Result_Percentage: float | None = Field(default=None, description="Result percentage from items.resultPercent")
-    Total_Rows: int | None = Field(default=None, description="Total rows from result.rows")
+    Rows_Scanned: int | None = Field(default=None, description="Rows scanned from result.rows")
     Rows_Failed: int | None = Field(default=None, description="Failed rows from result.failedRows or drift for Row_Count_Match")
     Left_Rows_Scanned: int | str | None = Field(default=None, description="Left rows scanned from result.leftRowsScanned (only for Row_Count_Match)")
     Right_Rows_Scanned: int | str | None = Field(default=None, description="Right rows scanned from result.rightRowsScanned (only for Row_Count_Match)")
@@ -226,8 +274,22 @@ class ReconciliationRecord(BaseModel):
     Finished_At_UTC: datetime | None = Field(default=None, description="Finish time from execution.finishedAt")
     Execution_Date_UTC: datetime | None = Field(default=None, description="Execution date from execution.finishedAt")
     Execution_Status: str = Field(description="Execution status from execution.executionStatus")
-    Result_Status: str | None = Field(default=None, description="Result status from execution.resultStatus")
+    Rule_Result_Status: str | None = Field(default=None, description="Rule result status from items[].success")
+    Overall_Policy_Status: str | None = Field(default=None, description="Overall policy status from result.status")
+    Overall_Policy_Quality_Score: float | None = Field(default=None, description="Overall policy quality score from result.qualityScore")
     Policy_Type: str = Field(description="Policy type from execution.ruleType")
+    Policy_Enabled: bool | None = Field(
+        default=None, description="Whether the policy is enabled (from rule.enabled)"
+    )
+    Operation: str | None = Field(
+        default=None, description="Operation from details.columnMappings.operation"
+    )
+    Label_Key: str | None = Field(
+        default=None, description="Label key from details.columnMappings.labels.key"
+    )
+    Label_Value: str | None = Field(
+        default=None, description="Label value from details.columnMappings.labels.value"
+    )
 
     @field_validator("Policy_ID", "Execution_ID", "Rule_ID", mode="before")
     @classmethod
