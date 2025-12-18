@@ -7,10 +7,14 @@ The `export-execution-metrics` command exports comprehensive execution metrics d
 ### Key Features
 
 - **Multi-Policy Support**: Exports DATA_QUALITY, EQUALITY, DATA_DRIFT, PROFILE_ANOMALY, and SCHEMA_DRIFT policy types
+- **Consolidated Output**: Main CSV combines DATA_QUALITY and RECONCILIATION records with unified schema
+- **Separate Policy Files**: Generates dedicated CSV files for DATA_QUALITY and RECONCILIATION policies
 - **Incremental Processing**: Efficient processing using tracking files to only export new data since the last run
 - **Flexible Backloading**: Support for historical data retrieval with multiple date formats and relative time periods
 - **Multiple Export Formats**: CSV (default) and Parquet formats with automatic data type handling
 - **Comprehensive Data**: Combines policy executions, detailed rule performance, and asset information
+- **Standardized Values**: Item_Measurement_Type uses all-caps values (EQUALITY_MATCH, ROW_COUNT_MATCH)
+- **NOT_APPLICABLE Handling**: Policy-specific columns automatically filled with "NOT_APPLICABLE" for other policy types
 - **Environment Integration**: Leverages the active environment configuration for API access
 - **Progress Tracking**: Real-time progress indicators with detailed status updates
 - **Data Validation**: Robust Pydantic-based validation with automatic type conversion and error handling
@@ -119,12 +123,14 @@ The `--policy-types` option allows you to specify which types of policies to exp
 
 The command fetches and combines data from multiple ADOC API endpoints using efficient parallel processing:
 
-1. **Policy Executions API**: Retrieves overall execution status, metadata, and performance scores
-2. **Execution Details API**: Fetches detailed rule-level performance metrics for data quality policies
-3. **Policy Details API**: Retrieves policy configuration, threshold settings, and rule versions
-4. **Asset Catalog API**: Resolves table asset names and metadata from asset identifiers
+1. **Policy Executions API**: `GET /catalog-server/api/rules/executions` - Retrieves overall execution status, metadata, and performance scores
+2. **DATA_QUALITY Execution Result API**: `GET /catalog-server/api/rules/data-quality/executions/:id/result` - Fetches detailed rule-level performance metrics for DATA_QUALITY policies
+3. **RECONCILIATION Execution Result API**: `GET /catalog-server/api/rules/reconciliation/executions/:id/result` - Fetches detailed rule-level performance metrics for RECONCILIATION (EQUALITY) policies
+4. **DATA_QUALITY Policy Details API**: `GET /catalog-server/api/rules/data-quality/:id` - Retrieves DATA_QUALITY policy configuration, threshold settings, and rule details
+5. **RECONCILIATION Policy Details API**: `GET /catalog-server/api/rules/reconciliation/:id` - Retrieves RECONCILIATION policy configuration, column mappings, and rule details
+6. **Asset Catalog API**: Resolves table asset names and metadata from asset identifiers
 
-The service intelligently merges data from these sources to create comprehensive execution metrics records with full context about policies, rules, assets, and performance outcomes.
+The service intelligently merges data from these sources to create comprehensive execution metrics records with full context about policies, rules, assets, and performance outcomes. For DATA_QUALITY policies, it uses the `/result` endpoint to access `items.resultPercent` and `items.success` fields. For RECONCILIATION policies, it uses the reconciliation-specific endpoints to access column mappings and reconciliation-specific metrics.
 
 ### Export Formats
 
@@ -140,29 +146,86 @@ The service intelligently merges data from these sources to create comprehensive
 
 ### Output Data Schema
 
-The exported data includes the following columns:
+The command generates three types of CSV files:
 
-| Column | Description |
-|--------|-------------|
-| policy_name | Name of the data quality policy |
-| policy_id | Unique identifier for the policy |
-| rule_version | Version of the rule |
-| exec_id | Execution identifier |
-| table_asset_name | Name of the table asset |
-| item_column_name | Column name being evaluated |
-| pde | PDE (Physical Data Element) identifier |
-| item_measurement_type | Type of measurement |
-| rule_strategy | Threshold strategy |
-| rule_lower_threshold | Lower threshold value |
-| rule_upper_threshold | Upper threshold value |
-| item_id | Rule item identifier |
-| result | Execution result value |
-| rows_scanned | Number of rows scanned |
-| rows_failed | Number of rows that failed |
-| end_ts | End timestamp (milliseconds) |
-| execution_date | Execution datetime |
-| execution_status | Status of the execution |
-| policy_type | Type of policy |
+1. **Main CSV**: Consolidated file containing both DATA_QUALITY and RECONCILIATION (EQUALITY) records with a unified structure
+2. **DATA_QUALITY CSV**: Separate file containing only DATA_QUALITY policy records
+3. **RECONCILIATION CSV**: Separate file containing only RECONCILIATION (EQUALITY) policy records
+
+#### Common Columns (Present in All CSVs)
+
+These columns are shared across both DATA_QUALITY and RECONCILIATION policy types:
+
+| Column | Description | Data Source |
+|--------|-------------|-------------|
+| Policy_Name | Name of the policy | `execution.ruleName` |
+| Policy_ID | Unique identifier for the policy | `execution.ruleId` |
+| Rule_Version | Version of the rule | `execution.ruleVersion` |
+| Execution_ID | Execution identifier | `execution.id` |
+| Rule_ID | Rule item identifier | `items.id` (DATA_QUALITY) or `items.columnMapping.id` (RECONCILIATION) |
+| Label_Key | Label key from policy details | `rule.enabled` / `details.columnMappings.labels.key` |
+| Label_Value | Label value from policy details | `details.items.labels.value` / `details.columnMappings.labels.value` |
+| Item_Measurement_Type | Type of measurement | `dimension` → "EQUALITY_MATCH" (ACCURACY) or "ROW_COUNT_MATCH" (TIMELINESS) |
+| Rule_Success_Rate | Rule success rate as percentage | `items.resultPercent` |
+| Rows_Scanned | Number of rows scanned | `result.rows` |
+| Rows_Failed | Number of rows that failed | `items.rowsFailed` (DATA_QUALITY) or `items.leftRowsFailed` (RECONCILIATION) |
+| Rule_Result_Status | Rule result status | `items.success` → "SUCCESSFUL" or "FAILED" (all caps) |
+| Overall_Policy_Status | Overall policy status | `result.status` |
+| Overall_Policy_Quality_Score(Percentage) | Overall policy quality score | `result.qualityScore` |
+| Started_At(UTC) | Start timestamp | `execution.startedAt` (converted to UTC) |
+| Finished_At(UTC) | Finish timestamp | `execution.finishedAt` (converted to UTC) |
+| Execution_Date(UTC) | Execution date | `execution.finishedAt` (converted to UTC) |
+| Execution_Status | Status of the execution | `execution.executionStatus` |
+| Policy_Type | Type of policy | `execution.ruleType` (DATA_QUALITY or EQUALITY) |
+| Policy_Enabled | Whether the policy is enabled | `rule.enabled` |
+| Policy_Description | Policy description | `rule.description` |
+| Rule_Description | Rule description | `details.items.businessExplanation` (DATA_QUALITY) or `details.columnMappings.businessExplanation` (RECONCILIATION) |
+
+#### DATA_QUALITY-Specific Columns
+
+These columns are only present in DATA_QUALITY records. For RECONCILIATION records, these columns are filled with "NOT_APPLICABLE":
+
+| Column | Description | Data Source |
+|--------|-------------|-------------|
+| Table_Asset_Name | Name of the table asset | `asset.name` (resolved from asset ID) |
+| Item_Column_Name | Column name being evaluated | `item.columnName` |
+| Rule_Strategy | Threshold strategy | `rule.strategy` |
+| Rule_Lower_Threshold | Lower threshold value | `rule.lowerThreshold` |
+| Rule_Upper_Threshold | Upper threshold value | `rule.upperThreshold` |
+
+#### RECONCILIATION-Specific Columns
+
+These columns are only present in RECONCILIATION (EQUALITY) records. For DATA_QUALITY records, these columns are filled with "NOT_APPLICABLE":
+
+| Column | Description | Data Source |
+|--------|-------------|-------------|
+| Left_Column | Left column name | `items.columnMapping.leftColumnName` |
+| Right_Column | Right column name | `items.columnMapping.rightColumnName` |
+| Left_Rows_Scanned | Left rows scanned | `result.leftRowsScanned` (only for ROW_COUNT_MATCH) |
+| Right_Rows_Scanned | Right rows scanned | `result.rightRowsScanned` (only for ROW_COUNT_MATCH) |
+| Use_For_Joining | Use for joining flag | `details.columnMappings.useForJoining` |
+| Left_ASSET_UID | Left asset UID | `rule.leftBackingAsset.tableAssetId` |
+| Right_ASSET_UID | Right asset UID | `rule.rightBackingAsset.tableAssetId` |
+| Join_Type | Join type | `details.joinType` |
+| Operation | Operation type | `details.columnMappings.operation` |
+| Rows_Failed/Drift | Rows failed or drift | `items.leftRowsFailed` (EQUALITY_MATCH) or drift calculation (ROW_COUNT_MATCH) |
+
+**Note**: In the RECONCILIATION CSV, the `Rows_Failed` column is renamed to `Rows_Failed/Drift` when any records have `Item_Measurement_Type` = "ROW_COUNT_MATCH". For ROW_COUNT_MATCH records, this column contains the drift value (absolute difference between left and right rows scanned). For EQUALITY_MATCH records, it contains the failed rows count.
+
+#### Item_Measurement_Type Values
+
+The `Item_Measurement_Type` column (formerly `Recon_Type` for reconciliation) uses standardized all-caps values:
+
+- **EQUALITY_MATCH**: For reconciliation policies with `dimension` = "ACCURACY"
+- **ROW_COUNT_MATCH**: For reconciliation policies with `dimension` = "TIMELINESS"
+
+#### NOT_APPLICABLE Values
+
+To maintain a consistent schema across policy types in the main CSV:
+
+- **DATA_QUALITY records**: All RECONCILIATION-specific columns are filled with "NOT_APPLICABLE" (all caps)
+- **RECONCILIATION records**: All DATA_QUALITY-specific columns are filled with "NOT_APPLICABLE" (all caps)
+- **Reconciliation-specific fields**: `Left_Rows_Scanned` and `Right_Rows_Scanned` are set to "NOT_APPLICABLE" for EQUALITY_MATCH records (only applicable for ROW_COUNT_MATCH)
 
 ### Progress Tracking
 
@@ -318,13 +381,54 @@ Export with all custom options:
 ADOC (prod) > export-execution-metrics --backload -15d --output-type parquet --output-dir ./reports --output-filename "detailed-metrics-%y-%m-%d"
 ```
 
+### Output File Examples
+
+After running the command, you'll get three files (if both DATA_QUALITY and RECONCILIATION policies are present):
+
+1. **Main consolidated file**: `execution-metrics-25-12-2023-14-30_prod.csv`
+   - Contains both DATA_QUALITY and RECONCILIATION records
+   - Uses unified schema with NOT_APPLICABLE for policy-specific columns
+
+2. **DATA_QUALITY file**: `data-quality-metrics-25-12-2023-14-30_prod.csv`
+   - Contains only DATA_QUALITY policy records
+   - Includes all DATA_QUALITY-specific columns
+
+3. **RECONCILIATION file**: `reconciliation-metrics-25-12-2023-14-30_prod.csv`
+   - Contains only RECONCILIATION (EQUALITY) policy records
+   - Includes all RECONCILIATION-specific columns
+   - May have `Rows_Failed/Drift` column if ROW_COUNT_MATCH records are present
+
 ## Output Files
 
-### Data Export File
+### Main Export File
 
-The main export file contains the execution metrics data in the specified format:
+The main export file contains consolidated execution metrics data for both DATA_QUALITY and RECONCILIATION (EQUALITY) policy types in the specified format:
 - CSV: `execution-metrics-25-12-2023-14-30_prod.csv`
 - Parquet: `execution-metrics-25-12-2023-14-30_prod.parquet`
+
+This file uses a unified schema where:
+- Common columns are shared across both policy types
+- Policy-specific columns are filled with "NOT_APPLICABLE" for the other policy type
+- All records are consolidated into a single file for cross-policy analysis
+
+### DATA_QUALITY Export File
+
+A separate file is generated containing only DATA_QUALITY policy records:
+- CSV: `data-quality-metrics-25-12-2023-14-30_prod.csv`
+- Parquet: `data-quality-metrics-25-12-2023-14-30_prod.parquet`
+
+This file contains all DATA_QUALITY-specific columns without the RECONCILIATION-specific columns.
+
+### RECONCILIATION Export File
+
+A separate file is generated containing only RECONCILIATION (EQUALITY) policy records:
+- CSV: `reconciliation-metrics-25-12-2023-14-30_prod.csv`
+- Parquet: `reconciliation-metrics-25-12-2023-14-30_prod.parquet`
+
+This file contains all RECONCILIATION-specific columns. Note that:
+- The `Rows_Failed` column may be renamed to `Rows_Failed/Drift` if any records have `Item_Measurement_Type` = "ROW_COUNT_MATCH"
+- For ROW_COUNT_MATCH records, `Rows_Failed/Drift` contains the drift value (absolute difference between left and right rows scanned)
+- For EQUALITY_MATCH records, `Rows_Failed/Drift` contains the failed rows count
 
 ### Tracking File
 
@@ -344,10 +448,12 @@ The tracking file (`.last_run_tracking.json`) stores incremental processing stat
 1. **Environment Configuration**: **REQUIRED** - Use the `use <environment>` command to set the active environment before running this command
 2. **Credentials**: Ensure the environment has valid `accessKey` and `secretKey` configured
 3. **Permissions**: The API keys must have access to:
-   - Rules execution endpoints (`/api/v1/rules/executions`)
-   - Data quality policy endpoints (`/api/v1/rules/executions/{executionId}/details`)
-   - Policy details endpoints (`/api/v1/rules/{policyId}/details`)
-   - Asset catalog endpoints (`/api/v1/assets/{assetId}`)
+   - Rules execution endpoints (`/catalog-server/api/rules/executions`)
+   - DATA_QUALITY execution result endpoints (`/catalog-server/api/rules/data-quality/executions/:id/result`)
+   - RECONCILIATION execution result endpoints (`/catalog-server/api/rules/reconciliation/executions/:id/result`)
+   - DATA_QUALITY policy details endpoints (`/catalog-server/api/rules/data-quality/:id`)
+   - RECONCILIATION policy details endpoints (`/catalog-server/api/rules/reconciliation/:id`)
+   - Asset catalog endpoints (for resolving asset names from asset IDs)
 
 ### Important Note
 The `export-execution-metrics` command will not run unless an environment has been selected using the `use <environment>` command. If no environment is set, the command will display an error message prompting you to set an environment first.
