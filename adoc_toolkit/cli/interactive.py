@@ -17,6 +17,7 @@ from ..http import ADOCHTTPClient
 from ..models import CompletionItem
 from .commands import (
     Command,
+    ExampleCommand,
     ExitCommand,
     ExportExecutionMetricsCommand,
     ExportMetricsCommand,
@@ -595,6 +596,7 @@ class InteractiveProcessor:
         get_cmd = GetCommand(http_client=self.http_client)
         find_asset_cmd = FindAssetCommand(http_client=self.http_client)
         text_to_dq_policy_cmd = TextToDQPolicyCommand()
+        example_cmd = ExampleCommand()
 
         self.register_command(help_cmd)
         self.register_command(exit_cmd)
@@ -607,6 +609,7 @@ class InteractiveProcessor:
         self.register_command(get_cmd)
         self.register_command(find_asset_cmd)
         self.register_command(text_to_dq_policy_cmd)
+        self.register_command(example_cmd)
 
     def register_command(self, command: Command) -> None:
         """Register a command in the processor.

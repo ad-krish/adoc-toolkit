@@ -728,7 +728,7 @@ Examples:
                 
                 # Get reconciliation records
                 reconciliation_records = getattr(service, '_reconciliation_records', [])
-                
+
                 # Create separate DataFrames for execution records and reconciliation records
                 # to preserve ALL columns from both
                 
@@ -769,18 +769,36 @@ Examples:
                         exec_df.rename(columns={"Item_Id": "Rule_ID"}, inplace=True)
                     if "Result" in exec_df.columns:
                         exec_df.rename(columns={"Result": "Rule_Success_Rate"}, inplace=True)
+                    # Ensure left_column and right_column are properly named (Title Case conversion should handle this, but check anyway)
+                    if "left_column" in exec_df.columns:
+                        exec_df.rename(columns={"left_column": "Left_Column"}, inplace=True)
+                    if "right_column" in exec_df.columns:
+                        exec_df.rename(columns={"right_column": "Right_Column"}, inplace=True)
                     # Rename Overall_Policy_Quality_Score to Overall_Policy_Quality_Score(Percentage)
                     if "Overall_Policy_Quality_Score" in exec_df.columns:
                         exec_df.rename(columns={"Overall_Policy_Quality_Score": "Overall_Policy_Quality_Score(Percentage)"}, inplace=True)
                     # Rename Result_Status to Rule_Result_Status
                     if "Result_Status" in exec_df.columns:
                         exec_df.rename(columns={"Result_Status": "Rule_Result_Status"}, inplace=True)
+                    
+                    # Map any "ACCURACY" or "TIMELINESS" values to standardized values for EQUALITY policies
+                    if "Item_Measurement_Type" in exec_df.columns and "Policy_Type" in exec_df.columns:
+                        equality_mask = exec_df["Policy_Type"] == "EQUALITY"
+                        exec_df.loc[equality_mask & (exec_df["Item_Measurement_Type"] == "ACCURACY"), "Item_Measurement_Type"] = "EQUALITY_MATCH"
+                        exec_df.loc[equality_mask & (exec_df["Item_Measurement_Type"] == "TIMELINESS"), "Item_Measurement_Type"] = "ROW_COUNT_MATCH"
                 
                 # Process reconciliation records DataFrame
                 if not recon_df_raw.empty:
                     # Rename Recon_Type to Item_Measurement_Type
                     if "Recon_Type" in recon_df_raw.columns:
                         recon_df_raw.rename(columns={"Recon_Type": "Item_Measurement_Type"}, inplace=True)
+                    
+                    # Map any remaining "ACCURACY" or "TIMELINESS" values to standardized values
+                    if "Item_Measurement_Type" in recon_df_raw.columns:
+                        recon_df_raw["Item_Measurement_Type"] = recon_df_raw["Item_Measurement_Type"].replace({
+                            "ACCURACY": "EQUALITY_MATCH",
+                            "TIMELINESS": "ROW_COUNT_MATCH"
+                        })
                     
                     # Rename datetime columns to match standardized format
                     recon_datetime_map = {
@@ -813,6 +831,12 @@ Examples:
                 
                 self.trace("creating_dataframe", records_count=len(df), exec_records=len(execution_records), recon_records=len(reconciliation_records))
                 
+                # Map any remaining "ACCURACY" or "TIMELINESS" values to standardized values for EQUALITY policies
+                if not df.empty and "Item_Measurement_Type" in df.columns and "Policy_Type" in df.columns:
+                    equality_mask = df["Policy_Type"] == "EQUALITY"
+                    df.loc[equality_mask & (df["Item_Measurement_Type"] == "ACCURACY"), "Item_Measurement_Type"] = "EQUALITY_MATCH"
+                    df.loc[equality_mask & (df["Item_Measurement_Type"] == "TIMELINESS"), "Item_Measurement_Type"] = "ROW_COUNT_MATCH"
+                
                 # Remove PDE column if it exists
                 if "Pde" in df.columns:
                     df = df.drop(columns=["Pde"])
@@ -841,19 +865,63 @@ Examples:
                     all_columns = df.columns.tolist()
                     # Find columns that are not in reconciliation unique columns and not common columns
                     # These might be DATA_QUALITY-specific
+                    # DATA_DRIFT-specific columns (should be NOT_APPLICABLE for other policy types)
+                    drift_unique_columns = [
+                        "Drift_Threshold"
+                    ]
+                    
                     common_columns = [
                         "Policy_Name", "Policy_ID", "Rule_Version", "Execution_ID", "Rule_ID",
                         "Item_Measurement_Type", "Rule_Success_Rate", "Rows_Scanned", "Rows_Failed",
                         "Started_At(UTC)", "Finished_At(UTC)", "Execution_Date(UTC)", "Execution_Status",
                         "Rule_Result_Status", "Overall_Policy_Status", "Overall_Policy_Quality_Score(Percentage)",
-                        "Policy_Type", "Policy_Enabled", "Label_Key", "Label_Value"
+                        "Policy_Type", "Policy_Enabled", "Label_Key", "Label_Value", "Policy_Description", "Rule_Description"
                     ]
-                    # For any column that's not common and not reconciliation-specific, 
+                    
+                    # For DATA_DRIFT records, set reconciliation-specific columns to NOT_APPLICABLE
+                    drift_mask = df["Policy_Type"] == "DATA_DRIFT"
+                    for col in recon_unique_columns:
+                        if col in df.columns:
+                            df.loc[drift_mask & df[col].isna(), col] = "NOT_APPLICABLE"
+                    
+                    # For DATA_QUALITY records, set reconciliation-specific and DATA_DRIFT-specific columns to NOT_APPLICABLE
+                    for col in recon_unique_columns + drift_unique_columns:
+                        if col in df.columns:
+                            df.loc[dq_mask & df[col].isna(), col] = "NOT_APPLICABLE"
+                    
+                    # For RECONCILIATION (EQUALITY) records, set DATA_QUALITY-specific and DATA_DRIFT-specific columns to NOT_APPLICABLE
+                    # Set Drift_Threshold to NOT_APPLICABLE for RECONCILIATION records
+                    for col in drift_unique_columns:
+                        if col in df.columns:
+                            df.loc[recon_mask & df[col].isna(), col] = "NOT_APPLICABLE"
+                    
+                    # For any column that's not common and not reconciliation-specific and not DATA_DRIFT-specific, 
                     # set to NOT_APPLICABLE for RECONCILIATION records
                     for col in all_columns:
-                        if col not in recon_unique_columns and col not in common_columns and col != "Policy_Type":
+                        if col not in recon_unique_columns and col not in drift_unique_columns and col not in common_columns and col != "Policy_Type":
                             if col in df.columns:
                                 df.loc[recon_mask & df[col].isna(), col] = "NOT_APPLICABLE"
+                    
+                    # For DATA_DRIFT records, set Rows_Scanned, Rows_Failed, and Rule_Description to NOT_APPLICABLE
+                    # (these are NOT_APPLICABLE for DATA_DRIFT but should be included in main CSV)
+                    drift_not_applicable_columns = ["Rows_Scanned", "Rows_Failed", "Rule_Description"]
+                    for col in drift_not_applicable_columns:
+                        if col in df.columns:
+                            # Set to NOT_APPLICABLE for all DATA_DRIFT records (including those with NaN)
+                            df.loc[drift_mask, col] = "NOT_APPLICABLE"
+                    
+                    # For DATA_DRIFT records, set DATA_QUALITY-specific columns to NOT_APPLICABLE
+                    # (columns that are not common, not reconciliation-specific, and not DATA_DRIFT-specific)
+                    for col in all_columns:
+                        if col not in recon_unique_columns and col not in drift_unique_columns and col not in common_columns and col != "Policy_Type":
+                            if col in df.columns:
+                                df.loc[drift_mask & df[col].isna(), col] = "NOT_APPLICABLE"
+                    
+                    # For other policy types (not DATA_QUALITY, EQUALITY, DATA_DRIFT), set both reconciliation and DATA_DRIFT columns to NOT_APPLICABLE
+                    other_mask = ~(dq_mask | recon_mask | drift_mask)
+                    for col in recon_unique_columns + drift_unique_columns:
+                        if col in df.columns:
+                            df.loc[other_mask & df[col].isna(), col] = "NOT_APPLICABLE"
                 
                 # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                 if "Rule_ID" in df.columns:
@@ -976,6 +1044,30 @@ Examples:
                     if "Pde" in dq_df.columns:
                         dq_df = dq_df.drop(columns=["Pde"])
                     
+                    # For DATA_QUALITY CSV, exclude NOT_APPLICABLE columns and DATA_DRIFT-specific columns
+                    # Exclude reconciliation-specific columns
+                    recon_columns_to_exclude = [
+                        "Left_Column", "Right_Column", "Left_Rows_Scanned", "Right_Rows_Scanned",
+                        "Use_For_Joining", "Left_ASSET_UID", "Right_ASSET_UID", "Join_Type", "Operation"
+                    ]
+                    # Exclude DATA_DRIFT-specific columns
+                    drift_columns_to_exclude = ["Drift_Threshold"]
+                    # Exclude columns that are NOT_APPLICABLE for DATA_QUALITY
+                    for col in recon_columns_to_exclude + drift_columns_to_exclude:
+                        if col in dq_df.columns:
+                            dq_df = dq_df.drop(columns=[col])
+                    
+                    # Also exclude any columns that are entirely "NOT_APPLICABLE" (including NaN that were filled)
+                    for col in dq_df.columns:
+                        # Check if all non-null values are "NOT_APPLICABLE" or if column is all NaN/None
+                        if col in dq_df.columns:
+                            non_null_values = dq_df[col].dropna()
+                            if len(non_null_values) > 0 and (non_null_values == "NOT_APPLICABLE").all():
+                                dq_df = dq_df.drop(columns=[col])
+                            elif len(non_null_values) == 0:
+                                # Column is all NaN/None, exclude it
+                                dq_df = dq_df.drop(columns=[col])
+                    
                     # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                     if "Rule_ID" in dq_df.columns:
                         cols = list(dq_df.columns)
@@ -1025,7 +1117,11 @@ Examples:
                     )
                 
                 # Export reconciliation records separately if available
+                # Use the reconciliation_records from service (these should be ReconciliationRecord objects)
                 reconciliation_records = getattr(service, '_reconciliation_records', [])
+                
+                log_info(f"DEBUG: reconciliation_records count: {len(reconciliation_records) if reconciliation_records else 0}")
+                
                 if reconciliation_records:
                     recon_task = progress.add_task(
                         "📊 Exporting reconciliation records...", total=None
@@ -1036,31 +1132,186 @@ Examples:
                     )
                     
                     # Create DataFrame for reconciliation records
-                    recon_df_data = [record.model_dump() for record in reconciliation_records]
-                    recon_df = pd.DataFrame(recon_df_data)
+                    # reconciliation_records should be ReconciliationRecord objects from process_reconciliation_records
+                    # Check if records are ReconciliationRecord by checking the actual fields in model_dump
+                    from ...models import ReconciliationRecord
+                    first_record = reconciliation_records[0] if reconciliation_records else None
                     
-                    # Rename Recon_Type to Item_Measurement_Type for consistency
-                    if "Recon_Type" in recon_df.columns:
-                        recon_df.rename(columns={"Recon_Type": "Item_Measurement_Type"}, inplace=True)
+                    # Check if this is a ReconciliationRecord by examining the fields
+                    # ReconciliationRecord has unique fields like Left_Column, Right_Column, Left_Rows_Scanned, etc.
+                    is_reconciliation_record = False
+                    if first_record:
+                        # Try to get the fields from model_dump to check
+                        try:
+                            sample_dump = first_record.model_dump()
+                            log_info(f"DEBUG: First record type: {type(first_record).__name__}")
+                            log_info(f"DEBUG: First record fields (first 15): {list(sample_dump.keys())[:15]}")
+                            
+                            # Check for ReconciliationRecord-specific fields (these are the key differentiators)
+                            # ReconciliationRecord uses capitalized field names like Left_Column, Right_Column, etc.
+                            has_recon_fields = (
+                                'Left_Column' in sample_dump or
+                                'Right_Column' in sample_dump or
+                                'Left_Rows_Scanned' in sample_dump or
+                                'Right_Rows_Scanned' in sample_dump or
+                                'Use_For_Joining' in sample_dump or
+                                'Left_ASSET_UID' in sample_dump or
+                                'Right_ASSET_UID' in sample_dump or
+                                'Join_Type' in sample_dump or
+                                'Operation' in sample_dump or
+                                'Recon_Type' in sample_dump
+                            )
+                            
+                            # ExecutionMetricsRecord uses lowercase field names like table_asset_name, item_column_name, etc.
+                            has_exec_fields = (
+                                'table_asset_name' in sample_dump or
+                                'item_column_name' in sample_dump or
+                                'rule_strategy' in sample_dump or
+                                'pde' in sample_dump
+                            )
+                            
+                            # If it has ReconciliationRecord fields, it's definitely a ReconciliationRecord
+                            # ExecutionMetricsRecord will NOT have Left_Column, Right_Column, etc.
+                            is_reconciliation_record = has_recon_fields
+                            
+                            log_info(f"DEBUG: Field check - has_recon_fields: {has_recon_fields}, has_exec_fields: {has_exec_fields}, is_reconciliation_record: {is_reconciliation_record}")
+                        except Exception as e:
+                            log_info(f"DEBUG: Error checking record fields: {e}")
+                            import traceback
+                            log_info(f"DEBUG: Traceback: {traceback.format_exc()}")
+                            # Fallback to isinstance check
+                            is_reconciliation_record = isinstance(first_record, ReconciliationRecord)
+                    
+                    if is_reconciliation_record:
+                        # These are ReconciliationRecord objects - preserve ALL columns from ReconciliationRecord model:
+                        # Policy_Name, Policy_ID, Rule_Version, Execution_ID, Left_Column, Right_Column, Rule_ID,
+                        # Recon_Type, Result_Percentage, Rows_Scanned, Rows_Failed, Left_Rows_Scanned, Right_Rows_Scanned,
+                        # Use_For_Joining, Policy_Description, Rule_Description, Left_ASSET_UID, Right_ASSET_UID,
+                        # Join_Type, Started_At_UTC, Finished_At_UTC, Execution_Date_UTC, Execution_Status,
+                        # Rule_Result_Status, Overall_Policy_Status, Overall_Policy_Quality_Score, Policy_Type,
+                        # Policy_Enabled, Operation, Label_Key, Label_Value
+                        recon_df_data = [record.model_dump() for record in reconciliation_records]
+                        recon_df = pd.DataFrame(recon_df_data)
+                        
+                        # Rename Recon_Type to Item_Measurement_Type for consistency
+                        if "Recon_Type" in recon_df.columns:
+                            recon_df.rename(columns={"Recon_Type": "Item_Measurement_Type"}, inplace=True)
+                        
+                        # Rename datetime columns to match standardized format (with parentheses, no space)
+                        recon_datetime_map = {
+                            "Started_At_UTC": "Started_At(UTC)",
+                            "Finished_At_UTC": "Finished_At(UTC)",
+                            "Execution_Date_UTC": "Execution_Date(UTC)",
+                        }
+                        recon_df.rename(columns=recon_datetime_map, inplace=True)
+                        
+                        # Rename Result_Percentage to Rule_Success_Rate
+                        if "Result_Percentage" in recon_df.columns:
+                            recon_df.rename(columns={"Result_Percentage": "Rule_Success_Rate"}, inplace=True)
+                        
+                        # Rename Overall_Policy_Quality_Score to Overall_Policy_Quality_Score(Percentage)
+                        if "Overall_Policy_Quality_Score" in recon_df.columns:
+                            recon_df.rename(columns={"Overall_Policy_Quality_Score": "Overall_Policy_Quality_Score(Percentage)"}, inplace=True)
+                        
+                        # Rename Result_Status to Rule_Result_Status (if it exists, otherwise it's already Rule_Result_Status)
+                        if "Result_Status" in recon_df.columns:
+                            recon_df.rename(columns={"Result_Status": "Rule_Result_Status"}, inplace=True)
+                    else:
+                        # Fallback: These are ExecutionMetricsRecord objects (EQUALITY type from execution_records)
+                        # This should not happen if reconciliation_records are properly stored as ReconciliationRecord objects
+                        # These are ExecutionMetricsRecord objects (EQUALITY type from execution_records)
+                        # Convert to DataFrame, excluding epoch timestamps
+                        recon_df_data = [record.model_dump(exclude={"startedAt", "finishedAt"}) for record in reconciliation_records]
+                        recon_df = pd.DataFrame(recon_df_data)
+                        
+                        # Add timezone info to datetime column headers
+                        datetime_columns = ["started_at", "finished_at", "execution_date"]
+                        for col in datetime_columns:
+                            if col in recon_df.columns:
+                                new_col_name = f"{col} ({timezone})"
+                                recon_df.rename(columns={col: new_col_name}, inplace=True)
+                        
+                        # Convert all column names to Title Case
+                        recon_df = convert_column_names_to_title_case(recon_df)
+                        
+                        # Standardize datetime column format to use (UTC) without space
+                        datetime_rename_map = {
+                            "Started_At (UTC)": "Started_At(UTC)",
+                            "Finished_At (UTC)": "Finished_At(UTC)",
+                            "Execution_Date (UTC)": "Execution_Date(UTC)",
+                        }
+                        recon_df.rename(columns=datetime_rename_map, inplace=True)
+                        
+                        # Standardize column names for RECONCILIATION
+                        if "Exec_Id" in recon_df.columns:
+                            recon_df.rename(columns={"Exec_Id": "Execution_ID"}, inplace=True)
+                        if "Policy_Id" in recon_df.columns:
+                            recon_df.rename(columns={"Policy_Id": "Policy_ID"}, inplace=True)
+                        if "Item_Id" in recon_df.columns:
+                            recon_df.rename(columns={"Item_Id": "Rule_ID"}, inplace=True)
+                        if "Result" in recon_df.columns:
+                            recon_df.rename(columns={"Result": "Rule_Success_Rate"}, inplace=True)
+                        if "Overall_Policy_Quality_Score" in recon_df.columns:
+                            recon_df.rename(columns={"Overall_Policy_Quality_Score": "Overall_Policy_Quality_Score(Percentage)"}, inplace=True)
+                        if "Result_Status" in recon_df.columns:
+                            recon_df.rename(columns={"Result_Status": "Rule_Result_Status"}, inplace=True)
+                        # Item_Measurement_Type should already be set from ExecutionMetricsRecord
                     
                     # Rename Rows_Failed to Rows_Failed/Drift if any records have ROW_COUNT_MATCH
                     # The column will contain drift for ROW_COUNT_MATCH and failedRows for EQUALITY_MATCH
-                    if "Item_Measurement_Type" in recon_df.columns and "Rows_Failed" in recon_df.columns:
+                    # Only apply this if we're working with ReconciliationRecord (which has Item_Measurement_Type)
+                    if is_reconciliation_record and "Item_Measurement_Type" in recon_df.columns and "Rows_Failed" in recon_df.columns:
                         row_count_match_mask = recon_df["Item_Measurement_Type"] == "ROW_COUNT_MATCH"
                         if row_count_match_mask.any():
                             # Rename the column for all records
                             recon_df.rename(columns={"Rows_Failed": "Rows_Failed/Drift"}, inplace=True)
                     
-                    # Rename columns to match user requirements (with parentheses)
-                    column_rename_map = {
-                        "Result_Percentage": "Rule_Success_Rate",
-                        "Started_At_UTC": "Started_At(UTC)",
-                        "Finished_At_UTC": "Finished_At(UTC)",
-                        "Execution_Date_UTC": "Execution_Date(UTC)",
-                        "Overall_Policy_Quality_Score": "Overall_Policy_Quality_Score(Percentage)",
-                        "Result_Status": "Rule_Result_Status",
-                    }
-                    recon_df.rename(columns=column_rename_map, inplace=True)
+                    # Skip the duplicate rename map if we already processed ReconciliationRecord columns above
+                    if not is_reconciliation_record:
+                        # Rename columns to match user requirements (with parentheses) - only for ExecutionMetricsRecord fallback
+                        column_rename_map = {
+                            "Result_Percentage": "Rule_Success_Rate",
+                            "Started_At_UTC": "Started_At(UTC)",
+                            "Finished_At_UTC": "Finished_At(UTC)",
+                            "Execution_Date_UTC": "Execution_Date(UTC)",
+                            "Overall_Policy_Quality_Score": "Overall_Policy_Quality_Score(Percentage)",
+                            "Result_Status": "Rule_Result_Status",
+                        }
+                        recon_df.rename(columns=column_rename_map, inplace=True)
+                    
+                    # For RECONCILIATION CSV, ONLY exclude DATA_DRIFT-specific columns
+                    # Keep ALL reconciliation-specific columns (Left_Column, Right_Column, Left_Rows_Scanned, 
+                    # Right_Rows_Scanned, Use_For_Joining, Left_ASSET_UID, Right_ASSET_UID, Join_Type, Operation, etc.)
+                    # Only exclude Drift_Threshold (DATA_DRIFT-specific)
+                    drift_columns_to_exclude = ["Drift_Threshold"]
+                    for col in drift_columns_to_exclude:
+                        if col in recon_df.columns:
+                            recon_df = recon_df.drop(columns=[col])
+                    
+                    # Remove PDE column if it exists
+                    if "Pde" in recon_df.columns:
+                        recon_df = recon_df.drop(columns=["Pde"])
+                    
+                    # Exclude DATA_QUALITY-specific columns that are NOT_APPLICABLE for reconciliation
+                    # These would be columns like Rule_Strategy, Rule_Lower_Threshold, Rule_Upper_Threshold, Table_Asset_Name, Item_Column_Name
+                    dq_specific_columns = [
+                        "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold", 
+                        "Table_Asset_Name", "Item_Column_Name"
+                    ]
+                    for col in dq_specific_columns:
+                        if col in recon_df.columns:
+                            recon_df = recon_df.drop(columns=[col])
+                    
+                    # Also exclude any columns that are entirely "NOT_APPLICABLE" (including NaN that were filled)
+                    for col in recon_df.columns:
+                        # Check if all non-null values are "NOT_APPLICABLE" or if column is all NaN/None
+                        if col in recon_df.columns:
+                            non_null_values = recon_df[col].dropna()
+                            if len(non_null_values) > 0 and (non_null_values == "NOT_APPLICABLE").all():
+                                recon_df = recon_df.drop(columns=[col])
+                            elif len(non_null_values) == 0:
+                                # Column is all NaN/None, exclude it
+                                recon_df = recon_df.drop(columns=[col])
                     
                     # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                     if "Rule_ID" in recon_df.columns:
@@ -1109,6 +1360,119 @@ Examples:
                         records_count=len(recon_df),
                         output_file=str(recon_output_path),
                     )
+                
+                # Export DATA_DRIFT records separately if available
+                if not df.empty and "Policy_Type" in df.columns:
+                    drift_mask = df["Policy_Type"] == "DATA_DRIFT"
+                    if drift_mask.any():
+                        drift_task = progress.add_task(
+                            "📊 Exporting DATA_DRIFT records...", total=None
+                        )
+                        self.trace(
+                            "starting_data_drift_export",
+                            records_count=drift_mask.sum(),
+                        )
+                        
+                        # Create DataFrame for DATA_DRIFT records
+                        drift_df = df[drift_mask].copy()
+                        
+                        # Apply datetime renaming if needed
+                        datetime_rename_map = {
+                            "Started_At (UTC)": "Started_At(UTC)",
+                            "Finished_At (UTC)": "Finished_At(UTC)",
+                            "Execution_Date (UTC)": "Execution_Date(UTC)",
+                        }
+                        drift_df.rename(columns=datetime_rename_map, inplace=True)
+                        
+                        # Standardize column names for DATA_DRIFT
+                        if "Exec_Id" in drift_df.columns:
+                            drift_df.rename(columns={"Exec_Id": "Execution_ID"}, inplace=True)
+                        if "Policy_Id" in drift_df.columns:
+                            drift_df.rename(columns={"Policy_Id": "Policy_ID"}, inplace=True)
+                        if "Item_Id" in drift_df.columns:
+                            drift_df.rename(columns={"Item_Id": "Rule_ID"}, inplace=True)
+                        if "Result" in drift_df.columns:
+                            drift_df.rename(columns={"Result": "Rule_Success_Rate"}, inplace=True)
+                        if "Overall_Policy_Quality_Score" in drift_df.columns:
+                            drift_df.rename(columns={"Overall_Policy_Quality_Score": "Overall_Policy_Quality_Score(Percentage)"}, inplace=True)
+                        if "Result_Status" in drift_df.columns:
+                            drift_df.rename(columns={"Result_Status": "Rule_Result_Status"}, inplace=True)
+                        
+                        # Remove PDE column if it exists
+                        if "Pde" in drift_df.columns:
+                            drift_df = drift_df.drop(columns=["Pde"])
+                        
+                        # For DATA_DRIFT CSV, exclude Rows_Scanned, Rows_Failed, and Rule_Description
+                        # (these are NOT_APPLICABLE for DATA_DRIFT)
+                        columns_to_exclude = ["Rows_Scanned", "Rows_Failed", "Rule_Description"]
+                        for col in columns_to_exclude:
+                            if col in drift_df.columns:
+                                drift_df = drift_df.drop(columns=[col])
+                        
+                        # Exclude reconciliation-specific columns that are NOT_APPLICABLE for DATA_DRIFT
+                        recon_columns_to_exclude = [
+                            "Left_Column", "Right_Column", "Left_Rows_Scanned", "Right_Rows_Scanned",
+                            "Use_For_Joining", "Left_ASSET_UID", "Right_ASSET_UID", "Join_Type", "Operation"
+                        ]
+                        for col in recon_columns_to_exclude:
+                            if col in drift_df.columns:
+                                drift_df = drift_df.drop(columns=[col])
+                        
+                        # Also exclude any columns that are entirely "NOT_APPLICABLE" (including NaN that were filled)
+                        for col in drift_df.columns:
+                            # Check if all non-null values are "NOT_APPLICABLE" or if column is all NaN/None
+                            if col in drift_df.columns:
+                                non_null_values = drift_df[col].dropna()
+                                if len(non_null_values) > 0 and (non_null_values == "NOT_APPLICABLE").all():
+                                    drift_df = drift_df.drop(columns=[col])
+                                elif len(non_null_values) == 0:
+                                    # Column is all NaN/None, exclude it
+                                    drift_df = drift_df.drop(columns=[col])
+                        
+                        # Reorder columns: put Label_Key and Label_Value right after Rule_ID
+                        if "Rule_ID" in drift_df.columns:
+                            cols = list(drift_df.columns)
+                            label_cols = []
+                            if "Label_Key" in cols:
+                                cols.remove("Label_Key")
+                                label_cols.append("Label_Key")
+                            if "Label_Value" in cols:
+                                cols.remove("Label_Value")
+                                label_cols.append("Label_Value")
+                            
+                            if label_cols and "Rule_ID" in cols:
+                                rule_id_idx = cols.index("Rule_ID")
+                                cols = cols[:rule_id_idx + 1] + label_cols + cols[rule_id_idx + 1:]
+                                drift_df = drift_df[cols]
+                        
+                        # Generate DATA_DRIFT filename
+                        drift_filename = generate_execution_metrics_filename(
+                            "data-drift-metrics-%d-%m-%y-%h-%M",
+                            args_model.output_type,
+                            env_name,
+                        )
+                        drift_output_path = output_dir / drift_filename
+                        
+                        # Export DATA_DRIFT data
+                        export_execution_metrics_to_format(
+                            drift_df, drift_output_path, args_model.output_type
+                        )
+                        
+                        progress.update(
+                            drift_task, description="DATA_DRIFT export completed!", completed=True
+                        )
+                        
+                        console.print(
+                            f"✅ Successfully exported {len(drift_df)} DATA_DRIFT records to "
+                            f"{drift_output_path}",
+                            style="green",
+                        )
+                        
+                        self.trace(
+                            "data_drift_export_completed",
+                            records_count=len(drift_df),
+                            output_file=str(drift_output_path),
+                        )
 
                 # Update tracking information using checkpoint captured at START
                 # This prevents data loss from jobs that complete during processing

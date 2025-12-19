@@ -82,6 +82,8 @@ class ExecutionDetail(BaseModel):
 
     item_id: str = Field(description="Item identifier")
     item_column_name: str | None = Field(default=None, description="Column name")
+    left_column: str | None = Field(default=None, description="Left column name (for EQUALITY policies)")
+    right_column: str | None = Field(default=None, description="Right column name (for EQUALITY policies)")
     item_ver: int = Field(description="Item version")
     pde_name: str | None = Field(default=None, description="PDE name")
     pde: str | None = Field(default=None, description="PDE label")
@@ -167,6 +169,12 @@ class PolicyDetail(BaseModel):
     rule_description: str | None = Field(
         default=None, description="Rule description from details.items.businessExplanation (for DATA_QUALITY)"
     )
+    item_measurement_type: str | None = Field(
+        default=None, description="Item measurement type from details.items.metricType (for DATA_DRIFT)"
+    )
+    drift_threshold: float | None = Field(
+        default=None, description="Drift threshold from details.items.driftThreshold (for DATA_DRIFT)"
+    )
 
     @field_validator("policy_id", "id", mode="before")
     @classmethod
@@ -194,6 +202,8 @@ class ExecutionMetricsRecord(BaseModel):
         default=None, description="Table asset name"
     )
     item_column_name: str | None = Field(default=None, description="Column name")
+    left_column: str | None = Field(default=None, description="Left column name (for EQUALITY policies)")
+    right_column: str | None = Field(default=None, description="Right column name (for EQUALITY policies)")
     pde: str | None = Field(default=None, description="PDE value")
     item_measurement_type: str | None = Field(
         default=None, description="Measurement type"
@@ -245,6 +255,9 @@ class ExecutionMetricsRecord(BaseModel):
     )
     rule_description: str | None = Field(
         default=None, description="Rule description from details.items.businessExplanation (for DATA_QUALITY)"
+    )
+    drift_threshold: float | None = Field(
+        default=None, description="Drift threshold from details.items.driftThreshold (for DATA_DRIFT)"
     )
 
 

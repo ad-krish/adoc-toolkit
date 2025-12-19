@@ -347,9 +347,10 @@ def process_execution_details_parallel(
                 f"{execution.execution_id}/result"
             )
         elif execution.policy_type == "DATA_DRIFT":
+            # DATA_DRIFT requires /result suffix to get execution.ruleVersion
             endpoint = (
                 f"/catalog-server/api/rules/data-drift/executions/"
-                f"{execution.execution_id}"
+                f"{execution.execution_id}/result"
             )
         elif execution.policy_type == "PROFILE_ANOMALY":
             # PROFILE_ANOMALY requires /result suffix
@@ -384,6 +385,17 @@ def process_execution_details_parallel(
 
         exec_result_data = response.json()
         items = safe_get(exec_result_data, "items", [])
+        
+        # For DATA_DRIFT, extract execution.ruleVersion from the result and update execution object
+        if execution.policy_type == "DATA_DRIFT":
+            execution_data = safe_get(exec_result_data, "execution", {})
+            rule_version = safe_get(execution_data, "ruleVersion")
+            if rule_version is not None:
+                execution.policy_version = rule_version
+                log_info(
+                    f"Updated DATA_DRIFT execution {execution.execution_id} policy_version "
+                    f"to {rule_version} from execution result"
+                )
         
         # Extract result-level fields (same for all items in this execution)
         result_data = safe_get(exec_result_data, "result", {})
@@ -538,6 +550,15 @@ def process_execution_details_parallel(
                     if rule_result is not None:
                         # Convert to string percentage format
                         rule_result = str(rule_result)
+                elif execution.policy_type == "DATA_DRIFT":
+                    # For DATA_DRIFT, use resultPercent (same as DATA_QUALITY and EQUALITY)
+                    rule_result = safe_get(item, "resultPercent")
+                    if rule_result is not None:
+                        # Convert to string percentage format
+                        rule_result = str(rule_result)
+                    # Rows_Scanned and Rows_Failed are NOT_APPLICABLE for DATA_DRIFT
+                    rows_scanned = None
+                    rows_failed = None
                 else:
                     # For other policy types, use standard extraction
                     rows_scanned = safe_get(item, "rowsScanned")
@@ -569,21 +590,31 @@ def process_execution_details_parallel(
             # For DATA_QUALITY:
             # - Both use nested item.id
             if execution.policy_type == "EQUALITY":
-                # For EQUALITY, use columnMapping.id from execution details
-                column_mapping = safe_get(item_data, "columnMapping", {})
-                if column_mapping and isinstance(column_mapping, dict):
-                    extracted_item_id = str(safe_get(column_mapping, "id", ""))
-                else:
-                    # Fallback to ruleItemId if columnMapping is not available
-                    extracted_item_id = str(safe_get(item, "ruleItemId", ""))
-                extracted_item_ver = safe_get(item, "ruleVersion", 1)
+                # For EQUALITY, use items[].id and execution.ruleVersion for merging
+                # items[].id matches columnMapping.id, but we use the top-level id directly
+                extracted_item_id = str(safe_get(item, "id", ""))
+                if not extracted_item_id:
+                    # Fallback to columnMapping.id if item.id is not available
+                    column_mapping = safe_get(item_data, "columnMapping", {})
+                    if column_mapping and isinstance(column_mapping, dict):
+                        extracted_item_id = str(safe_get(column_mapping, "id", ""))
+                    else:
+                        # Final fallback to ruleItemId
+                        extracted_item_id = str(safe_get(item, "ruleItemId", ""))
+                # For EQUALITY, use execution.ruleVersion (execution.policy_version)
+                extracted_item_ver = execution.policy_version
+                log_info(f"DEBUG: EQUALITY exec {execution.execution_id} - extracted_item_id='{extracted_item_id}' (from items[].id), extracted_item_ver={extracted_item_ver} (from execution.ruleVersion)")
+            elif execution.policy_type == "DATA_DRIFT":
+                # For DATA_DRIFT, use ruleItemId from the top-level item
+                extracted_item_id = str(safe_get(item, "ruleItemId", ""))
+                # For DATA_DRIFT, use execution.ruleVersion (already extracted and updated in execution.policy_version)
+                extracted_item_ver = execution.policy_version
             elif execution.policy_type != "DATA_QUALITY":
                 # Use ruleItemId from the top-level item for other non-DATA_QUALITY policies
                 extracted_item_id = str(safe_get(item, "ruleItemId", ""))
                 # Default version depends on policy type:
-                # - DATA_DRIFT uses version 0
                 # - PROFILE_ANOMALY uses version 1
-                default_version = 0 if execution.policy_type == "DATA_DRIFT" else 1
+                default_version = 1
                 extracted_item_ver = safe_get(item, "ruleVersion", default_version)
             else:
                 # For DATA_QUALITY:
@@ -631,13 +662,18 @@ def process_execution_details_parallel(
             else:
                 column_name = safe_get(item_data, "columnName")
             
-            # For EQUALITY, try alternative column name locations
-            if not column_name and execution.policy_type == "EQUALITY":
+            # For EQUALITY, extract left_column and right_column from columnMapping
+            left_column = None
+            right_column = None
+            if execution.policy_type == "EQUALITY":
                 # EQUALITY items don't have columnName - extract from columnMapping or use dimension
                 column_mapping = safe_get(item_data, "columnMapping", {})
                 if column_mapping and isinstance(column_mapping, dict):
-                    # Try to get leftColumnName or rightColumnName
-                    column_name = safe_get(column_mapping, "leftColumnName") or safe_get(column_mapping, "rightColumnName")
+                    # Extract left and right column names
+                    left_column = safe_get(column_mapping, "leftColumnName")
+                    right_column = safe_get(column_mapping, "rightColumnName")
+                    # Try to get leftColumnName or rightColumnName for column_name
+                    column_name = left_column or right_column
                 # If still no column name, use dimension as fallback
                 if not column_name:
                     column_name = safe_get(item_data, "dimension")
@@ -649,7 +685,14 @@ def process_execution_details_parallel(
                 measurement_type = safe_get(item_data, "measurementType")
                 if not measurement_type and execution.policy_type == "EQUALITY":
                     # EQUALITY uses dimension field instead of measurementType
-                    measurement_type = safe_get(item_data, "dimension")
+                    # Map dimension to standardized Recon_Type values
+                    dimension = safe_get(item_data, "dimension", "")
+                    if dimension == "ACCURACY":
+                        measurement_type = "EQUALITY_MATCH"
+                    elif dimension == "TIMELINESS":
+                        measurement_type = "ROW_COUNT_MATCH"
+                    else:
+                        measurement_type = dimension  # Fallback to raw dimension if not recognized
             
             # For EQUALITY, use items[].leftRowsFailed for rows_failed
             if execution.policy_type == "EQUALITY":
@@ -658,6 +701,9 @@ def process_execution_details_parallel(
             elif execution.policy_type == "DATA_QUALITY":
                 # For DATA_QUALITY, use items[].rowsFailed directly
                 rows_failed = safe_get(item, "rowsFailed")
+            elif execution.policy_type == "DATA_DRIFT":
+                # For DATA_DRIFT, Rows_Failed is NOT_APPLICABLE (already set to None above)
+                rows_failed = None
             else:
                 rows_failed = calculate_failed_rows(rows_scanned, rule_result)
             
@@ -681,6 +727,8 @@ def process_execution_details_parallel(
             execution_detail = ExecutionDetail(
                 item_id=extracted_item_id,
                 item_column_name=column_name,
+                left_column=left_column,
+                right_column=right_column,
                 item_ver=extracted_item_ver,
                 pde_name=pde_value,
                 pde=pde_label,
@@ -707,15 +755,16 @@ def process_execution_details_parallel(
             log_info(f"DEBUG DATA_QUALITY execution {execution.execution_id}: Created {len(execution_details)} execution details from {len(items)} items")
         
         # For EQUALITY, also create reconciliation records
-        if execution.policy_type == "EQUALITY" and items:
-            if execution.execution_id == "10410555":
-                log_info(f"🔍 DEBUG: Processing reconciliation records for 10410555 - {len(items)} items")
-            recon_records = process_reconciliation_records(
-                exec_result_data, execution, http_client, timezone
-            )
-            if execution.execution_id == "10410555":
-                log_info(f"🔍 DEBUG: Created {len(recon_records)} reconciliation records for 10410555")
-            reconciliation_records.extend(recon_records)
+        if execution.policy_type == "EQUALITY":
+            if items:
+                log_info(f"DEBUG: Processing reconciliation records for EQUALITY execution {execution.execution_id} - {len(items)} items")
+                recon_records = process_reconciliation_records(
+                    exec_result_data, execution, http_client, timezone
+                )
+                log_info(f"DEBUG: Created {len(recon_records)} reconciliation records for EQUALITY execution {execution.execution_id}")
+                reconciliation_records.extend(recon_records)
+            else:
+                log_info(f"DEBUG: EQUALITY execution {execution.execution_id} has no items, skipping reconciliation records")
 
         if task_id:
             progress.update(
@@ -736,6 +785,81 @@ def process_execution_details_parallel(
         log_error(f"Traceback: {traceback.format_exc()}")
 
     return execution_details, reconciliation_records
+
+
+def fetch_data_drift_version_mapping(
+    policy_id: str,
+    max_version: int,
+    http_client: ADOCHTTPClient,
+) -> dict[tuple[str, str], str]:
+    """Fetch DATA_DRIFT policy versions and track (columnName, metricType) -> item.id mapping.
+    
+    Only returns item.id for NEW (columnName, metricType) combinations that weren't in previous versions.
+    Compares version N with version N-1 sequentially (1->2, 2->3, etc.), not 1->5.
+    
+    Args:
+        policy_id: Policy ID
+        max_version: Maximum version to fetch (from execution.ruleVersion)
+        http_client: HTTP client for API calls
+        
+    Returns:
+        Dictionary mapping (columnName, metricType) -> item.id for new combinations only
+    """
+    version_mapping: dict[tuple[str, str], str] = {}
+    seen_combinations: set[tuple[str, str]] = set()
+    
+    if max_version < 1:
+        return version_mapping
+    
+    log_info(f"Fetching DATA_DRIFT policy {policy_id} versions 1 to {max_version} for version comparison")
+    
+    for version in range(1, max_version + 1):
+        endpoint = f"/catalog-server/api/rules/data-drift/{policy_id}?version={version}"
+        response = http_client.get(endpoint)
+        
+        if not response.is_success:
+            log_error(f"Failed to fetch DATA_DRIFT policy {policy_id} version {version}")
+            continue
+        
+        policy_data = response.json()
+        details_data = safe_get(policy_data, "details", {})
+        items = safe_get(details_data, "items", [])
+        
+        # Track combinations in this version
+        current_version_combinations: set[tuple[str, str]] = set()
+        
+        for item in items:
+            column_name = safe_get(item, "columnName", "")
+            metric_type = safe_get(item, "metricType", "")
+            item_id = str(safe_get(item, "id", ""))
+            
+            if not column_name or not metric_type or not item_id:
+                continue
+            
+            combination = (column_name, metric_type)
+            current_version_combinations.add(combination)
+            
+            # Only add to mapping if this combination is NEW (not seen in previous versions)
+            if combination not in seen_combinations:
+                version_mapping[combination] = item_id
+                log_info(
+                    f"DATA_DRIFT version {version}: New combination ({column_name}, {metric_type}) -> item.id={item_id}"
+                )
+        
+        # Count new combinations before updating seen_combinations
+        new_count = len([c for c in current_version_combinations if c not in seen_combinations])
+        
+        # Update seen combinations for next version comparison (after checking for new ones)
+        seen_combinations.update(current_version_combinations)
+        log_info(
+            f"DATA_DRIFT version {version}: {len(current_version_combinations)} combinations, "
+            f"{new_count} new"
+        )
+    
+    log_info(
+        f"DATA_DRIFT policy {policy_id}: Total {len(version_mapping)} new (columnName, metricType) -> item.id mappings"
+    )
+    return version_mapping
 
 
 def process_policy_details_parallel(
@@ -827,9 +951,13 @@ def process_policy_details_parallel(
         if execution.policy_type == "EQUALITY":
             # Iterate over columnMappings for EQUALITY policies
             column_mappings = safe_get(details_data, "columnMappings", [])
+            log_info(f"DEBUG: EQUALITY policy {execution.policy_id} v{execution.policy_version} - {len(column_mappings)} columnMappings")
             for col_map in column_mappings:
-                # Use columnMapping.id as item_id for EQUALITY
+                # Use columnMapping.id as item_id for EQUALITY (matches items[].id)
                 item_id = str(safe_get(col_map, "id", ""))
+                # Use execution.ruleVersion (not columnMapping.ruleVersion) to match execution details
+                rule_version = execution.policy_version
+                log_info(f"DEBUG: EQUALITY policy detail - item_id='{item_id}' (from columnMapping.id), rule_version={rule_version} (from execution.ruleVersion)")
                 
                 # Extract PDE value from labels
                 pde_value = next(
@@ -857,7 +985,7 @@ def process_policy_details_parallel(
                             policy_id=execution.policy_id,
                             policy_type=execution.policy_type,
                             id=item_id,
-                            rule_version=safe_get(col_map, "ruleVersion", execution.policy_version),
+                            rule_version=rule_version,  # Use execution.ruleVersion (not columnMapping.ruleVersion)
                             column_name=column_name,
                             pde_value=pde_value,
                             table_asset_id=table_asset_id,
@@ -874,7 +1002,7 @@ def process_policy_details_parallel(
                         policy_id=execution.policy_id,
                         policy_type=execution.policy_type,
                         id=item_id,
-                        rule_version=safe_get(col_map, "ruleVersion", execution.policy_version),
+                        rule_version=rule_version,  # Use execution.ruleVersion (not columnMapping.ruleVersion)
                         column_name=column_name,
                         pde_value=pde_value,
                         table_asset_id=table_asset_id,
@@ -889,6 +1017,15 @@ def process_policy_details_parallel(
             items = safe_get(details_data, "items", [])
             if execution.policy_type == "DATA_QUALITY":
                 log_info(f"DEBUG DATA_QUALITY policy {execution.policy_id}: Processing {len(items)} items from policy details endpoint")
+            
+            # For DATA_DRIFT, fetch version mapping once before processing items
+            version_mapping: dict[tuple[str, str], str] = {}
+            if execution.policy_type == "DATA_DRIFT":
+                version_mapping = fetch_data_drift_version_mapping(
+                    execution.policy_id,
+                    execution.policy_version,
+                    http_client,
+                )
             
             for item in items:
                 pde_value = next(
@@ -905,8 +1042,19 @@ def process_policy_details_parallel(
                 if execution.policy_type == "DATA_QUALITY":
                     item_id = str(safe_get(item, "id", ""))
                     rule_version = safe_get(item, "ruleVersion", 1)
+                elif execution.policy_type == "DATA_DRIFT":
+                    # For DATA_DRIFT, policy details have "id" field that matches execution details' "ruleItemId"
+                    item_id = str(safe_get(item, "id", ""))
+                    # For DATA_DRIFT, use execution.policy_version (from execution.ruleVersion) to match execution details
+                    rule_version = execution.policy_version
+                    log_info(
+                        f"DEBUG {execution.policy_type} policy detail - "
+                        f"item keys: {list(item.keys())}, "
+                        f"id: {safe_get(item, 'id')}, "
+                        f"using item_id: '{item_id}', rule_version: {rule_version} (from execution.policy_version)"
+                    )
                 else:
-                    # For DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT
+                    # For PROFILE_ANOMALY, SCHEMA_DRIFT
                     # Policy details have "id" field that matches execution details' "ruleItemId"
                     item_id = str(safe_get(item, "id", ""))
                     rule_version = safe_get(item, "ruleVersion", 1)
@@ -920,50 +1068,94 @@ def process_policy_details_parallel(
                 # Extract rule description from details.items.businessExplanation (for DATA_QUALITY)
                 rule_description = safe_get(item, "businessExplanation") if execution.policy_type == "DATA_QUALITY" else None
                 
-                # Extract labels from item - create one PolicyDetail per label
-                item_labels = safe_get(item, "labels", [])
-                if item_labels:
-                    # Create one PolicyDetail per label (flatten labels)
-                    for label in item_labels:
-                        label_key = safe_get(label, "key")
-                        label_value = safe_get(label, "value")
-                        
-                        policy_detail = PolicyDetail(
-                            policy_name=execution.policy_name,
-                            policy_id=execution.policy_id,
-                            policy_type=execution.policy_type,
-                            id=item_id,
-                            rule_version=rule_version,
-                            column_name=safe_get(item, "columnName"),
-                            pde_value=pde_value,
-                            table_asset_id=table_asset_id,
-                            table_asset_name=table_asset_name,
-                            policy_enabled=policy_enabled,
-                            label_key=label_key,
-                            label_value=label_value,
-                            policy_description=policy_description,
-                            rule_description=rule_description,
-                        )
-                        policy_details.append(policy_detail)
-                else:
-                    # If no labels, create one PolicyDetail without label fields
+                # Extract column_name for all policies (existing behavior)
+                column_name = safe_get(item, "columnName")
+                
+                # Extract DATA_DRIFT-specific fields (only for DATA_DRIFT)
+                item_measurement_type = None
+                drift_threshold = None
+                if execution.policy_type == "DATA_DRIFT":
+                    item_measurement_type = safe_get(item, "metricType")
+                    drift_threshold = safe_get(item, "driftThreshold")
+                
+                # For DATA_DRIFT, set Label_Key and Label_Value based on version mapping
+                if execution.policy_type == "DATA_DRIFT":
+                    # Label_Key = Item_Column_Name-Item_Measurement_Type
+                    label_key = f"{column_name or ''}-{item_measurement_type or ''}" if column_name and item_measurement_type else None
+                    # Label_Value = item.id from version mapping (only for new combinations)
+                    combination = (column_name or "", item_measurement_type or "")
+                    label_value = version_mapping.get(combination)
+                    
+                    # Create PolicyDetail with DATA_DRIFT-specific Label_Key and Label_Value
                     policy_detail = PolicyDetail(
                         policy_name=execution.policy_name,
                         policy_id=execution.policy_id,
                         policy_type=execution.policy_type,
                         id=item_id,
                         rule_version=rule_version,
-                        column_name=safe_get(item, "columnName"),
+                        column_name=column_name,
                         pde_value=pde_value,
                         table_asset_id=table_asset_id,
                         table_asset_name=table_asset_name,
                         policy_enabled=policy_enabled,
-                        label_key=None,
-                        label_value=None,
+                        label_key=label_key,
+                        label_value=label_value,
                         policy_description=policy_description,
-                        rule_description=rule_description,
+                        rule_description=None,  # Rule_Description is NOT_APPLICABLE for DATA_DRIFT
+                        item_measurement_type=item_measurement_type,
+                        drift_threshold=drift_threshold,
                     )
                     policy_details.append(policy_detail)
+                else:
+                    # For other policy types, use existing label extraction logic
+                    # Extract labels from item - create one PolicyDetail per label
+                    item_labels = safe_get(item, "labels", [])
+                    if item_labels:
+                        # Create one PolicyDetail per label (flatten labels)
+                        for label in item_labels:
+                            label_key = safe_get(label, "key")
+                            label_value = safe_get(label, "value")
+                            
+                            policy_detail = PolicyDetail(
+                                policy_name=execution.policy_name,
+                                policy_id=execution.policy_id,
+                                policy_type=execution.policy_type,
+                                id=item_id,
+                                rule_version=rule_version,
+                                column_name=column_name,
+                                pde_value=pde_value,
+                                table_asset_id=table_asset_id,
+                                table_asset_name=table_asset_name,
+                                policy_enabled=policy_enabled,
+                                label_key=label_key,
+                                label_value=label_value,
+                                policy_description=policy_description,
+                                rule_description=rule_description,
+                                item_measurement_type=item_measurement_type,
+                                drift_threshold=drift_threshold,
+                            )
+                            policy_details.append(policy_detail)
+                    else:
+                        # If no labels, create one PolicyDetail without label fields
+                        policy_detail = PolicyDetail(
+                            policy_name=execution.policy_name,
+                            policy_id=execution.policy_id,
+                            policy_type=execution.policy_type,
+                            id=item_id,
+                            rule_version=rule_version,
+                            column_name=column_name,
+                            pde_value=pde_value,
+                            table_asset_id=table_asset_id,
+                            table_asset_name=table_asset_name,
+                            policy_enabled=policy_enabled,
+                            label_key=None,
+                            label_value=None,
+                            policy_description=policy_description,
+                            rule_description=rule_description,
+                            item_measurement_type=item_measurement_type,
+                            drift_threshold=drift_threshold,
+                        )
+                        policy_details.append(policy_detail)
 
         if task_id:
             progress.update(
@@ -1098,9 +1290,10 @@ def process_execution_details(
                     f"{execution.execution_id}/result"
                 )
             elif execution.policy_type == "DATA_DRIFT":
+                # DATA_DRIFT requires /result suffix to get execution.ruleVersion
                 endpoint = (
                     f"/catalog-server/api/rules/data-drift/executions/"
-                    f"{execution.execution_id}"
+                    f"{execution.execution_id}/result"
                 )
             elif execution.policy_type == "PROFILE_ANOMALY":
                 # PROFILE_ANOMALY requires /result suffix
@@ -1127,6 +1320,17 @@ def process_execution_details(
                 continue
 
             exec_result_data = response.json()
+            
+            # For DATA_DRIFT, extract execution.ruleVersion from the result and update execution object
+            if execution.policy_type == "DATA_DRIFT":
+                execution_data = safe_get(exec_result_data, "execution", {})
+                rule_version = safe_get(execution_data, "ruleVersion")
+                if rule_version is not None:
+                    execution.policy_version = rule_version
+                    log_info(
+                        f"Updated DATA_DRIFT execution {execution.execution_id} policy_version "
+                        f"to {rule_version} from execution result"
+                    )
             
             # Extract result-level fields (same for all items in this execution)
             result_data = safe_get(exec_result_data, "result", {})
@@ -1200,6 +1404,15 @@ def process_execution_details(
                         if rule_result is not None:
                             # Convert to string percentage format
                             rule_result = str(rule_result)
+                    elif execution.policy_type == "DATA_DRIFT":
+                        # For DATA_DRIFT, use resultPercent (same as DATA_QUALITY and EQUALITY)
+                        rule_result = safe_get(item, "resultPercent")
+                        if rule_result is not None:
+                            # Convert to string percentage format
+                            rule_result = str(rule_result)
+                        # Rows_Scanned and Rows_Failed are NOT_APPLICABLE for DATA_DRIFT
+                        rows_scanned = None
+                        rows_failed = None
                     else:
                         # For other policy types, use standard extraction
                         rows_scanned = safe_get(item, "rowsScanned")
@@ -1224,19 +1437,29 @@ def process_execution_details(
 
                 # Extract item_id and item_ver based on policy type
                 if execution.policy_type == "EQUALITY":
-                    # For EQUALITY, use columnMapping.id from execution details
-                    column_mapping = safe_get(item_data, "columnMapping", {})
-                    if column_mapping and isinstance(column_mapping, dict):
-                        extracted_item_id = str(safe_get(column_mapping, "id", ""))
-                    else:
-                        # Fallback to ruleItemId if columnMapping is not available
-                        extracted_item_id = str(safe_get(item, "ruleItemId", ""))
-                    extracted_item_ver = safe_get(item, "ruleVersion", 1)
+                    # For EQUALITY, use items[].id and execution.ruleVersion for merging
+                    # items[].id matches columnMapping.id, but we use the top-level id directly
+                    extracted_item_id = str(safe_get(item, "id", ""))
+                    if not extracted_item_id:
+                        # Fallback to columnMapping.id if item.id is not available
+                        column_mapping = safe_get(item_data, "columnMapping", {})
+                        if column_mapping and isinstance(column_mapping, dict):
+                            extracted_item_id = str(safe_get(column_mapping, "id", ""))
+                        else:
+                            # Final fallback to ruleItemId
+                            extracted_item_id = str(safe_get(item, "ruleItemId", ""))
+                    # For EQUALITY, use execution.ruleVersion (execution.policy_version)
+                    extracted_item_ver = execution.policy_version
+                elif execution.policy_type == "DATA_DRIFT":
+                    # For DATA_DRIFT, use ruleItemId from top-level item
+                    extracted_item_id = str(safe_get(item, "ruleItemId", ""))
+                    # For DATA_DRIFT, use execution.ruleVersion (already extracted and updated in execution.policy_version)
+                    extracted_item_ver = execution.policy_version
                 elif execution.policy_type != "DATA_QUALITY":
                     # Use ruleItemId from top-level for other non-DATA_QUALITY policies
                     extracted_item_id = str(safe_get(item, "ruleItemId", ""))
                     # Default version depends on policy type
-                    default_version = 0 if execution.policy_type == "DATA_DRIFT" else 1
+                    default_version = 1
                     extracted_item_ver = safe_get(item, "ruleVersion", default_version)
                 else:
                     # For DATA_QUALITY:
@@ -1262,13 +1485,18 @@ def process_execution_details(
                 else:
                     column_name = safe_get(item_data, "columnName")
                 
-                # For EQUALITY, try alternative column name locations
-                if not column_name and execution.policy_type == "EQUALITY":
+                # For EQUALITY, extract left_column and right_column from columnMapping
+                left_column = None
+                right_column = None
+                if execution.policy_type == "EQUALITY":
                     # EQUALITY items don't have columnName - extract from columnMapping or use dimension
                     column_mapping = safe_get(item_data, "columnMapping", {})
                     if column_mapping and isinstance(column_mapping, dict):
-                        # Try to get leftColumnName or rightColumnName
-                        column_name = safe_get(column_mapping, "leftColumnName") or safe_get(column_mapping, "rightColumnName")
+                        # Extract left and right column names
+                        left_column = safe_get(column_mapping, "leftColumnName")
+                        right_column = safe_get(column_mapping, "rightColumnName")
+                        # Try to get leftColumnName or rightColumnName for column_name
+                        column_name = left_column or right_column
                     # If still no column name, use dimension as fallback
                     if not column_name:
                         column_name = safe_get(item_data, "dimension")
@@ -1280,7 +1508,14 @@ def process_execution_details(
                     measurement_type = safe_get(item_data, "measurementType")
                     if not measurement_type and execution.policy_type == "EQUALITY":
                         # EQUALITY uses dimension field instead of measurementType
-                        measurement_type = safe_get(item_data, "dimension")
+                        # Map dimension to standardized Recon_Type values
+                        dimension = safe_get(item_data, "dimension", "")
+                        if dimension == "ACCURACY":
+                            measurement_type = "EQUALITY_MATCH"
+                        elif dimension == "TIMELINESS":
+                            measurement_type = "ROW_COUNT_MATCH"
+                        else:
+                            measurement_type = dimension  # Fallback to raw dimension if not recognized
                 
                 # For EQUALITY, use items[].leftRowsFailed for rows_failed
                 if execution.policy_type == "EQUALITY":
@@ -1312,6 +1547,8 @@ def process_execution_details(
                 execution_detail = ExecutionDetail(
                     item_id=extracted_item_id,
                     item_column_name=column_name,
+                    left_column=left_column,
+                    right_column=right_column,
                     item_ver=extracted_item_ver,
                     pde_name=pde_value,
                     pde=pde_label,
@@ -1547,8 +1784,10 @@ def process_policy_details(
                 )
                 
                 for col_map in column_mappings:
-                    # Use columnMapping.id as item_id for EQUALITY
+                    # Use columnMapping.id as item_id for EQUALITY (matches items[].id)
                     item_id = str(safe_get(col_map, "id", ""))
+                    # Use execution.ruleVersion (not columnMapping.ruleVersion) to match execution details
+                    rule_version = execution.policy_version
                     
                     # Extract PDE value from labels
                     pde_value = next(
@@ -1576,7 +1815,7 @@ def process_policy_details(
                                 policy_id=execution.policy_id,
                                 policy_type=execution.policy_type,
                                 id=item_id,
-                                rule_version=safe_get(col_map, "ruleVersion", execution.policy_version),
+                                rule_version=rule_version,  # Use execution.ruleVersion (not columnMapping.ruleVersion)
                                 column_name=column_name,
                                 pde_value=pde_value,
                                 table_asset_id=table_asset_id,
@@ -1593,7 +1832,7 @@ def process_policy_details(
                             policy_id=execution.policy_id,
                             policy_type=execution.policy_type,
                             id=item_id,
-                            rule_version=safe_get(col_map, "ruleVersion", execution.policy_version),
+                            rule_version=rule_version,  # Use execution.ruleVersion (not columnMapping.ruleVersion)
                             column_name=column_name,
                             pde_value=pde_value,
                             table_asset_id=table_asset_id,
@@ -1611,6 +1850,15 @@ def process_policy_details(
                     f"policy_id={execution.policy_id}: {len(items)} items"
                 )
                 
+                # For DATA_DRIFT, fetch version mapping once before processing items
+                version_mapping: dict[tuple[str, str], str] = {}
+                if execution.policy_type == "DATA_DRIFT":
+                    version_mapping = fetch_data_drift_version_mapping(
+                        execution.policy_id,
+                        execution.policy_version,
+                        http_client,
+                    )
+                
                 for item in items:
                     pde_value = next(
                         (
@@ -1626,8 +1874,19 @@ def process_policy_details(
                     if execution.policy_type == "DATA_QUALITY":
                         item_id = str(safe_get(item, "id", ""))
                         rule_version = safe_get(item, "ruleVersion", 1)
+                    elif execution.policy_type == "DATA_DRIFT":
+                        # For DATA_DRIFT, policy details have "id" field that matches execution details' "ruleItemId"
+                        item_id = str(safe_get(item, "id", ""))
+                        # For DATA_DRIFT, use execution.policy_version (from execution.ruleVersion) to match execution details
+                        rule_version = execution.policy_version
+                        log_info(
+                            f"DEBUG {execution.policy_type} policy detail (non-parallel) - "
+                            f"item keys: {list(item.keys())}, "
+                            f"id: {safe_get(item, 'id')}, "
+                            f"using item_id: '{item_id}', rule_version: {rule_version} (from execution.policy_version)"
+                        )
                     else:
-                        # For DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT
+                        # For PROFILE_ANOMALY, SCHEMA_DRIFT
                         # Policy details have "id" field that matches execution details' "ruleItemId"
                         item_id = str(safe_get(item, "id", ""))
                         rule_version = safe_get(item, "ruleVersion", 1)
@@ -1641,50 +1900,94 @@ def process_policy_details(
                     # Extract rule description from details.items.businessExplanation (for DATA_QUALITY)
                     rule_description = safe_get(item, "businessExplanation") if execution.policy_type == "DATA_QUALITY" else None
                     
-                    # Extract labels from item - create one PolicyDetail per label
-                    item_labels = safe_get(item, "labels", [])
-                    if item_labels:
-                        # Create one PolicyDetail per label (flatten labels)
-                        for label in item_labels:
-                            label_key = safe_get(label, "key")
-                            label_value = safe_get(label, "value")
-                            
-                            policy_detail = PolicyDetail(
-                                policy_name=execution.policy_name,
-                                policy_id=execution.policy_id,
-                                policy_type=execution.policy_type,
-                                id=item_id,
-                                rule_version=rule_version,
-                                column_name=safe_get(item, "columnName"),
-                                pde_value=pde_value,
-                                table_asset_id=table_asset_id,
-                                table_asset_name=table_asset_name,
-                                policy_enabled=policy_enabled,
-                                label_key=label_key,
-                                label_value=label_value,
-                                policy_description=policy_description,
-                                rule_description=rule_description,
-                            )
-                            policy_details.append(policy_detail)
-                    else:
-                        # If no labels, create one PolicyDetail without label fields
+                    # Extract column_name for all policies (existing behavior)
+                    column_name = safe_get(item, "columnName")
+                    
+                    # Extract DATA_DRIFT-specific fields (only for DATA_DRIFT)
+                    item_measurement_type = None
+                    drift_threshold = None
+                    if execution.policy_type == "DATA_DRIFT":
+                        item_measurement_type = safe_get(item, "metricType")
+                        drift_threshold = safe_get(item, "driftThreshold")
+                    
+                    # For DATA_DRIFT, set Label_Key and Label_Value based on version mapping
+                    if execution.policy_type == "DATA_DRIFT":
+                        # Label_Key = Item_Column_Name-Item_Measurement_Type
+                        label_key = f"{column_name or ''}-{item_measurement_type or ''}" if column_name and item_measurement_type else None
+                        # Label_Value = item.id from version mapping (only for new combinations)
+                        combination = (column_name or "", item_measurement_type or "")
+                        label_value = version_mapping.get(combination)
+                        
+                        # Create PolicyDetail with DATA_DRIFT-specific Label_Key and Label_Value
                         policy_detail = PolicyDetail(
                             policy_name=execution.policy_name,
                             policy_id=execution.policy_id,
                             policy_type=execution.policy_type,
                             id=item_id,
                             rule_version=rule_version,
-                            column_name=safe_get(item, "columnName"),
+                            column_name=column_name,
                             pde_value=pde_value,
                             table_asset_id=table_asset_id,
                             table_asset_name=table_asset_name,
                             policy_enabled=policy_enabled,
-                            label_key=None,
-                            label_value=None,
+                            label_key=label_key,
+                            label_value=label_value,
                             policy_description=policy_description,
-                            rule_description=rule_description,
+                            rule_description=None,  # Rule_Description is NOT_APPLICABLE for DATA_DRIFT
+                            item_measurement_type=item_measurement_type,
+                            drift_threshold=drift_threshold,
                         )
                         policy_details.append(policy_detail)
+                    else:
+                        # For other policy types, use existing label extraction logic
+                        # Extract labels from item - create one PolicyDetail per label
+                        item_labels = safe_get(item, "labels", [])
+                        if item_labels:
+                            # Create one PolicyDetail per label (flatten labels)
+                            for label in item_labels:
+                                label_key = safe_get(label, "key")
+                                label_value = safe_get(label, "value")
+                                
+                                policy_detail = PolicyDetail(
+                                    policy_name=execution.policy_name,
+                                    policy_id=execution.policy_id,
+                                    policy_type=execution.policy_type,
+                                    id=item_id,
+                                    rule_version=rule_version,
+                                    column_name=column_name,
+                                    pde_value=pde_value,
+                                    table_asset_id=table_asset_id,
+                                    table_asset_name=table_asset_name,
+                                    policy_enabled=policy_enabled,
+                                    label_key=label_key,
+                                    label_value=label_value,
+                                    policy_description=policy_description,
+                                    rule_description=rule_description,
+                                    item_measurement_type=item_measurement_type,
+                                    drift_threshold=drift_threshold,
+                                )
+                                policy_details.append(policy_detail)
+                        else:
+                            # If no labels, create one PolicyDetail without label fields
+                            policy_detail = PolicyDetail(
+                                policy_name=execution.policy_name,
+                                policy_id=execution.policy_id,
+                                policy_type=execution.policy_type,
+                                id=item_id,
+                                rule_version=rule_version,
+                                column_name=column_name,
+                                pde_value=pde_value,
+                                table_asset_id=table_asset_id,
+                                table_asset_name=table_asset_name,
+                                policy_enabled=policy_enabled,
+                                label_key=None,
+                                label_value=None,
+                                policy_description=policy_description,
+                                rule_description=rule_description,
+                                item_measurement_type=item_measurement_type,
+                                drift_threshold=drift_threshold,
+                            )
+                            policy_details.append(policy_detail)
 
         except Exception as e:
             log_error(f"Error processing policy details for {execution.policy_id}: {e}")
@@ -1963,7 +2266,7 @@ def process_reconciliation_records(
                 Rule_ID=rule_id,
                 Recon_Type=recon_type,
                 Result_Percentage=result_percentage,
-                Total_Rows=total_rows,
+                Rows_Scanned=rows_scanned,
                 Rows_Failed=rows_failed_value,
                 Left_Rows_Scanned=left_rows_value,
                 Right_Rows_Scanned=right_rows_value,
@@ -1977,7 +2280,7 @@ def process_reconciliation_records(
                 Finished_At_UTC=finished_at,
                 Execution_Date_UTC=execution_date,
                 Execution_Status=execution_status,
-                Result_Status=result_status,
+                Rule_Result_Status=result_status,
                 Overall_Policy_Status=overall_policy_status,
                 Overall_Policy_Quality_Score=overall_policy_quality_score,
                 Policy_Type=policy_type,
@@ -2027,6 +2330,11 @@ def merge_execution_data(
         if key not in policy_lookup:
             policy_lookup[key] = []
         policy_lookup[key].append(detail)
+    
+    # Debug: Log EQUALITY policy keys
+    equality_policy_keys = [(k, v[0].policy_type) for k, v in policy_lookup.items() if v and v[0].policy_type == "EQUALITY"]
+    if equality_policy_keys:
+        log_info(f"DEBUG Merge: EQUALITY policy keys (first 10): {equality_policy_keys[:10]}")
 
     merged_records = []
     unmatched_exec_details = 0
@@ -2060,8 +2368,17 @@ def merge_execution_data(
     dq_merged_count = 0
     dq_unmatched_count = 0
     
+    # Debug: Track EQUALITY execution details - collect all exec details from EQUALITY executions
+    equality_exec_keys_all = []  # All EQUALITY exec detail keys (matched or not)
+    
     for exec_detail in execution_details:
         key = (exec_detail.item_id, exec_detail.item_ver)
+        
+        # Debug: Track all execution detail keys from EQUALITY executions
+        # We'll determine if it's EQUALITY by checking after the lookup
+        policy_detail_list_for_key = policy_lookup.get(key, [])
+        if policy_detail_list_for_key and policy_detail_list_for_key[0].policy_type == "EQUALITY":
+            equality_exec_keys_all.append((key, exec_detail.exec_id, "matched"))
         
         # Check if this is a DATA_QUALITY record by checking if key exists in DQ policy keys
         is_dq = key in dq_policy_keys
@@ -2069,8 +2386,20 @@ def merge_execution_data(
             dq_exec_count += 1
         
         policy_detail_list = policy_lookup.get(key, [])
+        
+        # Debug: Track EQUALITY execution details that don't match
+        if not policy_detail_list:
+            # Check if this might be an EQUALITY exec detail by looking for a pattern
+            # We'll log unmatched keys and then analyze them
+            pass
 
         if policy_detail_list:
+            # Skip EQUALITY records - they are handled separately as ReconciliationRecord
+            # ReconciliationRecord has all the necessary fields and more reconciliation-specific data
+            if policy_detail_list[0].policy_type == "EQUALITY":
+                # Skip creating ExecutionMetricsRecord for EQUALITY - use ReconciliationRecord instead
+                continue
+            
             # Create one ExecutionMetricsRecord per PolicyDetail (to handle multiple labels)
             for policy_detail in policy_detail_list:
                 if policy_detail.policy_type == "DATA_QUALITY":
@@ -2082,15 +2411,35 @@ def merge_execution_data(
                 else:
                     display_item_id = exec_detail.item_id  # Use merge key for other types
                 
+                # For DATA_DRIFT, use item_measurement_type from policy_detail (from details.items.metricType)
+                # For other policy types, use from exec_detail (they have their own field paths)
+                if policy_detail.policy_type == "DATA_DRIFT" and policy_detail.item_measurement_type:
+                    measurement_type = policy_detail.item_measurement_type
+                else:
+                    measurement_type = exec_detail.item_measurement_type
+                
+                # For DATA_DRIFT, use column_name from policy_detail (from details.items.columnName)
+                # For other types, use from exec_detail
+                if policy_detail.policy_type == "DATA_DRIFT" and policy_detail.column_name:
+                    column_name = policy_detail.column_name
+                else:
+                    column_name = exec_detail.item_column_name
+                
+                # For EQUALITY, extract left_column and right_column from exec_detail
+                left_column = exec_detail.left_column if policy_detail.policy_type == "EQUALITY" else None
+                right_column = exec_detail.right_column if policy_detail.policy_type == "EQUALITY" else None
+                
                 record = ExecutionMetricsRecord(
                     policy_name=policy_detail.policy_name,
                     policy_id=policy_detail.policy_id,
                     rule_version=exec_detail.item_ver,
                     exec_id=exec_detail.exec_id,
                     table_asset_name=policy_detail.table_asset_name,
-                    item_column_name=exec_detail.item_column_name,
+                    item_column_name=column_name,
+                    left_column=left_column,
+                    right_column=right_column,
                     pde=exec_detail.pde,
-                    item_measurement_type=exec_detail.item_measurement_type,
+                    item_measurement_type=measurement_type,
                     rule_strategy=exec_detail.rule_strategy,
                     rule_lower_threshold=exec_detail.rule_lower_threshold,
                     rule_upper_threshold=exec_detail.rule_upper_threshold,
@@ -2113,6 +2462,7 @@ def merge_execution_data(
                     label_value=policy_detail.label_value,
                     policy_description=policy_detail.policy_description,
                     rule_description=policy_detail.rule_description,
+                    drift_threshold=policy_detail.drift_threshold,
                 )
                 merged_records.append(record)
         else:
@@ -2160,6 +2510,14 @@ def merge_execution_data(
         log_info(f"Available DATA_QUALITY policy keys (first 20): {[k for k in available_policy_keys if any(d.policy_type == 'DATA_QUALITY' for d in policy_lookup.get(k, []))]}")
     if unmatched_exec_details > 0:
         log_info(f"Merge warning: {unmatched_exec_details} execution details had no matching policy details")
+        # Log the unmatched keys to see if they're EQUALITY
+        log_info(f"DEBUG Merge: Unmatched execution detail keys (first 20): {unmatched_keys[:20]}")
+    
+    # Debug: Log EQUALITY merge statistics
+    if equality_exec_keys_all:
+        log_info(f"DEBUG Merge: EQUALITY execution detail keys (first 10): {equality_exec_keys_all[:10]}")
+        equality_merged_count = sum(1 for r in merged_records if r.policy_type == "EQUALITY")
+        log_info(f"DEBUG Merge: EQUALITY merged {equality_merged_count} records from {len(equality_exec_keys_all)} execution details")
 
     return merged_records
 
