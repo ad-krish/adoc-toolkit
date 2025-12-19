@@ -227,6 +227,8 @@ To maintain a consistent schema across policy types in the main CSV:
 - **RECONCILIATION records**: All DATA_QUALITY-specific columns are filled with "NOT_APPLICABLE" (all caps)
 - **Reconciliation-specific fields**: `Left_Rows_Scanned` and `Right_Rows_Scanned` are set to "NOT_APPLICABLE" for EQUALITY_MATCH records (only applicable for ROW_COUNT_MATCH)
 
+**Note**: In the individual policy-type CSV files (data-quality-metrics, reconciliation-metrics, data-drift-metrics), columns that are entirely "NOT_APPLICABLE" for that policy type are automatically excluded to keep the files clean and focused on relevant data.
+
 ### Progress Tracking
 
 The command provides real-time progress updates with spinners for:
