@@ -449,6 +449,7 @@ def get_execution_metrics_completion_suggestions(
                 "DATA_DRIFT",
                 "PROFILE_ANOMALY",
                 "SCHEMA_DRIFT",
+                "FRESHNESS",
             ]
             # Handle comma-separated completion
             if "," in current_word:
@@ -534,7 +535,7 @@ Options:
   --policy-types TYPES    Comma-separated policy types to export
                          (default: DATA_QUALITY,EQUALITY)
                          Available: DATA_QUALITY, EQUALITY, DATA_DRIFT, PROFILE_ANOMALY,
-                         SCHEMA_DRIFT
+                         SCHEMA_DRIFT, FRESHNESS
   --page-size SIZE        Number of items to fetch per API call (default: 100, max: 1000)
                          Higher values fetch data faster but may cause server timeouts
                          for large datasets
@@ -894,6 +895,29 @@ Examples:
                     for col in drift_unique_columns:
                         if col in df.columns:
                             df.loc[recon_mask & df[col].isna(), col] = "NOT_APPLICABLE"
+                    
+                    # For FRESHNESS records, set reconciliation-specific, DATA_DRIFT-specific, and other NOT_APPLICABLE columns
+                    freshness_mask = df["Policy_Type"] == "FRESHNESS"
+                    # Set Rows_Scanned, Rows_Failed, Rule_Description, Item_Column_Name to NOT_APPLICABLE for FRESHNESS
+                    freshness_not_applicable_columns = ["Rows_Scanned", "Rows_Failed", "Rule_Description", "Item_Column_Name"]
+                    for col in freshness_not_applicable_columns:
+                        if col in df.columns:
+                            df.loc[freshness_mask & df[col].isna(), col] = "NOT_APPLICABLE"
+                    # Set reconciliation-specific columns to NOT_APPLICABLE for FRESHNESS
+                    for col in recon_unique_columns:
+                        if col in df.columns:
+                            df.loc[freshness_mask & df[col].isna(), col] = "NOT_APPLICABLE"
+                    # Set DATA_DRIFT-specific columns to NOT_APPLICABLE for FRESHNESS
+                    for col in drift_unique_columns:
+                        if col in df.columns:
+                            df.loc[freshness_mask & df[col].isna(), col] = "NOT_APPLICABLE"
+                    
+                    # For non-FRESHNESS records, set Anomaly_Detected and Threshold_Breached to NOT_APPLICABLE
+                    non_freshness_mask = df["Policy_Type"] != "FRESHNESS"
+                    freshness_specific_columns = ["Anomaly_Detected", "Threshold_Breached"]
+                    for col in freshness_specific_columns:
+                        if col in df.columns:
+                            df.loc[non_freshness_mask & df[col].isna(), col] = "NOT_APPLICABLE"
                     
                     # For any column that's not common and not reconciliation-specific and not DATA_DRIFT-specific, 
                     # set to NOT_APPLICABLE for RECONCILIATION records
@@ -1472,6 +1496,119 @@ Examples:
                             "data_drift_export_completed",
                             records_count=len(drift_df),
                             output_file=str(drift_output_path),
+                        )
+                
+                # Export FRESHNESS records separately if available
+                if not df.empty and "Policy_Type" in df.columns:
+                    freshness_mask = df["Policy_Type"] == "FRESHNESS"
+                    if freshness_mask.any():
+                        freshness_task = progress.add_task(
+                            "📊 Exporting FRESHNESS records...", total=None
+                        )
+                        self.trace(
+                            "starting_freshness_export",
+                            records_count=freshness_mask.sum(),
+                        )
+                        
+                        # Create DataFrame for FRESHNESS records
+                        freshness_df = df[freshness_mask].copy()
+                        
+                        # Apply datetime renaming if needed
+                        datetime_rename_map = {
+                            "Started_At (UTC)": "Started_At(UTC)",
+                            "Finished_At (UTC)": "Finished_At(UTC)",
+                            "Execution_Date (UTC)": "Execution_Date(UTC)",
+                        }
+                        freshness_df.rename(columns=datetime_rename_map, inplace=True)
+                        
+                        # Standardize column names for FRESHNESS
+                        if "Exec_Id" in freshness_df.columns:
+                            freshness_df.rename(columns={"Exec_Id": "Execution_ID"}, inplace=True)
+                        if "Policy_Id" in freshness_df.columns:
+                            freshness_df.rename(columns={"Policy_Id": "Policy_ID"}, inplace=True)
+                        if "Item_Id" in freshness_df.columns:
+                            freshness_df.rename(columns={"Item_Id": "Rule_ID"}, inplace=True)
+                        if "Result" in freshness_df.columns:
+                            freshness_df.rename(columns={"Result": "Rule_Success_Rate"}, inplace=True)
+                        if "Overall_Policy_Quality_Score" in freshness_df.columns:
+                            freshness_df.rename(columns={"Overall_Policy_Quality_Score": "Overall_Policy_Quality_Score(Percentage)"}, inplace=True)
+                        if "Result_Status" in freshness_df.columns:
+                            freshness_df.rename(columns={"Result_Status": "Rule_Result_Status"}, inplace=True)
+                        
+                        # Remove PDE column if it exists
+                        if "Pde" in freshness_df.columns:
+                            freshness_df = freshness_df.drop(columns=["Pde"])
+                        
+                        # For FRESHNESS CSV, exclude Rows_Scanned, Rows_Failed, Rule_Description, and Item_Column_Name
+                        # (these are NOT_APPLICABLE for FRESHNESS)
+                        columns_to_exclude = ["Rows_Scanned", "Rows_Failed", "Rule_Description", "Item_Column_Name"]
+                        for col in columns_to_exclude:
+                            if col in freshness_df.columns:
+                                freshness_df = freshness_df.drop(columns=[col])
+                        
+                        # Exclude reconciliation-specific columns that are NOT_APPLICABLE for FRESHNESS
+                        recon_columns_to_exclude = [
+                            "Left_Column", "Right_Column", "Left_Rows_Scanned", "Right_Rows_Scanned",
+                            "Use_For_Joining", "Left_ASSET_UID", "Right_ASSET_UID", "Join_Type", "Operation"
+                        ]
+                        for col in recon_columns_to_exclude:
+                            if col in freshness_df.columns:
+                                freshness_df = freshness_df.drop(columns=[col])
+                        
+                        # Also exclude any columns that are entirely "NOT_APPLICABLE" (including NaN that were filled)
+                        for col in freshness_df.columns:
+                            # Check if all non-null values are "NOT_APPLICABLE" or if column is all NaN/None
+                            if col in freshness_df.columns:
+                                non_null_values = freshness_df[col].dropna()
+                                if len(non_null_values) > 0 and (non_null_values == "NOT_APPLICABLE").all():
+                                    freshness_df = freshness_df.drop(columns=[col])
+                                elif len(non_null_values) == 0:
+                                    # Column is all NaN/None, exclude it
+                                    freshness_df = freshness_df.drop(columns=[col])
+                        
+                        # Reorder columns: put Label_Key and Label_Value right after Rule_ID
+                        if "Rule_ID" in freshness_df.columns:
+                            cols = list(freshness_df.columns)
+                            label_cols = []
+                            if "Label_Key" in cols:
+                                cols.remove("Label_Key")
+                                label_cols.append("Label_Key")
+                            if "Label_Value" in cols:
+                                cols.remove("Label_Value")
+                                label_cols.append("Label_Value")
+                            
+                            if label_cols and "Rule_ID" in cols:
+                                rule_id_idx = cols.index("Rule_ID")
+                                cols = cols[:rule_id_idx + 1] + label_cols + cols[rule_id_idx + 1:]
+                                freshness_df = freshness_df[cols]
+                        
+                        # Generate FRESHNESS filename
+                        freshness_filename = generate_execution_metrics_filename(
+                            "freshness-metrics-%d-%m-%y-%h-%M",
+                            args_model.output_type,
+                            env_name,
+                        )
+                        freshness_output_path = output_dir / freshness_filename
+                        
+                        # Export FRESHNESS data
+                        export_execution_metrics_to_format(
+                            freshness_df, freshness_output_path, args_model.output_type
+                        )
+                        
+                        progress.update(
+                            freshness_task, description="FRESHNESS export completed!", completed=True
+                        )
+                        
+                        console.print(
+                            f"✅ Successfully exported {len(freshness_df)} FRESHNESS records to "
+                            f"{freshness_output_path}",
+                            style="green",
+                        )
+                        
+                        self.trace(
+                            "freshness_export_completed",
+                            records_count=len(freshness_df),
+                            output_file=str(freshness_output_path),
                         )
 
                 # Update tracking information using checkpoint captured at START

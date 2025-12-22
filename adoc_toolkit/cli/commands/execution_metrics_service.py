@@ -225,7 +225,14 @@ def fetch_execution_page(
         if task_id:
             progress.update(task_id, description=f"Fetching page {page + 1}...", advance=0)
 
-        rule_types_param = ",".join(policy_types)
+        # Map FRESHNESS (internal) to DATA_CADENCE (API) for API calls
+        api_policy_types = []
+        for pt in policy_types:
+            if pt == "FRESHNESS":
+                api_policy_types.append("DATA_CADENCE")
+            else:
+                api_policy_types.append(pt)
+        rule_types_param = ",".join(api_policy_types)
         # Include all execution statuses to ensure we don't miss any executions
         # Previously filtered to SUCCESSFUL,ERRORED,ABORTED,WARNING which excluded RUNNING, STARTED, etc.
         endpoint = (
@@ -363,6 +370,12 @@ def process_execution_details_parallel(
                 f"/catalog-server/api/rules/schema-drift/executions/"
                 f"{execution.execution_id}"
             )
+        elif execution.policy_type == "FRESHNESS":
+            # FRESHNESS uses DATA_CADENCE endpoint with /result suffix
+            endpoint = (
+                f"/catalog-server/api/rules/data-cadence/executions/"
+                f"{execution.execution_id}/result"
+            )
         else:
             log_error(f"Unsupported policy type: {execution.policy_type}")
             return execution_details, reconciliation_records
@@ -386,14 +399,14 @@ def process_execution_details_parallel(
         exec_result_data = response.json()
         items = safe_get(exec_result_data, "items", [])
         
-        # For DATA_DRIFT, extract execution.ruleVersion from the result and update execution object
-        if execution.policy_type == "DATA_DRIFT":
+        # For DATA_DRIFT and FRESHNESS, extract execution.ruleVersion from the result and update execution object
+        if execution.policy_type == "DATA_DRIFT" or execution.policy_type == "FRESHNESS":
             execution_data = safe_get(exec_result_data, "execution", {})
             rule_version = safe_get(execution_data, "ruleVersion")
             if rule_version is not None:
                 execution.policy_version = rule_version
                 log_info(
-                    f"Updated DATA_DRIFT execution {execution.execution_id} policy_version "
+                    f"Updated {execution.policy_type} execution {execution.execution_id} policy_version "
                     f"to {rule_version} from execution result"
                 )
         
@@ -500,11 +513,11 @@ def process_execution_details_parallel(
                 None,
             )
 
-            # For DATA_QUALITY with /result endpoint, items don't have nested "item" structure
+            # For DATA_QUALITY and FRESHNESS with /result endpoint, items don't have nested "item" structure
             # Items are flat: items[].id, items[].ruleItemId, etc.
             # For non-DATA_QUALITY policies, item structure is different
-            if execution.policy_type == "DATA_QUALITY":
-                # DATA_QUALITY items are flat - use item directly
+            if execution.policy_type == "DATA_QUALITY" or execution.policy_type == "FRESHNESS":
+                # DATA_QUALITY and FRESHNESS items are flat - use item directly
                 item_data = item
             else:
                 # For other policies, check for nested item structure
@@ -559,6 +572,15 @@ def process_execution_details_parallel(
                     # Rows_Scanned and Rows_Failed are NOT_APPLICABLE for DATA_DRIFT
                     rows_scanned = None
                     rows_failed = None
+                elif execution.policy_type == "FRESHNESS":
+                    # For FRESHNESS, use resultPercent (same as DATA_QUALITY, EQUALITY, and DATA_DRIFT)
+                    rule_result = safe_get(item, "resultPercent")
+                    if rule_result is not None:
+                        # Convert to string percentage format
+                        rule_result = str(rule_result)
+                    # Rows_Scanned and Rows_Failed are NOT_APPLICABLE for FRESHNESS
+                    rows_scanned = None
+                    rows_failed = None
                 else:
                     # For other policy types, use standard extraction
                     rows_scanned = safe_get(item, "rowsScanned")
@@ -609,6 +631,20 @@ def process_execution_details_parallel(
                 extracted_item_id = str(safe_get(item, "ruleItemId", ""))
                 # For DATA_DRIFT, use execution.ruleVersion (already extracted and updated in execution.policy_version)
                 extracted_item_ver = execution.policy_version
+            elif execution.policy_type == "FRESHNESS":
+                # For FRESHNESS, use ruleItemId for merge key (similar to DATA_QUALITY)
+                rule_item_id = safe_get(item, "ruleItemId", "")
+                execution_item_id = str(safe_get(item, "id", ""))  # items.id for Rule_ID display
+                
+                # Use ruleItemId for merge key (extracted_item_id)
+                if rule_item_id:
+                    extracted_item_id = str(rule_item_id)
+                else:
+                    # Fallback to top-level item.id if ruleItemId is missing
+                    extracted_item_id = execution_item_id
+                
+                # For FRESHNESS, use execution.ruleVersion (execution.policy_version)
+                extracted_item_ver = execution.policy_version
             elif execution.policy_type != "DATA_QUALITY":
                 # Use ruleItemId from the top-level item for other non-DATA_QUALITY policies
                 extracted_item_id = str(safe_get(item, "ruleItemId", ""))
@@ -657,8 +693,11 @@ def process_execution_details_parallel(
                 )
 
             # Extract column name - for DATA_QUALITY, use top-level item.columnName (no nested structure)
+            # For FRESHNESS, column name is NOT_APPLICABLE (asset-level policy, not column-level)
             if execution.policy_type == "DATA_QUALITY":
                 column_name = safe_get(item, "columnName")
+            elif execution.policy_type == "FRESHNESS":
+                column_name = None  # Will be set to NOT_APPLICABLE later
             else:
                 column_name = safe_get(item_data, "columnName")
             
@@ -679,8 +718,14 @@ def process_execution_details_parallel(
                     column_name = safe_get(item_data, "dimension")
             
             # Extract measurement type - for DATA_QUALITY, use top-level item.dimension (no nested structure)
+            # For FRESHNESS, measurement type comes from policy details (not execution details)
+            # Execution details have dimension="OTHERS" which is not useful, so we'll get it from policy details
             if execution.policy_type == "DATA_QUALITY":
                 measurement_type = safe_get(item, "dimension")
+            elif execution.policy_type == "FRESHNESS":
+                # For FRESHNESS, measurement type will come from policy details merge
+                # Set to None here, will be populated during merge
+                measurement_type = None
             else:
                 measurement_type = safe_get(item_data, "measurementType")
                 if not measurement_type and execution.policy_type == "EQUALITY":
@@ -701,8 +746,8 @@ def process_execution_details_parallel(
             elif execution.policy_type == "DATA_QUALITY":
                 # For DATA_QUALITY, use items[].rowsFailed directly
                 rows_failed = safe_get(item, "rowsFailed")
-            elif execution.policy_type == "DATA_DRIFT":
-                # For DATA_DRIFT, Rows_Failed is NOT_APPLICABLE (already set to None above)
+            elif execution.policy_type == "DATA_DRIFT" or execution.policy_type == "FRESHNESS":
+                # For DATA_DRIFT and FRESHNESS, Rows_Failed is NOT_APPLICABLE (already set to None above)
                 rows_failed = None
             else:
                 rows_failed = calculate_failed_rows(rows_scanned, rule_result)
@@ -717,12 +762,19 @@ def process_execution_details_parallel(
             else:
                 result_status = None
 
-            # For DATA_QUALITY, store items.id in rule_item_id for Rule_ID display
+            # For DATA_QUALITY and FRESHNESS, store items.id in rule_item_id for Rule_ID display
             # Keep item_id as ruleItemId for merge key
-            if execution.policy_type == "DATA_QUALITY":
+            if execution.policy_type == "DATA_QUALITY" or execution.policy_type == "FRESHNESS":
                 display_rule_id = str(safe_get(item, "id", ""))  # items.id for Rule_ID
             else:
                 display_rule_id = safe_get(item, "ruleItemId")
+            
+            # Extract anomaly_detected and threshold_breached for FRESHNESS only
+            anomaly_detected = None
+            threshold_breached = None
+            if execution.policy_type == "FRESHNESS":
+                anomaly_detected = safe_get(item, "anomalyDetected")
+                threshold_breached = safe_get(item, "thresholdBreached")
             
             execution_detail = ExecutionDetail(
                 item_id=extracted_item_id,
@@ -747,6 +799,8 @@ def process_execution_details_parallel(
                 start_ts=execution.start_ts,
                 end_ts=execution.end_ts,
                 execution_status=execution.execution_status,
+                anomaly_detected=anomaly_detected,
+                threshold_breached=threshold_breached,
             )
             execution_details.append(execution_detail)
         
@@ -793,71 +847,147 @@ def fetch_data_drift_version_mapping(
     http_client: ADOCHTTPClient,
 ) -> dict[tuple[str, str], str]:
     """Fetch DATA_DRIFT policy versions and track (columnName, metricType) -> item.id mapping.
-    
+
     Only returns item.id for NEW (columnName, metricType) combinations that weren't in previous versions.
     Compares version N with version N-1 sequentially (1->2, 2->3, etc.), not 1->5.
-    
+
     Args:
         policy_id: Policy ID
         max_version: Maximum version to fetch (from execution.ruleVersion)
         http_client: HTTP client for API calls
-        
+
     Returns:
         Dictionary mapping (columnName, metricType) -> item.id for new combinations only
     """
     version_mapping: dict[tuple[str, str], str] = {}
     seen_combinations: set[tuple[str, str]] = set()
-    
+
     if max_version < 1:
         return version_mapping
-    
+
     log_info(f"Fetching DATA_DRIFT policy {policy_id} versions 1 to {max_version} for version comparison")
-    
+
     for version in range(1, max_version + 1):
         endpoint = f"/catalog-server/api/rules/data-drift/{policy_id}?version={version}"
         response = http_client.get(endpoint)
-        
+
         if not response.is_success:
             log_error(f"Failed to fetch DATA_DRIFT policy {policy_id} version {version}")
             continue
-        
+
         policy_data = response.json()
         details_data = safe_get(policy_data, "details", {})
         items = safe_get(details_data, "items", [])
-        
+
         # Track combinations in this version
         current_version_combinations: set[tuple[str, str]] = set()
-        
+
         for item in items:
             column_name = safe_get(item, "columnName", "")
             metric_type = safe_get(item, "metricType", "")
             item_id = str(safe_get(item, "id", ""))
-            
+
             if not column_name or not metric_type or not item_id:
                 continue
-            
+
             combination = (column_name, metric_type)
             current_version_combinations.add(combination)
-            
+
             # Only add to mapping if this combination is NEW (not seen in previous versions)
             if combination not in seen_combinations:
                 version_mapping[combination] = item_id
                 log_info(
                     f"DATA_DRIFT version {version}: New combination ({column_name}, {metric_type}) -> item.id={item_id}"
                 )
-        
+
         # Count new combinations before updating seen_combinations
         new_count = len([c for c in current_version_combinations if c not in seen_combinations])
-        
+
         # Update seen combinations for next version comparison (after checking for new ones)
         seen_combinations.update(current_version_combinations)
         log_info(
             f"DATA_DRIFT version {version}: {len(current_version_combinations)} combinations, "
             f"{new_count} new"
         )
-    
+
     log_info(
         f"DATA_DRIFT policy {policy_id}: Total {len(version_mapping)} new (columnName, metricType) -> item.id mappings"
+    )
+    return version_mapping
+
+
+def fetch_freshness_version_mapping(
+    policy_id: str,
+    max_version: int,
+    http_client: ADOCHTTPClient,
+) -> dict[tuple[str, str], str]:
+    """Fetch FRESHNESS policy versions and track (measurementType, strategy) -> item.id mapping.
+
+    Only returns item.id for NEW (measurementType, strategy) combinations that weren't in previous versions.
+    Compares version N with version N-1 sequentially (1->2, 2->3, etc.), not 1->5.
+
+    Args:
+        policy_id: Policy ID
+        max_version: Maximum version to fetch (from execution.ruleVersion)
+        http_client: HTTP client for API calls
+
+    Returns:
+        Dictionary mapping (measurementType, strategy) -> item.id for new combinations only
+    """
+    version_mapping: dict[tuple[str, str], str] = {}
+    seen_combinations: set[tuple[str, str]] = set()
+
+    if max_version < 1:
+        return version_mapping
+
+    log_info(f"Fetching FRESHNESS policy {policy_id} versions 1 to {max_version} for version comparison")
+
+    for version in range(1, max_version + 1):
+        endpoint = f"/catalog-server/api/rules/data-cadence/{policy_id}?version={version}"
+        response = http_client.get(endpoint)
+
+        if not response.is_success:
+            log_error(f"Failed to fetch FRESHNESS policy {policy_id} version {version}")
+            continue
+
+        policy_data = response.json()
+        details_data = safe_get(policy_data, "details", {})
+        items = safe_get(details_data, "items", [])
+
+        # Track combinations in this version
+        current_version_combinations: set[tuple[str, str]] = set()
+
+        for item in items:
+            measurement_type = safe_get(item, "measurementType", "")
+            threshold_config = safe_get(item, "thresholdConfig", {})
+            strategy = safe_get(threshold_config, "strategy", "")
+            item_id = str(safe_get(item, "id", ""))
+
+            if not measurement_type or not strategy or not item_id:
+                continue
+
+            combination = (measurement_type, strategy)
+            current_version_combinations.add(combination)
+
+            # Only add to mapping if this combination is NEW (not seen in previous versions)
+            if combination not in seen_combinations:
+                version_mapping[combination] = item_id
+                log_info(
+                    f"FRESHNESS version {version}: New combination ({measurement_type}, {strategy}) -> item.id={item_id}"
+                )
+
+        # Count new combinations before updating seen_combinations
+        new_count = len([c for c in current_version_combinations if c not in seen_combinations])
+
+        # Update seen combinations for next version comparison (after checking for new ones)
+        seen_combinations.update(current_version_combinations)
+        log_info(
+            f"FRESHNESS version {version}: {len(current_version_combinations)} combinations, "
+            f"{new_count} new"
+        )
+
+    log_info(
+        f"FRESHNESS policy {policy_id}: Total {len(version_mapping)} new (measurementType, strategy) -> item.id mappings"
     )
     return version_mapping
 
@@ -917,6 +1047,12 @@ def process_policy_details_parallel(
         elif execution.policy_type == "SCHEMA_DRIFT":
             endpoint = (
                 f"/catalog-server/api/rules/schema-drift/{execution.policy_id}"
+                f"?version={execution.policy_version}"
+            )
+        elif execution.policy_type == "FRESHNESS":
+            # FRESHNESS uses DATA_CADENCE endpoint
+            endpoint = (
+                f"/catalog-server/api/rules/data-cadence/{execution.policy_id}"
                 f"?version={execution.policy_version}"
             )
         else:
@@ -1018,10 +1154,16 @@ def process_policy_details_parallel(
             if execution.policy_type == "DATA_QUALITY":
                 log_info(f"DEBUG DATA_QUALITY policy {execution.policy_id}: Processing {len(items)} items from policy details endpoint")
             
-            # For DATA_DRIFT, fetch version mapping once before processing items
+            # For DATA_DRIFT and FRESHNESS, fetch version mapping once before processing items
             version_mapping: dict[tuple[str, str], str] = {}
             if execution.policy_type == "DATA_DRIFT":
                 version_mapping = fetch_data_drift_version_mapping(
+                    execution.policy_id,
+                    execution.policy_version,
+                    http_client,
+                )
+            elif execution.policy_type == "FRESHNESS":
+                version_mapping = fetch_freshness_version_mapping(
                     execution.policy_id,
                     execution.policy_version,
                     http_client,
@@ -1053,6 +1195,11 @@ def process_policy_details_parallel(
                         f"id: {safe_get(item, 'id')}, "
                         f"using item_id: '{item_id}', rule_version: {rule_version} (from execution.policy_version)"
                     )
+                elif execution.policy_type == "FRESHNESS":
+                    # For FRESHNESS, policy details have "id" field that matches execution details' "ruleItemId"
+                    item_id = str(safe_get(item, "id", ""))
+                    # For FRESHNESS, use execution.policy_version (from execution.ruleVersion) to match execution details
+                    rule_version = execution.policy_version
                 else:
                     # For PROFILE_ANOMALY, SCHEMA_DRIFT
                     # Policy details have "id" field that matches execution details' "ruleItemId"
@@ -1069,7 +1216,11 @@ def process_policy_details_parallel(
                 rule_description = safe_get(item, "businessExplanation") if execution.policy_type == "DATA_QUALITY" else None
                 
                 # Extract column_name for all policies (existing behavior)
-                column_name = safe_get(item, "columnName")
+                # For FRESHNESS, column_name is NOT_APPLICABLE (asset-level policy, not column-level)
+                if execution.policy_type == "FRESHNESS":
+                    column_name = None  # Will be set to NOT_APPLICABLE later
+                else:
+                    column_name = safe_get(item, "columnName")
                 
                 # Extract DATA_DRIFT-specific fields (only for DATA_DRIFT)
                 item_measurement_type = None
@@ -1077,6 +1228,15 @@ def process_policy_details_parallel(
                 if execution.policy_type == "DATA_DRIFT":
                     item_measurement_type = safe_get(item, "metricType")
                     drift_threshold = safe_get(item, "driftThreshold")
+                elif execution.policy_type == "FRESHNESS":
+                    # For FRESHNESS, extract measurementType from policy details
+                    item_measurement_type = safe_get(item, "measurementType")
+                    # Extract threshold config for FRESHNESS
+                    threshold_config = safe_get(item, "thresholdConfig", {})
+                    rule_strategy = safe_get(threshold_config, "strategy")
+                    rule_lower_threshold = safe_get(threshold_config, "lower")
+                    rule_upper_threshold = safe_get(threshold_config, "upper")
+                    drift_threshold = None  # Not applicable for FRESHNESS
                 
                 # For DATA_DRIFT, set Label_Key and Label_Value based on version mapping
                 if execution.policy_type == "DATA_DRIFT":
@@ -1104,6 +1264,37 @@ def process_policy_details_parallel(
                         rule_description=None,  # Rule_Description is NOT_APPLICABLE for DATA_DRIFT
                         item_measurement_type=item_measurement_type,
                         drift_threshold=drift_threshold,
+                    )
+                    policy_details.append(policy_detail)
+                elif execution.policy_type == "FRESHNESS":
+                    # For FRESHNESS, set Label_Key and Label_Value based on version mapping
+                    # Label_Key = Item_Measurement_Type-Rule_Strategy
+                    label_key = f"{item_measurement_type or ''}-{rule_strategy or ''}" if item_measurement_type and rule_strategy else None
+                    # Label_Value = item.id from version mapping (only for new combinations)
+                    combination = (item_measurement_type or "", rule_strategy or "")
+                    label_value = version_mapping.get(combination)
+                    
+                    # Create PolicyDetail with FRESHNESS-specific Label_Key and Label_Value
+                    policy_detail = PolicyDetail(
+                        policy_name=execution.policy_name,
+                        policy_id=execution.policy_id,
+                        policy_type=execution.policy_type,
+                        id=item_id,
+                        rule_version=rule_version,
+                        column_name=column_name,
+                        pde_value=None,  # NOT_APPLICABLE for FRESHNESS
+                        table_asset_id=table_asset_id,
+                        table_asset_name=table_asset_name,
+                        policy_enabled=policy_enabled,
+                        label_key=label_key,
+                        label_value=label_value,
+                        policy_description=policy_description,
+                        rule_description=None,  # Rule_Description is NOT_APPLICABLE for FRESHNESS
+                        item_measurement_type=item_measurement_type,
+                        drift_threshold=drift_threshold,
+                        rule_strategy=rule_strategy,
+                        rule_lower_threshold=rule_lower_threshold,
+                        rule_upper_threshold=rule_upper_threshold,
                     )
                     policy_details.append(policy_detail)
                 else:
@@ -1196,6 +1387,7 @@ def process_policy_executions(
             "DATA_DRIFT",
             "PROFILE_ANOMALY",
             "SCHEMA_DRIFT",
+            "FRESHNESS",  # API uses DATA_CADENCE
         ]
 
     policy_executions = []
@@ -1220,6 +1412,9 @@ def process_policy_executions(
             continue
 
         policy_type = safe_get(ex, "ruleType")
+        # Map DATA_CADENCE (API) to FRESHNESS (internal)
+        if policy_type == "DATA_CADENCE":
+            policy_type = "FRESHNESS"
         if policy_type in policy_types:
             result = safe_get(execution, "result") or {}
 
@@ -1306,6 +1501,12 @@ def process_execution_details(
                     f"/catalog-server/api/rules/schema-drift/executions/"
                     f"{execution.execution_id}"
                 )
+            elif execution.policy_type == "FRESHNESS":
+                # FRESHNESS uses DATA_CADENCE endpoint with /result suffix
+                endpoint = (
+                    f"/catalog-server/api/rules/data-cadence/executions/"
+                    f"{execution.execution_id}/result"
+                )
             else:
                 log_error(f"Unsupported policy type: {execution.policy_type}")
                 continue
@@ -1321,14 +1522,14 @@ def process_execution_details(
 
             exec_result_data = response.json()
             
-            # For DATA_DRIFT, extract execution.ruleVersion from the result and update execution object
-            if execution.policy_type == "DATA_DRIFT":
+            # For DATA_DRIFT and FRESHNESS, extract execution.ruleVersion from the result and update execution object
+            if execution.policy_type == "DATA_DRIFT" or execution.policy_type == "FRESHNESS":
                 execution_data = safe_get(exec_result_data, "execution", {})
                 rule_version = safe_get(execution_data, "ruleVersion")
                 if rule_version is not None:
                     execution.policy_version = rule_version
                     log_info(
-                        f"Updated DATA_DRIFT execution {execution.execution_id} policy_version "
+                        f"Updated {execution.policy_type} execution {execution.execution_id} policy_version "
                         f"to {rule_version} from execution result"
                     )
             
@@ -1354,11 +1555,11 @@ def process_execution_details(
                     None,
                 )
 
-                # For DATA_QUALITY with /result endpoint, items don't have nested "item" structure
+                # For DATA_QUALITY and FRESHNESS with /result endpoint, items don't have nested "item" structure
                 # Items are flat: items[].id, items[].ruleItemId, etc.
                 # For non-DATA_QUALITY policies, item structure is different
-                if execution.policy_type == "DATA_QUALITY":
-                    # DATA_QUALITY items are flat - use item directly
+                if execution.policy_type == "DATA_QUALITY" or execution.policy_type == "FRESHNESS":
+                    # DATA_QUALITY and FRESHNESS items are flat - use item directly
                     item_data = item
                 else:
                     # For other policies, check for nested item structure
@@ -1413,6 +1614,15 @@ def process_execution_details(
                         # Rows_Scanned and Rows_Failed are NOT_APPLICABLE for DATA_DRIFT
                         rows_scanned = None
                         rows_failed = None
+                    elif execution.policy_type == "FRESHNESS":
+                        # For FRESHNESS, use resultPercent (same as DATA_QUALITY, EQUALITY, and DATA_DRIFT)
+                        rule_result = safe_get(item, "resultPercent")
+                        if rule_result is not None:
+                            # Convert to string percentage format
+                            rule_result = str(rule_result)
+                        # Rows_Scanned and Rows_Failed are NOT_APPLICABLE for FRESHNESS
+                        rows_scanned = None
+                        rows_failed = None
                     else:
                         # For other policy types, use standard extraction
                         rows_scanned = safe_get(item, "rowsScanned")
@@ -1455,6 +1665,20 @@ def process_execution_details(
                     extracted_item_id = str(safe_get(item, "ruleItemId", ""))
                     # For DATA_DRIFT, use execution.ruleVersion (already extracted and updated in execution.policy_version)
                     extracted_item_ver = execution.policy_version
+                elif execution.policy_type == "FRESHNESS":
+                    # For FRESHNESS, use ruleItemId for merge key (similar to DATA_QUALITY)
+                    rule_item_id = safe_get(item, "ruleItemId", "")
+                    execution_item_id = str(safe_get(item, "id", ""))  # items.id for Rule_ID display
+                    
+                    # Use ruleItemId for merge key (extracted_item_id)
+                    if rule_item_id:
+                        extracted_item_id = str(rule_item_id)
+                    else:
+                        # Fallback to top-level item.id if ruleItemId is missing
+                        extracted_item_id = execution_item_id
+                    
+                    # For FRESHNESS, use execution.ruleVersion (execution.policy_version)
+                    extracted_item_ver = execution.policy_version
                 elif execution.policy_type != "DATA_QUALITY":
                     # Use ruleItemId from top-level for other non-DATA_QUALITY policies
                     extracted_item_id = str(safe_get(item, "ruleItemId", ""))
@@ -1480,8 +1704,11 @@ def process_execution_details(
                     extracted_item_ver = execution.policy_version
 
                 # Extract column name - for DATA_QUALITY, use top-level item.columnName (no nested structure)
+                # For FRESHNESS, column name is NOT_APPLICABLE (asset-level policy, not column-level)
                 if execution.policy_type == "DATA_QUALITY":
                     column_name = safe_get(item, "columnName")
+                elif execution.policy_type == "FRESHNESS":
+                    column_name = None  # Will be set to NOT_APPLICABLE later
                 else:
                     column_name = safe_get(item_data, "columnName")
                 
@@ -1502,8 +1729,14 @@ def process_execution_details(
                         column_name = safe_get(item_data, "dimension")
                 
                 # Extract measurement type - for DATA_QUALITY, use top-level item.dimension (no nested structure)
+                # For FRESHNESS, measurement type comes from policy details (not execution details)
+                # Execution details have dimension="OTHERS" which is not useful, so we'll get it from policy details
                 if execution.policy_type == "DATA_QUALITY":
                     measurement_type = safe_get(item, "dimension")
+                elif execution.policy_type == "FRESHNESS":
+                    # For FRESHNESS, measurement type will come from policy details merge
+                    # Set to None here, will be populated during merge
+                    measurement_type = None
                 else:
                     measurement_type = safe_get(item_data, "measurementType")
                     if not measurement_type and execution.policy_type == "EQUALITY":
@@ -1537,12 +1770,19 @@ def process_execution_details(
                 else:
                     result_status = None
 
-                # For DATA_QUALITY, store items.id in rule_item_id for Rule_ID display
+                # For DATA_QUALITY and FRESHNESS, store items.id in rule_item_id for Rule_ID display
                 # Keep item_id as ruleItemId for merge key
-                if execution.policy_type == "DATA_QUALITY":
+                if execution.policy_type == "DATA_QUALITY" or execution.policy_type == "FRESHNESS":
                     display_rule_id = str(safe_get(item, "id", ""))  # items.id for Rule_ID
                 else:
                     display_rule_id = safe_get(item, "ruleItemId")
+                
+                # Extract anomaly_detected and threshold_breached for FRESHNESS only
+                anomaly_detected = None
+                threshold_breached = None
+                if execution.policy_type == "FRESHNESS":
+                    anomaly_detected = safe_get(item, "anomalyDetected")
+                    threshold_breached = safe_get(item, "thresholdBreached")
                 
                 execution_detail = ExecutionDetail(
                     item_id=extracted_item_id,
@@ -1567,6 +1807,8 @@ def process_execution_details(
                     start_ts=execution.start_ts,
                     end_ts=execution.end_ts,
                     execution_status=execution.execution_status,
+                    anomaly_detected=anomaly_detected,
+                    threshold_breached=threshold_breached,
                 )
                 execution_details.append(execution_detail)
 
@@ -1744,6 +1986,12 @@ def process_policy_details(
                     f"/catalog-server/api/rules/schema-drift/{execution.policy_id}"
                     f"?version={execution.policy_version}"
                 )
+            elif execution.policy_type == "FRESHNESS":
+                # FRESHNESS uses DATA_CADENCE endpoint
+                endpoint = (
+                    f"/catalog-server/api/rules/data-cadence/{execution.policy_id}"
+                    f"?version={execution.policy_version}"
+                )
             else:
                 log_error(f"Unsupported policy type: {execution.policy_type}")
                 continue
@@ -1850,10 +2098,16 @@ def process_policy_details(
                     f"policy_id={execution.policy_id}: {len(items)} items"
                 )
                 
-                # For DATA_DRIFT, fetch version mapping once before processing items
+                # For DATA_DRIFT and FRESHNESS, fetch version mapping once before processing items
                 version_mapping: dict[tuple[str, str], str] = {}
                 if execution.policy_type == "DATA_DRIFT":
                     version_mapping = fetch_data_drift_version_mapping(
+                        execution.policy_id,
+                        execution.policy_version,
+                        http_client,
+                    )
+                elif execution.policy_type == "FRESHNESS":
+                    version_mapping = fetch_freshness_version_mapping(
                         execution.policy_id,
                         execution.policy_version,
                         http_client,
@@ -1885,6 +2139,11 @@ def process_policy_details(
                             f"id: {safe_get(item, 'id')}, "
                             f"using item_id: '{item_id}', rule_version: {rule_version} (from execution.policy_version)"
                         )
+                    elif execution.policy_type == "FRESHNESS":
+                        # For FRESHNESS, policy details have "id" field that matches execution details' "ruleItemId"
+                        item_id = str(safe_get(item, "id", ""))
+                        # For FRESHNESS, use execution.policy_version (from execution.ruleVersion) to match execution details
+                        rule_version = execution.policy_version
                     else:
                         # For PROFILE_ANOMALY, SCHEMA_DRIFT
                         # Policy details have "id" field that matches execution details' "ruleItemId"
@@ -1901,7 +2160,11 @@ def process_policy_details(
                     rule_description = safe_get(item, "businessExplanation") if execution.policy_type == "DATA_QUALITY" else None
                     
                     # Extract column_name for all policies (existing behavior)
-                    column_name = safe_get(item, "columnName")
+                    # For FRESHNESS, column_name is NOT_APPLICABLE (asset-level policy, not column-level)
+                    if execution.policy_type == "FRESHNESS":
+                        column_name = None  # Will be set to NOT_APPLICABLE later
+                    else:
+                        column_name = safe_get(item, "columnName")
                     
                     # Extract DATA_DRIFT-specific fields (only for DATA_DRIFT)
                     item_measurement_type = None
@@ -1909,6 +2172,15 @@ def process_policy_details(
                     if execution.policy_type == "DATA_DRIFT":
                         item_measurement_type = safe_get(item, "metricType")
                         drift_threshold = safe_get(item, "driftThreshold")
+                    elif execution.policy_type == "FRESHNESS":
+                        # For FRESHNESS, extract measurementType from policy details
+                        item_measurement_type = safe_get(item, "measurementType")
+                        # Extract threshold config for FRESHNESS
+                        threshold_config = safe_get(item, "thresholdConfig", {})
+                        rule_strategy = safe_get(threshold_config, "strategy")
+                        rule_lower_threshold = safe_get(threshold_config, "lower")
+                        rule_upper_threshold = safe_get(threshold_config, "upper")
+                        drift_threshold = None  # Not applicable for FRESHNESS
                     
                     # For DATA_DRIFT, set Label_Key and Label_Value based on version mapping
                     if execution.policy_type == "DATA_DRIFT":
@@ -1936,6 +2208,37 @@ def process_policy_details(
                             rule_description=None,  # Rule_Description is NOT_APPLICABLE for DATA_DRIFT
                             item_measurement_type=item_measurement_type,
                             drift_threshold=drift_threshold,
+                        )
+                        policy_details.append(policy_detail)
+                    elif execution.policy_type == "FRESHNESS":
+                        # For FRESHNESS, set Label_Key and Label_Value based on version mapping
+                        # Label_Key = Item_Measurement_Type-Rule_Strategy
+                        label_key = f"{item_measurement_type or ''}-{rule_strategy or ''}" if item_measurement_type and rule_strategy else None
+                        # Label_Value = item.id from version mapping (only for new combinations)
+                        combination = (item_measurement_type or "", rule_strategy or "")
+                        label_value = version_mapping.get(combination)
+                        
+                        # Create PolicyDetail with FRESHNESS-specific Label_Key and Label_Value
+                        policy_detail = PolicyDetail(
+                            policy_name=execution.policy_name,
+                            policy_id=execution.policy_id,
+                            policy_type=execution.policy_type,
+                            id=item_id,
+                            rule_version=rule_version,
+                            column_name=column_name,
+                            pde_value=None,  # NOT_APPLICABLE for FRESHNESS
+                            table_asset_id=table_asset_id,
+                            table_asset_name=table_asset_name,
+                            policy_enabled=policy_enabled,
+                            label_key=label_key,
+                            label_value=label_value,
+                            policy_description=policy_description,
+                            rule_description=None,  # Rule_Description is NOT_APPLICABLE for FRESHNESS
+                            item_measurement_type=item_measurement_type,
+                            drift_threshold=drift_threshold,
+                            rule_strategy=rule_strategy,
+                            rule_lower_threshold=rule_lower_threshold,
+                            rule_upper_threshold=rule_upper_threshold,
                         )
                         policy_details.append(policy_detail)
                     else:
@@ -2081,6 +2384,9 @@ def process_reconciliation_records(
     execution_status = safe_get(execution_data, "executionStatus", "")
     # Note: result_status will be extracted per item from items[].success
     policy_type = safe_get(execution_data, "ruleType", "EQUALITY")
+    # Map DATA_CADENCE (API) to FRESHNESS (internal)
+    if policy_type == "DATA_CADENCE":
+        policy_type = "FRESHNESS"
     
     # Extract result-level fields
     # For reconciliation, Rows_Scanned = result.rows
@@ -2411,17 +2717,22 @@ def merge_execution_data(
                 else:
                     display_item_id = exec_detail.item_id  # Use merge key for other types
                 
-                # For DATA_DRIFT, use item_measurement_type from policy_detail (from details.items.metricType)
+                # For DATA_DRIFT and FRESHNESS, use item_measurement_type from policy_detail
+                # DATA_DRIFT: from details.items.metricType
+                # FRESHNESS: from details.items.measurementType (execution details have dimension="OTHERS" which is not useful)
                 # For other policy types, use from exec_detail (they have their own field paths)
-                if policy_detail.policy_type == "DATA_DRIFT" and policy_detail.item_measurement_type:
+                if policy_detail.policy_type in ["DATA_DRIFT", "FRESHNESS"] and policy_detail.item_measurement_type:
                     measurement_type = policy_detail.item_measurement_type
                 else:
                     measurement_type = exec_detail.item_measurement_type
                 
                 # For DATA_DRIFT, use column_name from policy_detail (from details.items.columnName)
+                # For FRESHNESS, column_name is NOT_APPLICABLE (asset-level policy, not column-level)
                 # For other types, use from exec_detail
                 if policy_detail.policy_type == "DATA_DRIFT" and policy_detail.column_name:
                     column_name = policy_detail.column_name
+                elif policy_detail.policy_type == "FRESHNESS":
+                    column_name = None  # Will be set to NOT_APPLICABLE later
                 else:
                     column_name = exec_detail.item_column_name
                 
@@ -2440,9 +2751,11 @@ def merge_execution_data(
                     right_column=right_column,
                     pde=exec_detail.pde,
                     item_measurement_type=measurement_type,
-                    rule_strategy=exec_detail.rule_strategy,
-                    rule_lower_threshold=exec_detail.rule_lower_threshold,
-                    rule_upper_threshold=exec_detail.rule_upper_threshold,
+                    # For FRESHNESS, use threshold config from policy_detail (execution details don't have it)
+                    # For other policy types, use from exec_detail
+                    rule_strategy=policy_detail.rule_strategy if policy_detail.policy_type == "FRESHNESS" and policy_detail.rule_strategy else exec_detail.rule_strategy,
+                    rule_lower_threshold=policy_detail.rule_lower_threshold if policy_detail.policy_type == "FRESHNESS" and policy_detail.rule_lower_threshold is not None else exec_detail.rule_lower_threshold,
+                    rule_upper_threshold=policy_detail.rule_upper_threshold if policy_detail.policy_type == "FRESHNESS" and policy_detail.rule_upper_threshold is not None else exec_detail.rule_upper_threshold,
                     item_id=display_item_id,  # For DATA_QUALITY: items.id, for others: merge key
                     result=exec_detail.result,
                     result_status=exec_detail.result_status,
@@ -2463,6 +2776,8 @@ def merge_execution_data(
                     policy_description=policy_detail.policy_description,
                     rule_description=policy_detail.rule_description,
                     drift_threshold=policy_detail.drift_threshold,
+                    anomaly_detected=exec_detail.anomaly_detected,
+                    threshold_breached=exec_detail.threshold_breached,
                 )
                 merged_records.append(record)
         else:

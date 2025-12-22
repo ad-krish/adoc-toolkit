@@ -71,6 +71,7 @@ class PolicyExecution(BaseModel):
             "DATA_DRIFT",
             "PROFILE_ANOMALY",
             "SCHEMA_DRIFT",
+            "FRESHNESS",
         }
         if v not in valid_types:
             raise ValueError(f"Policy type must be one of {valid_types}")
@@ -122,6 +123,12 @@ class ExecutionDetail(BaseModel):
     start_ts: int | None = Field(default=None, description="Start timestamp")
     end_ts: int | None = Field(default=None, description="End timestamp")
     execution_status: str = Field(description="Execution status")
+    anomaly_detected: bool | None = Field(
+        default=None, description="Anomaly detected flag from items.anomalyDetected (for FRESHNESS only)"
+    )
+    threshold_breached: bool | None = Field(
+        default=None, description="Threshold breached flag from items.thresholdBreached (for FRESHNESS only)"
+    )
 
     @field_validator("item_id", "exec_id", mode="before")
     @classmethod
@@ -170,10 +177,19 @@ class PolicyDetail(BaseModel):
         default=None, description="Rule description from details.items.businessExplanation (for DATA_QUALITY)"
     )
     item_measurement_type: str | None = Field(
-        default=None, description="Item measurement type from details.items.metricType (for DATA_DRIFT)"
+        default=None, description="Item measurement type from details.items.metricType (for DATA_DRIFT) or details.items.measurementType (for FRESHNESS)"
     )
     drift_threshold: float | None = Field(
         default=None, description="Drift threshold from details.items.driftThreshold (for DATA_DRIFT)"
+    )
+    rule_strategy: str | None = Field(
+        default=None, description="Rule strategy from details.items.thresholdConfig.strategy (for FRESHNESS)"
+    )
+    rule_lower_threshold: float | None = Field(
+        default=None, description="Lower threshold from details.items.thresholdConfig.lower (for FRESHNESS)"
+    )
+    rule_upper_threshold: float | None = Field(
+        default=None, description="Upper threshold from details.items.thresholdConfig.upper (for FRESHNESS)"
     )
 
     @field_validator("policy_id", "id", mode="before")
@@ -243,6 +259,12 @@ class ExecutionMetricsRecord(BaseModel):
     policy_type: str = Field(description="Policy type")
     policy_enabled: bool | None = Field(
         default=None, description="Whether the policy is enabled"
+    )
+    anomaly_detected: bool | None = Field(
+        default=None, description="Anomaly detected flag from items.anomalyDetected (for FRESHNESS only)"
+    )
+    threshold_breached: bool | None = Field(
+        default=None, description="Threshold breached flag from items.thresholdBreached (for FRESHNESS only)"
     )
     label_key: str | None = Field(
         default=None, description="Label key from policy details"
@@ -377,6 +399,7 @@ class ExecutionMetricsArgs(BaseModel):
             "DATA_DRIFT",
             "PROFILE_ANOMALY",
             "SCHEMA_DRIFT",
+            "FRESHNESS",
         }
         if not v:
             raise ValueError("At least one policy type must be specified")
