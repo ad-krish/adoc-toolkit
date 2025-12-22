@@ -912,6 +912,17 @@ Examples:
                         if col in df.columns:
                             df.loc[freshness_mask & df[col].isna(), col] = "NOT_APPLICABLE"
                     
+                    # For SCHEMA_DRIFT records, set NOT_APPLICABLE columns
+                    schema_drift_mask = df["Policy_Type"] == "SCHEMA_DRIFT"
+                    schema_drift_not_applicable_columns = [
+                        "Rule_Success_Rate", "Item_Column_Name", "Item_Measurement_Type",
+                        "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold",
+                        "Rows_Scanned", "Rows_Failed", "Rule_Description"
+                    ]
+                    for col in schema_drift_not_applicable_columns:
+                        if col in df.columns:
+                            df.loc[schema_drift_mask & df[col].isna(), col] = "NOT_APPLICABLE"
+                    
                     # For non-FRESHNESS records, set Anomaly_Detected and Threshold_Breached to NOT_APPLICABLE
                     non_freshness_mask = df["Policy_Type"] != "FRESHNESS"
                     freshness_specific_columns = ["Anomaly_Detected", "Threshold_Breached"]
@@ -1609,6 +1620,128 @@ Examples:
                             "freshness_export_completed",
                             records_count=len(freshness_df),
                             output_file=str(freshness_output_path),
+                        )
+                
+                # Export SCHEMA_DRIFT records separately if available
+                if not df.empty and "Policy_Type" in df.columns:
+                    schema_drift_mask = df["Policy_Type"] == "SCHEMA_DRIFT"
+                    if schema_drift_mask.any():
+                        schema_drift_task = progress.add_task(
+                            "📊 Exporting SCHEMA_DRIFT records...", total=None
+                        )
+                        self.trace(
+                            "starting_schema_drift_export",
+                            records_count=schema_drift_mask.sum(),
+                        )
+                        
+                        # Create DataFrame for SCHEMA_DRIFT records
+                        schema_drift_df = df[schema_drift_mask].copy()
+                        
+                        # Apply datetime renaming if needed
+                        datetime_rename_map = {
+                            "Started_At (UTC)": "Started_At(UTC)",
+                            "Finished_At (UTC)": "Finished_At(UTC)",
+                            "Execution_Date (UTC)": "Execution_Date(UTC)",
+                        }
+                        schema_drift_df.rename(columns=datetime_rename_map, inplace=True)
+                        
+                        # Standardize column names for SCHEMA_DRIFT
+                        if "Exec_Id" in schema_drift_df.columns:
+                            schema_drift_df.rename(columns={"Exec_Id": "Execution_ID"}, inplace=True)
+                        if "Policy_Id" in schema_drift_df.columns:
+                            schema_drift_df.rename(columns={"Policy_Id": "Policy_ID"}, inplace=True)
+                        if "Item_Id" in schema_drift_df.columns:
+                            schema_drift_df.rename(columns={"Item_Id": "Rule_ID"}, inplace=True)
+                        if "Result" in schema_drift_df.columns:
+                            schema_drift_df.rename(columns={"Result": "Rule_Success_Rate"}, inplace=True)
+                        if "Overall_Policy_Quality_Score" in schema_drift_df.columns:
+                            schema_drift_df.rename(columns={"Overall_Policy_Quality_Score": "Overall_Policy_Quality_Score(Percentage)"}, inplace=True)
+                        if "Result_Status" in schema_drift_df.columns:
+                            schema_drift_df.rename(columns={"Result_Status": "Rule_Result_Status"}, inplace=True)
+                        
+                        # Remove PDE column if it exists
+                        if "Pde" in schema_drift_df.columns:
+                            schema_drift_df = schema_drift_df.drop(columns=["Pde"])
+                        
+                        # For SCHEMA_DRIFT CSV, exclude NOT_APPLICABLE columns
+                        columns_to_exclude = [
+                            "Rule_Success_Rate", "Item_Column_Name", "Item_Measurement_Type",
+                            "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold",
+                            "Rows_Scanned", "Rows_Failed", "Rule_Description"
+                        ]
+                        for col in columns_to_exclude:
+                            if col in schema_drift_df.columns:
+                                schema_drift_df = schema_drift_df.drop(columns=[col])
+                        
+                        # Exclude reconciliation-specific columns that are NOT_APPLICABLE for SCHEMA_DRIFT
+                        recon_columns_to_exclude = [
+                            "Left_Column", "Right_Column", "Left_Rows_Scanned", "Right_Rows_Scanned",
+                            "Use_For_Joining", "Left_ASSET_UID", "Right_ASSET_UID", "Join_Type", "Operation"
+                        ]
+                        for col in recon_columns_to_exclude:
+                            if col in schema_drift_df.columns:
+                                schema_drift_df = schema_drift_df.drop(columns=[col])
+                        
+                        # Exclude DATA_DRIFT-specific columns that are NOT_APPLICABLE for SCHEMA_DRIFT
+                        drift_columns_to_exclude = ["Drift_Threshold"]
+                        for col in drift_columns_to_exclude:
+                            if col in schema_drift_df.columns:
+                                schema_drift_df = schema_drift_df.drop(columns=[col])
+                        
+                        # Also exclude any columns that are entirely "NOT_APPLICABLE" (including NaN that were filled)
+                        for col in schema_drift_df.columns:
+                            # Check if all non-null values are "NOT_APPLICABLE" or if column is all NaN/None
+                            if col in schema_drift_df.columns:
+                                non_null_values = schema_drift_df[col].dropna()
+                                if len(non_null_values) > 0 and (non_null_values == "NOT_APPLICABLE").all():
+                                    schema_drift_df = schema_drift_df.drop(columns=[col])
+                                elif len(non_null_values) == 0:
+                                    # Column is all NaN/None, exclude it
+                                    schema_drift_df = schema_drift_df.drop(columns=[col])
+                        
+                        # Reorder columns: put Label_Key and Label_Value right after Rule_ID
+                        if "Rule_ID" in schema_drift_df.columns:
+                            cols = list(schema_drift_df.columns)
+                            label_cols = []
+                            if "Label_Key" in cols:
+                                cols.remove("Label_Key")
+                                label_cols.append("Label_Key")
+                            if "Label_Value" in cols:
+                                cols.remove("Label_Value")
+                                label_cols.append("Label_Value")
+                            
+                            if label_cols and "Rule_ID" in cols:
+                                rule_id_idx = cols.index("Rule_ID")
+                                cols = cols[:rule_id_idx + 1] + label_cols + cols[rule_id_idx + 1:]
+                                schema_drift_df = schema_drift_df[cols]
+                        
+                        # Generate SCHEMA_DRIFT filename
+                        schema_drift_filename = generate_execution_metrics_filename(
+                            "schema-drift-metrics-%d-%m-%y-%h-%M",
+                            args_model.output_type,
+                            env_name,
+                        )
+                        schema_drift_output_path = output_dir / schema_drift_filename
+                        
+                        # Export SCHEMA_DRIFT data
+                        export_execution_metrics_to_format(
+                            schema_drift_df, schema_drift_output_path, args_model.output_type
+                        )
+                        
+                        progress.update(
+                            schema_drift_task, description="SCHEMA_DRIFT export completed!", completed=True
+                        )
+                        
+                        console.print(
+                            f"✅ Successfully exported {len(schema_drift_df)} SCHEMA_DRIFT records to "
+                            f"{schema_drift_output_path}",
+                            style="green",
+                        )
+                        
+                        self.trace(
+                            "schema_drift_export_completed",
+                            records_count=len(schema_drift_df),
+                            output_file=str(schema_drift_output_path),
                         )
 
                 # Update tracking information using checkpoint captured at START

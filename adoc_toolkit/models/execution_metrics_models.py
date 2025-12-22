@@ -191,6 +191,24 @@ class PolicyDetail(BaseModel):
     rule_upper_threshold: float | None = Field(
         default=None, description="Upper threshold from details.items.thresholdConfig.upper (for FRESHNESS)"
     )
+    asset_addition: bool | None = Field(
+        default=None, description="Asset addition flag from details.items.schemaDriftRuleConfig.assetAddition (for SCHEMA_DRIFT only)"
+    )
+    asset_deletion: bool | None = Field(
+        default=None, description="Asset deletion flag from details.items.schemaDriftRuleConfig.assetDeletion (for SCHEMA_DRIFT only)"
+    )
+    data_type: bool | None = Field(
+        default=None, description="Data type flag from details.items.schemaDriftRuleConfig.dataType (for SCHEMA_DRIFT only)"
+    )
+    asset_relation_change: bool | None = Field(
+        default=None, description="Asset relation change flag from details.items.schemaDriftRuleConfig.assetRelationChange (for SCHEMA_DRIFT only)"
+    )
+    asset_metadata: bool | None = Field(
+        default=None, description="Asset metadata flag from details.items.schemaDriftRuleConfig.assetMetaData (for SCHEMA_DRIFT only)"
+    )
+    metadata_configs: str | None = Field(
+        default=None, description="Metadata configs from details.items.schemaDriftRuleConfig.metaDataConfigs (comma-separated if multiple, for SCHEMA_DRIFT only)"
+    )
 
     @field_validator("policy_id", "id", mode="before")
     @classmethod
@@ -265,6 +283,24 @@ class ExecutionMetricsRecord(BaseModel):
     )
     threshold_breached: bool | None = Field(
         default=None, description="Threshold breached flag from items.thresholdBreached (for FRESHNESS only)"
+    )
+    asset_addition: bool | None = Field(
+        default=None, description="Asset addition flag from details.items.schemaDriftRuleConfig.assetAddition (for SCHEMA_DRIFT only)"
+    )
+    asset_deletion: bool | None = Field(
+        default=None, description="Asset deletion flag from details.items.schemaDriftRuleConfig.assetDeletion (for SCHEMA_DRIFT only)"
+    )
+    data_type: bool | None = Field(
+        default=None, description="Data type flag from details.items.schemaDriftRuleConfig.dataType (for SCHEMA_DRIFT only)"
+    )
+    asset_relation_change: bool | None = Field(
+        default=None, description="Asset relation change flag from details.items.schemaDriftRuleConfig.assetRelationChange (for SCHEMA_DRIFT only)"
+    )
+    asset_metadata: bool | None = Field(
+        default=None, description="Asset metadata flag from details.items.schemaDriftRuleConfig.assetMetaData (for SCHEMA_DRIFT only)"
+    )
+    metadata_configs: str | None = Field(
+        default=None, description="Metadata configs from details.items.schemaDriftRuleConfig.metaDataConfigs (comma-separated if multiple, for SCHEMA_DRIFT only)"
     )
     label_key: str | None = Field(
         default=None, description="Label key from policy details"

@@ -366,9 +366,10 @@ def process_execution_details_parallel(
                 f"{execution.execution_id}/result"
             )
         elif execution.policy_type == "SCHEMA_DRIFT":
+            # SCHEMA_DRIFT requires /result suffix to get result.status and items[].success
             endpoint = (
                 f"/catalog-server/api/rules/schema-drift/executions/"
-                f"{execution.execution_id}"
+                f"{execution.execution_id}/result"
             )
         elif execution.policy_type == "FRESHNESS":
             # FRESHNESS uses DATA_CADENCE endpoint with /result suffix
@@ -414,6 +415,23 @@ def process_execution_details_parallel(
         result_data = safe_get(exec_result_data, "result", {})
         overall_policy_status = safe_get(result_data, "status")
         overall_policy_quality_score = safe_get(result_data, "qualityScore")
+        
+        # For SCHEMA_DRIFT, set Overall_Policy_Quality_Score based on Overall_Policy_Status
+        # If status is SUCCESSFUL, set to 100, else set to 0
+        if execution.policy_type == "SCHEMA_DRIFT":
+            if overall_policy_status and str(overall_policy_status).upper() == "SUCCESSFUL":
+                overall_policy_quality_score = 100.0
+            else:
+                overall_policy_quality_score = 0.0
+        
+        # Debug logging for SCHEMA_DRIFT
+        if execution.policy_type == "SCHEMA_DRIFT":
+            log_info(
+                f"DEBUG SCHEMA_DRIFT execution {execution.execution_id}: "
+                f"result_data keys: {list(result_data.keys()) if result_data else 'None'}, "
+                f"overall_policy_status: {overall_policy_status}, "
+                f"overall_policy_quality_score: {overall_policy_quality_score}"
+            )
         
         # Log if no items found (might indicate incomplete execution)
         if not items and execution.policy_type == "EQUALITY":
@@ -581,27 +599,39 @@ def process_execution_details_parallel(
                     # Rows_Scanned and Rows_Failed are NOT_APPLICABLE for FRESHNESS
                     rows_scanned = None
                     rows_failed = None
+                elif execution.policy_type == "SCHEMA_DRIFT":
+                    # For SCHEMA_DRIFT, Rule_Success_Rate, Rows_Scanned, and Rows_Failed are NOT_APPLICABLE
+                    rule_result = None
+                    rows_scanned = None
+                    rows_failed = None
                 else:
                     # For other policy types, use standard extraction
                     rows_scanned = safe_get(item, "rowsScanned")
                     # For other non-EQUALITY policy types, use result
-                    rule_result = safe_get(item, "result")
+                    # Check both item and item_data for result field (nested structure)
+                    rule_result = safe_get(item, "result") or safe_get(item_data, "result")
+                    if rule_result is not None:
+                        rule_result = str(rule_result)
                 
                 # Safely extract threshold_config - handle both dict and primitive types
-                threshold_config_raw = safe_get(item, "thresholdConfig")
-                
-                # Ensure threshold_config is a dict, not a primitive type
-                if threshold_config_raw is None:
+                # For SCHEMA_DRIFT, Rule_Strategy, Rule_Lower_Threshold, and Rule_Upper_Threshold are NOT_APPLICABLE
+                if execution.policy_type == "SCHEMA_DRIFT":
                     threshold_config = {}
-                elif isinstance(threshold_config_raw, dict):
-                    threshold_config = threshold_config_raw
                 else:
-                    # If it's a primitive (float, int, etc.), wrap it or create empty dict
-                    log_info(
-                        f"WARNING: thresholdConfig is not a dict for {execution.policy_type} "
-                        f"exec_id={execution.execution_id}, type: {type(threshold_config_raw)}, value: {threshold_config_raw}"
-                    )
-                    threshold_config = {}
+                    threshold_config_raw = safe_get(item, "thresholdConfig")
+                    
+                    # Ensure threshold_config is a dict, not a primitive type
+                    if threshold_config_raw is None:
+                        threshold_config = {}
+                    elif isinstance(threshold_config_raw, dict):
+                        threshold_config = threshold_config_raw
+                    else:
+                        # If it's a primitive (float, int, etc.), wrap it or create empty dict
+                        log_info(
+                            f"WARNING: thresholdConfig is not a dict for {execution.policy_type} "
+                            f"exec_id={execution.execution_id}, type: {type(threshold_config_raw)}, value: {threshold_config_raw}"
+                        )
+                        threshold_config = {}
             
             # For SCHEMA_DRIFT and other non-DATA_QUALITY policies:
             # - Execution details use "ruleItemId" to reference the policy item
@@ -693,10 +723,10 @@ def process_execution_details_parallel(
                 )
 
             # Extract column name - for DATA_QUALITY, use top-level item.columnName (no nested structure)
-            # For FRESHNESS, column name is NOT_APPLICABLE (asset-level policy, not column-level)
+            # For FRESHNESS and SCHEMA_DRIFT, column name is NOT_APPLICABLE (asset-level policy, not column-level)
             if execution.policy_type == "DATA_QUALITY":
                 column_name = safe_get(item, "columnName")
-            elif execution.policy_type == "FRESHNESS":
+            elif execution.policy_type == "FRESHNESS" or execution.policy_type == "SCHEMA_DRIFT":
                 column_name = None  # Will be set to NOT_APPLICABLE later
             else:
                 column_name = safe_get(item_data, "columnName")
@@ -720,11 +750,15 @@ def process_execution_details_parallel(
             # Extract measurement type - for DATA_QUALITY, use top-level item.dimension (no nested structure)
             # For FRESHNESS, measurement type comes from policy details (not execution details)
             # Execution details have dimension="OTHERS" which is not useful, so we'll get it from policy details
+            # For SCHEMA_DRIFT, Item_Measurement_Type is NOT_APPLICABLE
             if execution.policy_type == "DATA_QUALITY":
                 measurement_type = safe_get(item, "dimension")
             elif execution.policy_type == "FRESHNESS":
                 # For FRESHNESS, measurement type will come from policy details merge
                 # Set to None here, will be populated during merge
+                measurement_type = None
+            elif execution.policy_type == "SCHEMA_DRIFT":
+                # For SCHEMA_DRIFT, Item_Measurement_Type is NOT_APPLICABLE
                 measurement_type = None
             else:
                 measurement_type = safe_get(item_data, "measurementType")
@@ -746,21 +780,36 @@ def process_execution_details_parallel(
             elif execution.policy_type == "DATA_QUALITY":
                 # For DATA_QUALITY, use items[].rowsFailed directly
                 rows_failed = safe_get(item, "rowsFailed")
-            elif execution.policy_type == "DATA_DRIFT" or execution.policy_type == "FRESHNESS":
-                # For DATA_DRIFT and FRESHNESS, Rows_Failed is NOT_APPLICABLE (already set to None above)
+            elif execution.policy_type == "DATA_DRIFT" or execution.policy_type == "FRESHNESS" or execution.policy_type == "SCHEMA_DRIFT":
+                # For DATA_DRIFT, FRESHNESS, and SCHEMA_DRIFT, Rows_Failed is NOT_APPLICABLE (already set to None above)
                 rows_failed = None
             else:
                 rows_failed = calculate_failed_rows(rows_scanned, rule_result)
             
             # Extract Result_Status from items[].success
             # If items.success is true then "SUCCESSFUL", else "FAILED" (all caps for consistency)
+            # Check both item and item_data for success field (nested structure for some policy types)
             item_success = safe_get(item, "success")
+            if item_success is None:
+                item_success = safe_get(item_data, "success")
             if item_success is True:
                 result_status = "SUCCESSFUL"
             elif item_success is False:
                 result_status = "FAILED"
             else:
                 result_status = None
+            
+            # Debug logging for SCHEMA_DRIFT (log for first item only)
+            if execution.policy_type == "SCHEMA_DRIFT" and len(execution_details) == 0:
+                log_info(
+                    f"DEBUG SCHEMA_DRIFT item extraction: "
+                    f"item keys: {list(item.keys())}, "
+                    f"item_data keys: {list(item_data.keys()) if item_data else 'None'}, "
+                    f"item_success from item: {safe_get(item, 'success')}, "
+                    f"item_success from item_data: {safe_get(item_data, 'success')}, "
+                    f"result_status: {result_status}, "
+                    f"overall_policy_status: {overall_policy_status}"
+                )
 
             # For DATA_QUALITY and FRESHNESS, store items.id in rule_item_id for Rule_ID display
             # Keep item_id as ruleItemId for merge key
@@ -1045,9 +1094,10 @@ def process_policy_details_parallel(
                 f"?version={execution.policy_version}"
             )
         elif execution.policy_type == "SCHEMA_DRIFT":
+            # For SCHEMA_DRIFT, always use version=1 for policy details API
             endpoint = (
                 f"/catalog-server/api/rules/schema-drift/{execution.policy_id}"
-                f"?version={execution.policy_version}"
+                f"?version=1"
             )
         elif execution.policy_type == "FRESHNESS":
             # FRESHNESS uses DATA_CADENCE endpoint
@@ -1213,11 +1263,17 @@ def process_policy_details_parallel(
                     )
 
                 # Extract rule description from details.items.businessExplanation (for DATA_QUALITY)
-                rule_description = safe_get(item, "businessExplanation") if execution.policy_type == "DATA_QUALITY" else None
+                # Rule_Description is only for DATA_QUALITY, NOT_APPLICABLE for SCHEMA_DRIFT and FRESHNESS
+                if execution.policy_type == "DATA_QUALITY":
+                    rule_description = safe_get(item, "businessExplanation")
+                elif execution.policy_type == "SCHEMA_DRIFT" or execution.policy_type == "FRESHNESS":
+                    rule_description = None  # NOT_APPLICABLE
+                else:
+                    rule_description = None
                 
                 # Extract column_name for all policies (existing behavior)
-                # For FRESHNESS, column_name is NOT_APPLICABLE (asset-level policy, not column-level)
-                if execution.policy_type == "FRESHNESS":
+                # For FRESHNESS and SCHEMA_DRIFT, column_name is NOT_APPLICABLE (asset-level policy, not column-level)
+                if execution.policy_type == "FRESHNESS" or execution.policy_type == "SCHEMA_DRIFT":
                     column_name = None  # Will be set to NOT_APPLICABLE later
                 else:
                     column_name = safe_get(item, "columnName")
@@ -1295,6 +1351,55 @@ def process_policy_details_parallel(
                         rule_strategy=rule_strategy,
                         rule_lower_threshold=rule_lower_threshold,
                         rule_upper_threshold=rule_upper_threshold,
+                    )
+                    policy_details.append(policy_detail)
+                elif execution.policy_type == "SCHEMA_DRIFT":
+                    # For SCHEMA_DRIFT, extract schemaDriftRuleConfig fields
+                    schema_drift_config = safe_get(item, "schemaDriftRuleConfig", {})
+                    asset_addition = safe_get(schema_drift_config, "assetAddition")
+                    asset_deletion = safe_get(schema_drift_config, "assetDeletion")
+                    data_type = safe_get(schema_drift_config, "dataType")
+                    asset_relation_change = safe_get(schema_drift_config, "assetRelationChange")
+                    asset_metadata = safe_get(schema_drift_config, "assetMetaData")
+                    
+                    # Extract metaDataConfigs and join with "," if multiple values
+                    metadata_configs_list = safe_get(schema_drift_config, "metaDataConfigs", [])
+                    metadata_configs = None
+                    if metadata_configs_list:
+                        # Convert list items to strings and join with ","
+                        metadata_configs = ",".join(str(config) for config in metadata_configs_list if config is not None)
+                    
+                    # For SCHEMA_DRIFT, Label_Key = Policy_Name, Label_Value = details.items.id
+                    label_key = execution.policy_name
+                    label_value = str(item_id)  # details.items.id
+                    
+                    # Create PolicyDetail with SCHEMA_DRIFT-specific fields
+                    policy_detail = PolicyDetail(
+                        policy_name=execution.policy_name,
+                        policy_id=execution.policy_id,
+                        policy_type=execution.policy_type,
+                        id=item_id,
+                        rule_version=rule_version,
+                        column_name=column_name,  # Will be set to NOT_APPLICABLE later
+                        pde_value=None,  # NOT_APPLICABLE for SCHEMA_DRIFT
+                        table_asset_id=table_asset_id,
+                        table_asset_name=table_asset_name,
+                        policy_enabled=policy_enabled,
+                        label_key=label_key,  # Policy_Name for SCHEMA_DRIFT
+                        label_value=label_value,  # details.items.id for SCHEMA_DRIFT
+                        policy_description=policy_description,
+                        rule_description=None,  # Rule_Description is NOT_APPLICABLE for SCHEMA_DRIFT
+                        item_measurement_type=None,  # NOT_APPLICABLE for SCHEMA_DRIFT
+                        drift_threshold=None,  # Not applicable for SCHEMA_DRIFT
+                        rule_strategy=None,  # NOT_APPLICABLE for SCHEMA_DRIFT
+                        rule_lower_threshold=None,  # NOT_APPLICABLE for SCHEMA_DRIFT
+                        rule_upper_threshold=None,  # NOT_APPLICABLE for SCHEMA_DRIFT
+                        asset_addition=asset_addition,
+                        asset_deletion=asset_deletion,
+                        data_type=data_type,
+                        asset_relation_change=asset_relation_change,
+                        asset_metadata=asset_metadata,
+                        metadata_configs=metadata_configs,
                     )
                     policy_details.append(policy_detail)
                 else:
@@ -1497,9 +1602,10 @@ def process_execution_details(
                     f"{execution.execution_id}/result"
                 )
             elif execution.policy_type == "SCHEMA_DRIFT":
+                # SCHEMA_DRIFT requires /result suffix to get result.status and items[].success
                 endpoint = (
                     f"/catalog-server/api/rules/schema-drift/executions/"
-                    f"{execution.execution_id}"
+                    f"{execution.execution_id}/result"
                 )
             elif execution.policy_type == "FRESHNESS":
                 # FRESHNESS uses DATA_CADENCE endpoint with /result suffix
@@ -1537,6 +1643,23 @@ def process_execution_details(
             result_data = safe_get(exec_result_data, "result", {})
             overall_policy_status = safe_get(result_data, "status")
             overall_policy_quality_score = safe_get(result_data, "qualityScore")
+            
+            # For SCHEMA_DRIFT, set Overall_Policy_Quality_Score based on Overall_Policy_Status
+            # If status is SUCCESSFUL, set to 100, else set to 0
+            if execution.policy_type == "SCHEMA_DRIFT":
+                if overall_policy_status and str(overall_policy_status).upper() == "SUCCESSFUL":
+                    overall_policy_quality_score = 100.0
+                else:
+                    overall_policy_quality_score = 0.0
+            
+            # Debug logging for SCHEMA_DRIFT
+            if execution.policy_type == "SCHEMA_DRIFT":
+                log_info(
+                    f"DEBUG SCHEMA_DRIFT execution {execution.execution_id} (non-parallel): "
+                    f"result_data keys: {list(result_data.keys()) if result_data else 'None'}, "
+                    f"overall_policy_status: {overall_policy_status}, "
+                    f"overall_policy_quality_score: {overall_policy_quality_score}"
+                )
             
             # For EQUALITY, get rows_scanned from result object (not items)
             equality_rows_scanned = None
@@ -1623,27 +1746,39 @@ def process_execution_details(
                         # Rows_Scanned and Rows_Failed are NOT_APPLICABLE for FRESHNESS
                         rows_scanned = None
                         rows_failed = None
+                    elif execution.policy_type == "SCHEMA_DRIFT":
+                        # For SCHEMA_DRIFT, Rule_Success_Rate, Rows_Scanned, and Rows_Failed are NOT_APPLICABLE
+                        rule_result = None
+                        rows_scanned = None
+                        rows_failed = None
                     else:
                         # For other policy types, use standard extraction
                         rows_scanned = safe_get(item, "rowsScanned")
                         # For other non-EQUALITY policy types, use result
-                        rule_result = safe_get(item, "result")
+                        # Check both item and item_data for result field (nested structure)
+                        rule_result = safe_get(item, "result") or safe_get(item_data, "result")
+                        if rule_result is not None:
+                            rule_result = str(rule_result)
                     
                     # Safely extract threshold_config - handle both dict and primitive types
-                    threshold_config_raw = safe_get(item, "thresholdConfig")
-                    
-                    # Ensure threshold_config is a dict, not a primitive type
-                    if threshold_config_raw is None:
+                    # For SCHEMA_DRIFT, Rule_Strategy, Rule_Lower_Threshold, and Rule_Upper_Threshold are NOT_APPLICABLE
+                    if execution.policy_type == "SCHEMA_DRIFT":
                         threshold_config = {}
-                    elif isinstance(threshold_config_raw, dict):
-                        threshold_config = threshold_config_raw
                     else:
-                        # If it's a primitive (float, int, etc.), wrap it or create empty dict
-                        log_info(
-                            f"WARNING: thresholdConfig is not a dict for {execution.policy_type} "
-                            f"exec_id={execution.execution_id}, type: {type(threshold_config_raw)}, value: {threshold_config_raw}"
-                        )
-                        threshold_config = {}
+                        threshold_config_raw = safe_get(item, "thresholdConfig")
+                        
+                        # Ensure threshold_config is a dict, not a primitive type
+                        if threshold_config_raw is None:
+                            threshold_config = {}
+                        elif isinstance(threshold_config_raw, dict):
+                            threshold_config = threshold_config_raw
+                        else:
+                            # If it's a primitive (float, int, etc.), wrap it or create empty dict
+                            log_info(
+                                f"WARNING: thresholdConfig is not a dict for {execution.policy_type} "
+                                f"exec_id={execution.execution_id}, type: {type(threshold_config_raw)}, value: {threshold_config_raw}"
+                            )
+                            threshold_config = {}
 
                 # Extract item_id and item_ver based on policy type
                 if execution.policy_type == "EQUALITY":
@@ -1704,10 +1839,10 @@ def process_execution_details(
                     extracted_item_ver = execution.policy_version
 
                 # Extract column name - for DATA_QUALITY, use top-level item.columnName (no nested structure)
-                # For FRESHNESS, column name is NOT_APPLICABLE (asset-level policy, not column-level)
+                # For FRESHNESS and SCHEMA_DRIFT, column name is NOT_APPLICABLE (asset-level policy, not column-level)
                 if execution.policy_type == "DATA_QUALITY":
                     column_name = safe_get(item, "columnName")
-                elif execution.policy_type == "FRESHNESS":
+                elif execution.policy_type == "FRESHNESS" or execution.policy_type == "SCHEMA_DRIFT":
                     column_name = None  # Will be set to NOT_APPLICABLE later
                 else:
                     column_name = safe_get(item_data, "columnName")
@@ -1731,11 +1866,15 @@ def process_execution_details(
                 # Extract measurement type - for DATA_QUALITY, use top-level item.dimension (no nested structure)
                 # For FRESHNESS, measurement type comes from policy details (not execution details)
                 # Execution details have dimension="OTHERS" which is not useful, so we'll get it from policy details
+                # For SCHEMA_DRIFT, Item_Measurement_Type is NOT_APPLICABLE
                 if execution.policy_type == "DATA_QUALITY":
                     measurement_type = safe_get(item, "dimension")
                 elif execution.policy_type == "FRESHNESS":
                     # For FRESHNESS, measurement type will come from policy details merge
                     # Set to None here, will be populated during merge
+                    measurement_type = None
+                elif execution.policy_type == "SCHEMA_DRIFT":
+                    # For SCHEMA_DRIFT, Item_Measurement_Type is NOT_APPLICABLE
                     measurement_type = None
                 else:
                     measurement_type = safe_get(item_data, "measurementType")
@@ -1757,12 +1896,18 @@ def process_execution_details(
                 elif execution.policy_type == "DATA_QUALITY":
                     # For DATA_QUALITY, use items[].rowsFailed directly
                     rows_failed = safe_get(item, "rowsFailed")
+                elif execution.policy_type == "DATA_DRIFT" or execution.policy_type == "FRESHNESS" or execution.policy_type == "SCHEMA_DRIFT":
+                    # For DATA_DRIFT, FRESHNESS, and SCHEMA_DRIFT, Rows_Failed is NOT_APPLICABLE (already set to None above)
+                    rows_failed = None
                 else:
                     rows_failed = calculate_failed_rows(rows_scanned, rule_result)
                 
                 # Extract Result_Status from items[].success
                 # If items.success is true then "SUCCESSFUL", else "FAILED" (all caps for consistency)
+                # Check both item and item_data for success field (nested structure for some policy types)
                 item_success = safe_get(item, "success")
+                if item_success is None:
+                    item_success = safe_get(item_data, "success")
                 if item_success is True:
                     result_status = "SUCCESSFUL"
                 elif item_success is False:
@@ -1982,9 +2127,10 @@ def process_policy_details(
                     f"?version={execution.policy_version}"
                 )
             elif execution.policy_type == "SCHEMA_DRIFT":
+                # For SCHEMA_DRIFT, always use version=1 for policy details API
                 endpoint = (
                     f"/catalog-server/api/rules/schema-drift/{execution.policy_id}"
-                    f"?version={execution.policy_version}"
+                    f"?version=1"
                 )
             elif execution.policy_type == "FRESHNESS":
                 # FRESHNESS uses DATA_CADENCE endpoint
@@ -2157,11 +2303,17 @@ def process_policy_details(
                         )
 
                     # Extract rule description from details.items.businessExplanation (for DATA_QUALITY)
-                    rule_description = safe_get(item, "businessExplanation") if execution.policy_type == "DATA_QUALITY" else None
+                    # Rule_Description is only for DATA_QUALITY, NOT_APPLICABLE for SCHEMA_DRIFT and FRESHNESS
+                    if execution.policy_type == "DATA_QUALITY":
+                        rule_description = safe_get(item, "businessExplanation")
+                    elif execution.policy_type == "SCHEMA_DRIFT" or execution.policy_type == "FRESHNESS":
+                        rule_description = None  # NOT_APPLICABLE
+                    else:
+                        rule_description = None
                     
                     # Extract column_name for all policies (existing behavior)
-                    # For FRESHNESS, column_name is NOT_APPLICABLE (asset-level policy, not column-level)
-                    if execution.policy_type == "FRESHNESS":
+                    # For FRESHNESS and SCHEMA_DRIFT, column_name is NOT_APPLICABLE (asset-level policy, not column-level)
+                    if execution.policy_type == "FRESHNESS" or execution.policy_type == "SCHEMA_DRIFT":
                         column_name = None  # Will be set to NOT_APPLICABLE later
                     else:
                         column_name = safe_get(item, "columnName")
@@ -2239,6 +2391,55 @@ def process_policy_details(
                             rule_strategy=rule_strategy,
                             rule_lower_threshold=rule_lower_threshold,
                             rule_upper_threshold=rule_upper_threshold,
+                        )
+                        policy_details.append(policy_detail)
+                    elif execution.policy_type == "SCHEMA_DRIFT":
+                        # For SCHEMA_DRIFT, extract schemaDriftRuleConfig fields
+                        schema_drift_config = safe_get(item, "schemaDriftRuleConfig", {})
+                        asset_addition = safe_get(schema_drift_config, "assetAddition")
+                        asset_deletion = safe_get(schema_drift_config, "assetDeletion")
+                        data_type = safe_get(schema_drift_config, "dataType")
+                        asset_relation_change = safe_get(schema_drift_config, "assetRelationChange")
+                        asset_metadata = safe_get(schema_drift_config, "assetMetaData")
+                        
+                        # Extract metaDataConfigs and join with "," if multiple values
+                        metadata_configs_list = safe_get(schema_drift_config, "metaDataConfigs", [])
+                        metadata_configs = None
+                        if metadata_configs_list:
+                            # Convert list items to strings and join with ","
+                            metadata_configs = ",".join(str(config) for config in metadata_configs_list if config is not None)
+                        
+                        # For SCHEMA_DRIFT, Label_Key = Policy_Name, Label_Value = details.items.id
+                        label_key = execution.policy_name
+                        label_value = str(item_id)  # details.items.id
+                        
+                        # Create PolicyDetail with SCHEMA_DRIFT-specific fields
+                        policy_detail = PolicyDetail(
+                            policy_name=execution.policy_name,
+                            policy_id=execution.policy_id,
+                            policy_type=execution.policy_type,
+                            id=item_id,
+                            rule_version=rule_version,
+                            column_name=column_name,  # Will be set to NOT_APPLICABLE later
+                            pde_value=None,  # NOT_APPLICABLE for SCHEMA_DRIFT
+                            table_asset_id=table_asset_id,
+                            table_asset_name=table_asset_name,
+                            policy_enabled=policy_enabled,
+                            label_key=label_key,  # Policy_Name for SCHEMA_DRIFT
+                            label_value=label_value,  # details.items.id for SCHEMA_DRIFT
+                            policy_description=policy_description,
+                            rule_description=None,  # Rule_Description is NOT_APPLICABLE for SCHEMA_DRIFT
+                            item_measurement_type=None,  # NOT_APPLICABLE for SCHEMA_DRIFT
+                            drift_threshold=None,  # Not applicable for SCHEMA_DRIFT
+                            rule_strategy=None,  # NOT_APPLICABLE for SCHEMA_DRIFT
+                            rule_lower_threshold=None,  # NOT_APPLICABLE for SCHEMA_DRIFT
+                            rule_upper_threshold=None,  # NOT_APPLICABLE for SCHEMA_DRIFT
+                            asset_addition=asset_addition,
+                            asset_deletion=asset_deletion,
+                            data_type=data_type,
+                            asset_relation_change=asset_relation_change,
+                            asset_metadata=asset_metadata,
+                            metadata_configs=metadata_configs,
                         )
                         policy_details.append(policy_detail)
                     else:
@@ -2727,11 +2928,11 @@ def merge_execution_data(
                     measurement_type = exec_detail.item_measurement_type
                 
                 # For DATA_DRIFT, use column_name from policy_detail (from details.items.columnName)
-                # For FRESHNESS, column_name is NOT_APPLICABLE (asset-level policy, not column-level)
+                # For FRESHNESS and SCHEMA_DRIFT, column_name is NOT_APPLICABLE (asset-level policy, not column-level)
                 # For other types, use from exec_detail
                 if policy_detail.policy_type == "DATA_DRIFT" and policy_detail.column_name:
                     column_name = policy_detail.column_name
-                elif policy_detail.policy_type == "FRESHNESS":
+                elif policy_detail.policy_type == "FRESHNESS" or policy_detail.policy_type == "SCHEMA_DRIFT":
                     column_name = None  # Will be set to NOT_APPLICABLE later
                 else:
                     column_name = exec_detail.item_column_name
@@ -2778,6 +2979,13 @@ def merge_execution_data(
                     drift_threshold=policy_detail.drift_threshold,
                     anomaly_detected=exec_detail.anomaly_detected,
                     threshold_breached=exec_detail.threshold_breached,
+                    # SCHEMA_DRIFT-specific fields from policy details
+                    asset_addition=policy_detail.asset_addition,
+                    asset_deletion=policy_detail.asset_deletion,
+                    data_type=policy_detail.data_type,
+                    asset_relation_change=policy_detail.asset_relation_change,
+                    asset_metadata=policy_detail.asset_metadata,
+                    metadata_configs=policy_detail.metadata_configs,
                 )
                 merged_records.append(record)
         else:

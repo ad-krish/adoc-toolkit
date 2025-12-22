@@ -126,11 +126,20 @@ The command fetches and combines data from multiple ADOC API endpoints using eff
 1. **Policy Executions API**: `GET /catalog-server/api/rules/executions` - Retrieves overall execution status, metadata, and performance scores
 2. **DATA_QUALITY Execution Result API**: `GET /catalog-server/api/rules/data-quality/executions/:id/result` - Fetches detailed rule-level performance metrics for DATA_QUALITY policies
 3. **RECONCILIATION Execution Result API**: `GET /catalog-server/api/rules/reconciliation/executions/:id/result` - Fetches detailed rule-level performance metrics for RECONCILIATION (EQUALITY) policies
-4. **DATA_QUALITY Policy Details API**: `GET /catalog-server/api/rules/data-quality/:id` - Retrieves DATA_QUALITY policy configuration, threshold settings, and rule details
-5. **RECONCILIATION Policy Details API**: `GET /catalog-server/api/rules/reconciliation/:id` - Retrieves RECONCILIATION policy configuration, column mappings, and rule details
-6. **Asset Catalog API**: Resolves table asset names and metadata from asset identifiers
+4. **DATA_DRIFT Execution Result API**: `GET /catalog-server/api/rules/data-drift/executions/:id/result` - Fetches detailed rule-level performance metrics for DATA_DRIFT policies
+5. **PROFILE_ANOMALY Execution Result API**: `GET /catalog-server/api/rules/profile-anomaly/executions/:id/result` - Fetches detailed rule-level performance metrics for PROFILE_ANOMALY policies
+6. **SCHEMA_DRIFT Execution Result API**: `GET /catalog-server/api/rules/schema-drift/executions/:id/result` - Fetches detailed rule-level performance metrics for SCHEMA_DRIFT policies
+7. **FRESHNESS Execution Result API**: `GET /catalog-server/api/rules/data-cadence/executions/:id/result` - Fetches detailed rule-level performance metrics for FRESHNESS (DATA_CADENCE) policies
+8. **Policy Details APIs**: Various endpoints for retrieving policy configuration and rule details:
+   - `GET /catalog-server/api/rules/data-quality/:id?version={v}` - DATA_QUALITY policy details
+   - `GET /catalog-server/api/rules/reconciliation/:id?version={v}` - RECONCILIATION policy details
+   - `GET /catalog-server/api/rules/data-drift/:id?version={v}` - DATA_DRIFT policy details
+   - `GET /catalog-server/api/rules/profile-anomaly/:id?version={v}` - PROFILE_ANOMALY policy details
+   - `GET /catalog-server/api/rules/schema-drift/:id?version=1` - SCHEMA_DRIFT policy details (always version=1)
+   - `GET /catalog-server/api/rules/data-cadence/:id?version={v}` - FRESHNESS policy details
+9. **Asset Catalog API**: Resolves table asset names and metadata from asset identifiers
 
-The service intelligently merges data from these sources to create comprehensive execution metrics records with full context about policies, rules, assets, and performance outcomes. For DATA_QUALITY policies, it uses the `/result` endpoint to access `items.resultPercent` and `items.success` fields. For RECONCILIATION policies, it uses the reconciliation-specific endpoints to access column mappings and reconciliation-specific metrics.
+The service intelligently merges data from these sources to create comprehensive execution metrics records with full context about policies, rules, assets, and performance outcomes. Each policy type uses its specific API endpoints to access relevant metrics and configuration data.
 
 ### Export Formats
 
@@ -146,11 +155,14 @@ The service intelligently merges data from these sources to create comprehensive
 
 ### Output Data Schema
 
-The command generates three types of CSV files:
+The command generates multiple types of CSV files:
 
-1. **Main CSV**: Consolidated file containing both DATA_QUALITY and RECONCILIATION (EQUALITY) records with a unified structure
+1. **Main CSV**: Consolidated file containing all policy types with a unified structure
 2. **DATA_QUALITY CSV**: Separate file containing only DATA_QUALITY policy records
 3. **RECONCILIATION CSV**: Separate file containing only RECONCILIATION (EQUALITY) policy records
+4. **DATA_DRIFT CSV**: Separate file containing only DATA_DRIFT policy records
+5. **FRESHNESS CSV**: Separate file containing only FRESHNESS policy records
+6. **SCHEMA_DRIFT CSV**: Separate file containing only SCHEMA_DRIFT policy records
 
 #### Common Columns (Present in All CSVs)
 
