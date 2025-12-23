@@ -8,7 +8,7 @@ The `export-execution-metrics` command exports comprehensive execution metrics d
 
 - **Multi-Policy Support**: Exports DATA_QUALITY, EQUALITY, DATA_DRIFT, PROFILE_ANOMALY, and SCHEMA_DRIFT policy types
 - **Consolidated Output**: Main CSV combines DATA_QUALITY and RECONCILIATION records with unified schema
-- **Separate Policy Files**: Generates dedicated CSV files for DATA_QUALITY and RECONCILIATION policies
+- **Separate Policy Files**: Generates dedicated CSV files for DATA_QUALITY, RECONCILIATION, DATA_DRIFT, FRESHNESS, SCHEMA_DRIFT, and PROFILE_ANOMALY policies
 - **Incremental Processing**: Efficient processing using tracking files to only export new data since the last run
 - **Flexible Backloading**: Support for historical data retrieval with multiple date formats and relative time periods
 - **Multiple Export Formats**: CSV (default) and Parquet formats with automatic data type handling
@@ -163,6 +163,7 @@ The command generates multiple types of CSV files:
 4. **DATA_DRIFT CSV**: Separate file containing only DATA_DRIFT policy records
 5. **FRESHNESS CSV**: Separate file containing only FRESHNESS policy records
 6. **SCHEMA_DRIFT CSV**: Separate file containing only SCHEMA_DRIFT policy records
+7. **PROFILE_ANOMALY CSV**: Separate file containing only PROFILE_ANOMALY policy records
 
 #### Common Columns (Present in All CSVs)
 

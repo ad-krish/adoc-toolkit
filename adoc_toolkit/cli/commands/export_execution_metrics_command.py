@@ -930,6 +930,23 @@ Examples:
                         if col in df.columns:
                             df.loc[non_freshness_mask & df[col].isna(), col] = "NOT_APPLICABLE"
                     
+                    # For non-PROFILE_ANOMALY records, set Metric_Anomalous to NOT_APPLICABLE
+                    non_profile_anomaly_mask = df["Policy_Type"] != "PROFILE_ANOMALY"
+                    if "Metric_Anomalous" in df.columns:
+                        df.loc[non_profile_anomaly_mask & df["Metric_Anomalous"].isna(), "Metric_Anomalous"] = "NOT_APPLICABLE"
+                    
+                    # For PROFILE_ANOMALY records, set NOT_APPLICABLE columns
+                    profile_anomaly_mask = df["Policy_Type"] == "PROFILE_ANOMALY"
+                    profile_anomaly_not_applicable_columns = [
+                        "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold",
+                        "Label_Key", "Label_Value", "Rule_Success_Rate", "Rule_Result_Status",
+                        "Rows_Scanned", "Rows_Failed", "Asset_Addition", "Asset_Deletion",
+                        "Data_Type", "Asset_Relation_Change", "Asset_Metadata", "Metadata_Configs",
+                        "Policy_Description", "Rule_Description"
+                    ]
+                    for col in profile_anomaly_not_applicable_columns:
+                        if col in df.columns:
+                            df.loc[profile_anomaly_mask & df[col].isna(), col] = "NOT_APPLICABLE"
                     # For any column that's not common and not reconciliation-specific and not DATA_DRIFT-specific, 
                     # set to NOT_APPLICABLE for RECONCILIATION records
                     for col in all_columns:
@@ -1742,6 +1759,113 @@ Examples:
                             "schema_drift_export_completed",
                             records_count=len(schema_drift_df),
                             output_file=str(schema_drift_output_path),
+                        )
+                
+                # Export PROFILE_ANOMALY records separately if available
+                if not df.empty and "Policy_Type" in df.columns:
+                    profile_anomaly_mask = df["Policy_Type"] == "PROFILE_ANOMALY"
+                    if profile_anomaly_mask.any():
+                        profile_anomaly_task = progress.add_task(
+                            "📊 Exporting PROFILE_ANOMALY records...", total=None
+                        )
+                        self.trace(
+                            "starting_profile_anomaly_export",
+                            records_count=profile_anomaly_mask.sum(),
+                        )
+                        
+                        # Create DataFrame for PROFILE_ANOMALY records
+                        profile_anomaly_df = df[profile_anomaly_mask].copy()
+                        
+                        # Apply datetime renaming if needed
+                        datetime_rename_map = {
+                            "Started_At (UTC)": "Started_At(UTC)",
+                            "Finished_At (UTC)": "Finished_At(UTC)",
+                            "Execution_Date (UTC)": "Execution_Date(UTC)",
+                        }
+                        profile_anomaly_df.rename(columns=datetime_rename_map, inplace=True)
+                        
+                        # Standardize column names for PROFILE_ANOMALY
+                        if "Exec_Id" in profile_anomaly_df.columns:
+                            profile_anomaly_df.rename(columns={"Exec_Id": "Execution_ID"}, inplace=True)
+                        if "Policy_Id" in profile_anomaly_df.columns:
+                            profile_anomaly_df.rename(columns={"Policy_Id": "Policy_ID"}, inplace=True)
+                        if "Item_Id" in profile_anomaly_df.columns:
+                            profile_anomaly_df.rename(columns={"Item_Id": "Rule_ID"}, inplace=True)
+                        if "Result" in profile_anomaly_df.columns:
+                            profile_anomaly_df.rename(columns={"Result": "Rule_Success_Rate"}, inplace=True)
+                        if "Overall_Policy_Quality_Score" in profile_anomaly_df.columns:
+                            profile_anomaly_df.rename(columns={"Overall_Policy_Quality_Score": "Overall_Policy_Quality_Score(Percentage)"}, inplace=True)
+                        if "Result_Status" in profile_anomaly_df.columns:
+                            profile_anomaly_df.rename(columns={"Result_Status": "Rule_Result_Status"}, inplace=True)
+                        
+                        # Remove PDE column if it exists
+                        if "Pde" in profile_anomaly_df.columns:
+                            profile_anomaly_df = profile_anomaly_df.drop(columns=["Pde"])
+                        
+                        # For PROFILE_ANOMALY CSV, exclude NOT_APPLICABLE columns
+                        columns_to_exclude = [
+                            "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold",
+                            "Label_Key", "Label_Value", "Rule_Success_Rate", "Rule_Result_Status",
+                            "Rows_Scanned", "Rows_Failed", "Asset_Addition", "Asset_Deletion",
+                            "Data_Type", "Asset_Relation_Change", "Asset_Metadata", "Metadata_Configs",
+                            "Policy_Description", "Rule_Description"
+                        ]
+                        for col in columns_to_exclude:
+                            if col in profile_anomaly_df.columns:
+                                profile_anomaly_df = profile_anomaly_df.drop(columns=[col])
+                        
+                        # Exclude reconciliation-specific columns that are NOT_APPLICABLE for PROFILE_ANOMALY
+                        recon_columns_to_exclude = [
+                            "Left_Column", "Right_Column", "Left_Rows_Scanned", "Right_Rows_Scanned",
+                            "Use_For_Joining", "Left_ASSET_UID", "Right_ASSET_UID", "Join_Type", "Operation"
+                        ]
+                        for col in recon_columns_to_exclude:
+                            if col in profile_anomaly_df.columns:
+                                profile_anomaly_df = profile_anomaly_df.drop(columns=[col])
+                        
+                        # Exclude DATA_DRIFT-specific columns that are NOT_APPLICABLE for PROFILE_ANOMALY
+                        drift_columns_to_exclude = ["Drift_Threshold"]
+                        for col in drift_columns_to_exclude:
+                            if col in profile_anomaly_df.columns:
+                                profile_anomaly_df = profile_anomaly_df.drop(columns=[col])
+                        
+                        # Also exclude any columns that are entirely "NOT_APPLICABLE" (including NaN that were filled)
+                        for col in list(profile_anomaly_df.columns):
+                            # Check if all non-null values are "NOT_APPLICABLE" or if column is all NaN/None
+                            non_null_values = profile_anomaly_df[col].dropna()
+                            if len(non_null_values) > 0 and (non_null_values == "NOT_APPLICABLE").all():
+                                profile_anomaly_df = profile_anomaly_df.drop(columns=[col])
+                            elif len(non_null_values) == 0:
+                                # Column is all NaN/None, exclude it
+                                profile_anomaly_df = profile_anomaly_df.drop(columns=[col])
+                        
+                        # Generate PROFILE_ANOMALY filename
+                        profile_anomaly_filename = generate_execution_metrics_filename(
+                            "profile-anomaly-metrics-%d-%m-%y-%h-%M",
+                            args_model.output_type,
+                            env_name,
+                        )
+                        profile_anomaly_output_path = output_dir / profile_anomaly_filename
+                        
+                        # Export PROFILE_ANOMALY data
+                        export_execution_metrics_to_format(
+                            profile_anomaly_df, profile_anomaly_output_path, args_model.output_type
+                        )
+                        
+                        progress.update(
+                            profile_anomaly_task, description="PROFILE_ANOMALY export completed!", completed=True
+                        )
+                        
+                        console.print(
+                            f"✅ Successfully exported {len(profile_anomaly_df)} PROFILE_ANOMALY records to "
+                            f"{profile_anomaly_output_path}",
+                            style="green",
+                        )
+                        
+                        self.trace(
+                            "profile_anomaly_export_completed",
+                            records_count=len(profile_anomaly_df),
+                            output_file=str(profile_anomaly_output_path),
                         )
 
                 # Update tracking information using checkpoint captured at START

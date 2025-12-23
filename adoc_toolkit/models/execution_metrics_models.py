@@ -120,6 +120,7 @@ class ExecutionDetail(BaseModel):
         default=None, description="Number of failed rows"
     )
     exec_id: str = Field(description="Execution identifier")
+    policy_id: str | None = Field(default=None, description="Policy identifier from execution.ruleId (for merge fallback)")
     start_ts: int | None = Field(default=None, description="Start timestamp")
     end_ts: int | None = Field(default=None, description="End timestamp")
     execution_status: str = Field(description="Execution status")
@@ -129,11 +130,22 @@ class ExecutionDetail(BaseModel):
     threshold_breached: bool | None = Field(
         default=None, description="Threshold breached flag from items.thresholdBreached (for FRESHNESS only)"
     )
+    metric_anomalous: bool | None = Field(
+        default=None, description="Metric anomalous flag from items.columnMetricWithAnomalyDetails.{columnName}[].isMetricAnomalous (for PROFILE_ANOMALY only)"
+    )
 
     @field_validator("item_id", "exec_id", mode="before")
     @classmethod
     def validate_id_fields(cls, v: Any) -> str:
         """Convert integer IDs to strings."""
+        return str(v)
+    
+    @field_validator("policy_id", mode="before")
+    @classmethod
+    def validate_optional_id_fields(cls, v: Any) -> str | None:
+        """Convert integer IDs to strings, handling None values."""
+        if v is None:
+            return None
         return str(v)
 
     @field_validator("rule_item_id", mode="before")
@@ -283,6 +295,9 @@ class ExecutionMetricsRecord(BaseModel):
     )
     threshold_breached: bool | None = Field(
         default=None, description="Threshold breached flag from items.thresholdBreached (for FRESHNESS only)"
+    )
+    metric_anomalous: bool | None = Field(
+        default=None, description="Metric anomalous flag from items.columnMetricWithAnomalyDetails.{columnName}[].isMetricAnomalous (for PROFILE_ANOMALY only)"
     )
     asset_addition: bool | None = Field(
         default=None, description="Asset addition flag from details.items.schemaDriftRuleConfig.assetAddition (for SCHEMA_DRIFT only)"

@@ -400,9 +400,34 @@ def process_execution_details_parallel(
         exec_result_data = response.json()
         items = safe_get(exec_result_data, "items", [])
         
-        # For DATA_DRIFT and FRESHNESS, extract execution.ruleVersion from the result and update execution object
-        if execution.policy_type == "DATA_DRIFT" or execution.policy_type == "FRESHNESS":
-            execution_data = safe_get(exec_result_data, "execution", {})
+        # Extract execution data from API response
+        execution_data = safe_get(exec_result_data, "execution", {})
+        
+        # Extract policy_id from execution.ruleId for merge fallback (especially for PROFILE_ANOMALY)
+        execution_policy_id = safe_get(execution_data, "ruleId")
+        if execution_policy_id is not None:
+            execution_policy_id = str(execution_policy_id)
+        else:
+            # Fallback to execution.policy_id from PolicyExecution
+            execution_policy_id = execution.policy_id
+        
+        # For PROFILE_ANOMALY, use execution.execution_id from the executions list API
+        # This comes from executions[].execution.id from /catalog-server/api/rules/executions/
+        # We should NOT extract it from the result API response - use the one from the initial fetch
+        actual_execution_id = execution.execution_id  # This comes from executions[].execution.id
+        
+        # Debug logging for PROFILE_ANOMALY to verify execution_id
+        if execution.policy_type == "PROFILE_ANOMALY":
+            log_info(
+                f"DEBUG PROFILE_ANOMALY execution_id: "
+                f"execution.execution_id={execution.execution_id}, "
+                f"actual_execution_id={actual_execution_id}, "
+                f"execution.policy_id={execution.policy_id}, "
+                f"execution.policy_name={execution.policy_name}"
+            )
+        
+        # For DATA_DRIFT, FRESHNESS, and PROFILE_ANOMALY, extract execution.ruleVersion from the result and update execution object
+        if execution.policy_type in ["DATA_DRIFT", "FRESHNESS", "PROFILE_ANOMALY"]:
             rule_version = safe_get(execution_data, "ruleVersion")
             if rule_version is not None:
                 execution.policy_version = rule_version
@@ -604,6 +629,11 @@ def process_execution_details_parallel(
                     rule_result = None
                     rows_scanned = None
                     rows_failed = None
+                elif execution.policy_type == "PROFILE_ANOMALY":
+                    # For PROFILE_ANOMALY, Rule_Success_Rate, Rows_Scanned, and Rows_Failed are NOT_APPLICABLE
+                    rule_result = None
+                    rows_scanned = None
+                    rows_failed = None
                 else:
                     # For other policy types, use standard extraction
                     rows_scanned = safe_get(item, "rowsScanned")
@@ -614,8 +644,8 @@ def process_execution_details_parallel(
                         rule_result = str(rule_result)
                 
                 # Safely extract threshold_config - handle both dict and primitive types
-                # For SCHEMA_DRIFT, Rule_Strategy, Rule_Lower_Threshold, and Rule_Upper_Threshold are NOT_APPLICABLE
-                if execution.policy_type == "SCHEMA_DRIFT":
+                # For SCHEMA_DRIFT and PROFILE_ANOMALY, Rule_Strategy, Rule_Lower_Threshold, and Rule_Upper_Threshold are NOT_APPLICABLE
+                if execution.policy_type in ["SCHEMA_DRIFT", "PROFILE_ANOMALY"]:
                     threshold_config = {}
                 else:
                     threshold_config_raw = safe_get(item, "thresholdConfig")
@@ -678,10 +708,14 @@ def process_execution_details_parallel(
             elif execution.policy_type != "DATA_QUALITY":
                 # Use ruleItemId from the top-level item for other non-DATA_QUALITY policies
                 extracted_item_id = str(safe_get(item, "ruleItemId", ""))
-                # Default version depends on policy type:
-                # - PROFILE_ANOMALY uses version 1
-                default_version = 1
-                extracted_item_ver = safe_get(item, "ruleVersion", default_version)
+                # For PROFILE_ANOMALY, use execution.policy_version (from execution.ruleVersion in API response)
+                # For other policies, try to get from item.ruleVersion, fallback to execution.policy_version
+                if execution.policy_type == "PROFILE_ANOMALY":
+                    # PROFILE_ANOMALY: Use execution.policy_version (already extracted from execution.ruleVersion)
+                    extracted_item_ver = execution.policy_version
+                else:
+                    # Other policies: Try item.ruleVersion, fallback to execution.policy_version
+                    extracted_item_ver = safe_get(item, "ruleVersion", execution.policy_version)
             else:
                 # For DATA_QUALITY:
                 # - Use ruleItemId for merge key (to match policy details item.id)
@@ -811,10 +845,18 @@ def process_execution_details_parallel(
                     f"overall_policy_status: {overall_policy_status}"
                 )
 
-            # For DATA_QUALITY and FRESHNESS, store items.id in rule_item_id for Rule_ID display
+            # For DATA_QUALITY, FRESHNESS, and PROFILE_ANOMALY, store items.id in rule_item_id for Rule_ID display
             # Keep item_id as ruleItemId for merge key
-            if execution.policy_type == "DATA_QUALITY" or execution.policy_type == "FRESHNESS":
+            if execution.policy_type in ["DATA_QUALITY", "FRESHNESS", "PROFILE_ANOMALY"]:
                 display_rule_id = str(safe_get(item, "id", ""))  # items.id for Rule_ID
+                # Debug logging for PROFILE_ANOMALY
+                if execution.policy_type == "PROFILE_ANOMALY" and len(execution_details) == 0:
+                    log_info(
+                        f"DEBUG PROFILE_ANOMALY Rule_ID extraction: "
+                        f"items.id={safe_get(item, 'id')}, "
+                        f"items.ruleItemId={safe_get(item, 'ruleItemId')}, "
+                        f"display_rule_id={display_rule_id}"
+                    )
             else:
                 display_rule_id = safe_get(item, "ruleItemId")
             
@@ -825,37 +867,162 @@ def process_execution_details_parallel(
                 anomaly_detected = safe_get(item, "anomalyDetected")
                 threshold_breached = safe_get(item, "thresholdBreached")
             
-            execution_detail = ExecutionDetail(
-                item_id=extracted_item_id,
-                item_column_name=column_name,
-                left_column=left_column,
-                right_column=right_column,
-                item_ver=extracted_item_ver,
-                pde_name=pde_value,
-                pde=pde_label,
-                item_measurement_type=measurement_type,
-                rule_item_id=display_rule_id,  # For DATA_QUALITY: items.id, for others: ruleItemId
-                rule_strategy=safe_get(threshold_config, "strategy"),
-                rule_lower_threshold=safe_get(threshold_config, "lower"),
-                rule_upper_threshold=safe_get(threshold_config, "upper"),
-                result=rule_result,
-                result_status=result_status,
-                overall_policy_status=overall_policy_status,
-                overall_policy_quality_score=overall_policy_quality_score,
-                rows_scanned=rows_scanned,
-                rows_failed=rows_failed,
-                exec_id=execution.execution_id,
-                start_ts=execution.start_ts,
-                end_ts=execution.end_ts,
-                execution_status=execution.execution_status,
-                anomaly_detected=anomaly_detected,
-                threshold_breached=threshold_breached,
-            )
-            execution_details.append(execution_detail)
+            # For PROFILE_ANOMALY, extract columnMetricWithAnomalyDetails and create multiple records
+            if execution.policy_type == "PROFILE_ANOMALY":
+                # For PROFILE_ANOMALY, set NOT_APPLICABLE fields to None
+                # Rule_Strategy, Rule_Lower_Threshold, Rule_Upper_Threshold, Rule_Success_Rate, 
+                # Rule_Result_Status, Rows_Scanned, Rows_Failed are NOT_APPLICABLE
+                rule_result = None  # Rule_Success_Rate
+                rows_scanned = None  # Rows_Scanned
+                rows_failed = None  # Rows_Failed
+                threshold_config = {}  # Rule_Strategy, Rule_Lower_Threshold, Rule_Upper_Threshold
+                
+                # Extract anomalyDetails.columnMetricWithAnomalyDetails
+                anomaly_details = safe_get(item, "anomalyDetails", {})
+                column_metric_details = safe_get(anomaly_details, "columnMetricWithAnomalyDetails", {})
+                
+                # If columnMetricWithAnomalyDetails exists and is a dict, process each column
+                if column_metric_details and isinstance(column_metric_details, dict):
+                    for column_name_key, metric_list in column_metric_details.items():
+                        # metric_list is an array of metric objects
+                        if isinstance(metric_list, list):
+                            for metric_obj in metric_list:
+                                if isinstance(metric_obj, dict):
+                                    # Extract metricType and isMetricAnomalous for this metric
+                                    metric_type = safe_get(metric_obj, "metricType")
+                                    metric_anomalous = safe_get(metric_obj, "isMetricAnomalous")
+                                    
+                                    # Create ExecutionDetail for this column-metric combination
+                                    # Debug log first record to verify execution_id and rule_item_id
+                                    if len(execution_details) == 0:
+                                        log_info(
+                                            f"DEBUG PROFILE_ANOMALY creating first ExecutionDetail: "
+                                            f"exec_id={actual_execution_id}, "
+                                            f"column={column_name_key}, "
+                                            f"metric_type={metric_type}, "
+                                            f"display_rule_id={display_rule_id}, "
+                                            f"items.id={safe_get(item, 'id')}, "
+                                            f"items.ruleItemId={safe_get(item, 'ruleItemId')}"
+                                        )
+                                    execution_detail = ExecutionDetail(
+                                        item_id=extracted_item_id,
+                                        item_column_name=column_name_key,  # Column name from dictionary key
+                                        left_column=left_column,
+                                        right_column=right_column,
+                                        item_ver=extracted_item_ver,
+                                        pde_name=pde_value,
+                                        pde=pde_label,
+                                        item_measurement_type=metric_type,  # From metric.metricType
+                                        rule_item_id=display_rule_id,
+                                        rule_strategy=None,  # NOT_APPLICABLE for PROFILE_ANOMALY
+                                        rule_lower_threshold=None,  # NOT_APPLICABLE for PROFILE_ANOMALY
+                                        rule_upper_threshold=None,  # NOT_APPLICABLE for PROFILE_ANOMALY
+                                        result=rule_result,  # None (NOT_APPLICABLE for PROFILE_ANOMALY)
+                                        result_status=result_status,  # None (NOT_APPLICABLE for PROFILE_ANOMALY)
+                                        overall_policy_status=overall_policy_status,
+                                        overall_policy_quality_score=overall_policy_quality_score,
+                                        rows_scanned=rows_scanned,  # None (NOT_APPLICABLE for PROFILE_ANOMALY)
+                                        rows_failed=rows_failed,  # None (NOT_APPLICABLE for PROFILE_ANOMALY)
+                                        exec_id=actual_execution_id,
+                                        policy_id=execution_policy_id,  # For merge fallback
+                                        start_ts=execution.start_ts,
+                                        end_ts=execution.end_ts,
+                                        execution_status=execution.execution_status,
+                                        anomaly_detected=anomaly_detected,
+                                        threshold_breached=threshold_breached,
+                                        metric_anomalous=metric_anomalous,  # From metric.isMetricAnomalous
+                                    )
+                                    execution_details.append(execution_detail)
+                                    
+                                    # Debug: Log execution_id for every 10th record to verify it's changing
+                                    if len(execution_details) % 10 == 0:
+                                        log_info(
+                                            f"DEBUG PROFILE_ANOMALY: Created {len(execution_details)} ExecutionDetail records, "
+                                            f"all using exec_id={actual_execution_id}"
+                                        )
+                else:
+                    # If columnMetricWithAnomalyDetails is missing or empty, create a single record with None values
+                    execution_detail = ExecutionDetail(
+                        item_id=extracted_item_id,
+                        item_column_name=None,
+                        left_column=left_column,
+                        right_column=right_column,
+                        item_ver=extracted_item_ver,
+                        pde_name=pde_value,
+                        pde=pde_label,
+                        item_measurement_type=None,
+                        rule_item_id=display_rule_id,
+                        rule_strategy=None,  # NOT_APPLICABLE for PROFILE_ANOMALY
+                        rule_lower_threshold=None,  # NOT_APPLICABLE for PROFILE_ANOMALY
+                        rule_upper_threshold=None,  # NOT_APPLICABLE for PROFILE_ANOMALY
+                        result=rule_result,  # None (NOT_APPLICABLE for PROFILE_ANOMALY)
+                        result_status=result_status,  # None (NOT_APPLICABLE for PROFILE_ANOMALY)
+                        overall_policy_status=overall_policy_status,
+                        overall_policy_quality_score=overall_policy_quality_score,
+                        rows_scanned=rows_scanned,  # None (NOT_APPLICABLE for PROFILE_ANOMALY)
+                        rows_failed=rows_failed,  # None (NOT_APPLICABLE for PROFILE_ANOMALY)
+                        exec_id=actual_execution_id,
+                        policy_id=execution_policy_id,  # For merge fallback
+                        start_ts=execution.start_ts,
+                        end_ts=execution.end_ts,
+                        execution_status=execution.execution_status,
+                        anomaly_detected=anomaly_detected,
+                        threshold_breached=threshold_breached,
+                        metric_anomalous=None,
+                    )
+                    execution_details.append(execution_detail)
+            else:
+                # For all other policy types, create single ExecutionDetail as before
+                execution_detail = ExecutionDetail(
+                    item_id=extracted_item_id,
+                    item_column_name=column_name,
+                    left_column=left_column,
+                    right_column=right_column,
+                    item_ver=extracted_item_ver,
+                    pde_name=pde_value,
+                    pde=pde_label,
+                    item_measurement_type=measurement_type,
+                    rule_item_id=display_rule_id,  # For DATA_QUALITY: items.id, for others: ruleItemId
+                    rule_strategy=safe_get(threshold_config, "strategy"),
+                    rule_lower_threshold=safe_get(threshold_config, "lower"),
+                    rule_upper_threshold=safe_get(threshold_config, "upper"),
+                    result=rule_result,
+                    result_status=result_status,
+                    overall_policy_status=overall_policy_status,
+                    overall_policy_quality_score=overall_policy_quality_score,
+                    rows_scanned=rows_scanned,
+                    rows_failed=rows_failed,
+                    exec_id=actual_execution_id,
+                    policy_id=execution_policy_id,  # For merge fallback
+                    start_ts=execution.start_ts,
+                    end_ts=execution.end_ts,
+                    execution_status=execution.execution_status,
+                    anomaly_detected=anomaly_detected,
+                    threshold_breached=threshold_breached,
+                    metric_anomalous=None,  # Only for PROFILE_ANOMALY
+                )
+                execution_details.append(execution_detail)
         
         # Log DATA_QUALITY execution details count
         if execution.policy_type == "DATA_QUALITY":
             log_info(f"DEBUG DATA_QUALITY execution {execution.execution_id}: Created {len(execution_details)} execution details from {len(items)} items")
+        
+        # Log PROFILE_ANOMALY execution details count and verify execution_id
+        if execution.policy_type == "PROFILE_ANOMALY":
+            log_info(
+                f"DEBUG PROFILE_ANOMALY execution {execution.execution_id}: "
+                f"Created {len(execution_details)} execution details from {len(items)} items. "
+                f"All records use exec_id={actual_execution_id}"
+            )
+            # Verify all execution_details have the same exec_id
+            if execution_details:
+                first_exec_id = execution_details[0].exec_id
+                all_same = all(ed.exec_id == first_exec_id for ed in execution_details)
+                if not all_same:
+                    log_error(
+                        f"ERROR: PROFILE_ANOMALY execution {execution.execution_id} has inconsistent exec_id values! "
+                        f"First: {first_exec_id}, Others: {[ed.exec_id for ed in execution_details[1:6]]}"
+                    )
         
         # For EQUALITY, also create reconciliation records
         if execution.policy_type == "EQUALITY":
@@ -1093,6 +1260,10 @@ def process_policy_details_parallel(
                 f"/catalog-server/api/rules/profile-anomaly/{execution.policy_id}"
                 f"?version={execution.policy_version}"
             )
+            log_info(
+                f"DEBUG PROFILE_ANOMALY policy details: Fetching policy_id={execution.policy_id}, "
+                f"version={execution.policy_version}, exec_id={execution.execution_id}"
+            )
         elif execution.policy_type == "SCHEMA_DRIFT":
             # For SCHEMA_DRIFT, always use version=1 for policy details API
             endpoint = (
@@ -1254,13 +1425,24 @@ def process_policy_details_parallel(
                     # For PROFILE_ANOMALY, SCHEMA_DRIFT
                     # Policy details have "id" field that matches execution details' "ruleItemId"
                     item_id = str(safe_get(item, "id", ""))
-                    rule_version = safe_get(item, "ruleVersion", 1)
-                    log_info(
-                        f"DEBUG {execution.policy_type} policy detail - "
-                        f"item keys: {list(item.keys())}, "
-                        f"id: {safe_get(item, 'id')}, "
-                        f"using item_id: '{item_id}'"
-                    )
+                    # For PROFILE_ANOMALY, use execution.policy_version (from execution.ruleVersion in execution result API)
+                    # For SCHEMA_DRIFT, always use version 1 (as per requirements)
+                    if execution.policy_type == "PROFILE_ANOMALY":
+                        rule_version = execution.policy_version
+                        log_info(
+                            f"DEBUG PROFILE_ANOMALY policy detail - "
+                            f"exec_id={execution.execution_id}, policy_id={execution.policy_id}, "
+                            f"version={execution.policy_version}, item_id={item_id}, "
+                            f"rule_version={rule_version}, item keys: {list(item.keys())}"
+                        )
+                    else:
+                        rule_version = safe_get(item, "ruleVersion", 1)
+                        log_info(
+                            f"DEBUG {execution.policy_type} policy detail - "
+                            f"item keys: {list(item.keys())}, "
+                            f"id: {safe_get(item, 'id')}, "
+                            f"using item_id: '{item_id}'"
+                        )
 
                 # Extract rule description from details.items.businessExplanation (for DATA_QUALITY)
                 # Rule_Description is only for DATA_QUALITY, NOT_APPLICABLE for SCHEMA_DRIFT and FRESHNESS
@@ -1501,6 +1683,17 @@ def process_policy_executions(
         ex = safe_get(execution, "execution", {})
         start_ts = safe_get(ex, "startedAt")
         exec_id = str(safe_get(ex, "id", ""))  # Convert to string for consistency
+        
+        # Debug logging for PROFILE_ANOMALY to verify execution_id extraction
+        rule_type = safe_get(ex, "ruleType")
+        if rule_type == "PROFILE_ANOMALY":
+            log_info(
+                f"DEBUG process_policy_executions PROFILE_ANOMALY: "
+                f"extracted exec_id={exec_id}, "
+                f"ruleId={safe_get(ex, 'ruleId')}, "
+                f"ruleName={safe_get(ex, 'ruleName')}, "
+                f"startedAt={start_ts}"
+            )
 
         # Debug logging for specific execution
         if exec_id == "10410555":
@@ -1761,8 +1954,8 @@ def process_execution_details(
                             rule_result = str(rule_result)
                     
                     # Safely extract threshold_config - handle both dict and primitive types
-                    # For SCHEMA_DRIFT, Rule_Strategy, Rule_Lower_Threshold, and Rule_Upper_Threshold are NOT_APPLICABLE
-                    if execution.policy_type == "SCHEMA_DRIFT":
+                    # For SCHEMA_DRIFT and PROFILE_ANOMALY, Rule_Strategy, Rule_Lower_Threshold, and Rule_Upper_Threshold are NOT_APPLICABLE
+                    if execution.policy_type in ["SCHEMA_DRIFT", "PROFILE_ANOMALY"]:
                         threshold_config = {}
                     else:
                         threshold_config_raw = safe_get(item, "thresholdConfig")
@@ -1915,9 +2108,9 @@ def process_execution_details(
                 else:
                     result_status = None
 
-                # For DATA_QUALITY and FRESHNESS, store items.id in rule_item_id for Rule_ID display
+                # For DATA_QUALITY, FRESHNESS, and PROFILE_ANOMALY, store items.id in rule_item_id for Rule_ID display
                 # Keep item_id as ruleItemId for merge key
-                if execution.policy_type == "DATA_QUALITY" or execution.policy_type == "FRESHNESS":
+                if execution.policy_type in ["DATA_QUALITY", "FRESHNESS", "PROFILE_ANOMALY"]:
                     display_rule_id = str(safe_get(item, "id", ""))  # items.id for Rule_ID
                 else:
                     display_rule_id = safe_get(item, "ruleItemId")
@@ -2829,6 +3022,25 @@ def merge_execution_data(
     log_info(f"Merge input: {len(execution_details)} execution details from {len(exec_type_counts)} unique exec_ids")
     log_info(f"Merge input: {len(policy_details)} policy details, breakdown: {policy_type_counts}")
     
+    # Debug: Log PROFILE_ANOMALY execution details by exec_id
+    profile_anomaly_exec_details = [d for d in execution_details if hasattr(d, 'metric_anomalous')]
+    if profile_anomaly_exec_details:
+        profile_anomaly_by_exec_id = {}
+        for detail in profile_anomaly_exec_details:
+            exec_id = str(detail.exec_id)
+            if exec_id not in profile_anomaly_by_exec_id:
+                profile_anomaly_by_exec_id[exec_id] = []
+            profile_anomaly_by_exec_id[exec_id].append((detail.item_id, detail.item_ver))
+        log_info(f"DEBUG Merge PROFILE_ANOMALY: {len(profile_anomaly_exec_details)} execution details from {len(profile_anomaly_by_exec_id)} unique exec_ids")
+        for exec_id, keys in list(profile_anomaly_by_exec_id.items())[:10]:
+            log_info(f"DEBUG Merge PROFILE_ANOMALY exec_id={exec_id}: {len(keys)} records with merge keys: {set(keys)}")
+        
+        # Debug: Log PROFILE_ANOMALY policy details by merge key
+        profile_anomaly_policy_details = [d for d in policy_details if d.policy_type == "PROFILE_ANOMALY"]
+        if profile_anomaly_policy_details:
+            policy_keys = {(d.id, d.rule_version) for d in profile_anomaly_policy_details}
+            log_info(f"DEBUG Merge PROFILE_ANOMALY: {len(profile_anomaly_policy_details)} policy details with {len(policy_keys)} unique merge keys: {policy_keys}")
+    
     # Create lookup dictionary for policy details - handle multiple labels per item
     # Use list to store all PolicyDetail records for the same (id, rule_version) key
     policy_lookup: dict[tuple[str, int], list[PolicyDetail]] = {}
@@ -2837,6 +3049,23 @@ def merge_execution_data(
         if key not in policy_lookup:
             policy_lookup[key] = []
         policy_lookup[key].append(detail)
+    
+    # Create secondary lookup for PROFILE_ANOMALY by (policy_id, rule_version) to handle item_id mismatches
+    # This handles cases where ruleItemId changed between versions but policy_id and version match
+    profile_anomaly_policy_lookup_by_policy_version: dict[tuple[str, int], list[PolicyDetail]] = {}
+    for detail in policy_details:
+        if detail.policy_type == "PROFILE_ANOMALY":
+            key = (detail.policy_id, detail.rule_version)
+            if key not in profile_anomaly_policy_lookup_by_policy_version:
+                profile_anomaly_policy_lookup_by_policy_version[key] = []
+            profile_anomaly_policy_lookup_by_policy_version[key].append(detail)
+    
+    # Debug: Log all PROFILE_ANOMALY policy detail keys
+    profile_anomaly_policy_keys = [(k, v[0].policy_id, v[0].policy_type) for k, v in policy_lookup.items() if v and v[0].policy_type == "PROFILE_ANOMALY"]
+    if profile_anomaly_policy_keys:
+        log_info(f"DEBUG Merge: PROFILE_ANOMALY policy detail keys (by item_id): {profile_anomaly_policy_keys}")
+    if profile_anomaly_policy_lookup_by_policy_version:
+        log_info(f"DEBUG Merge: PROFILE_ANOMALY policy detail keys (by policy_id+version): {list(profile_anomaly_policy_lookup_by_policy_version.keys())}")
     
     # Debug: Log EQUALITY policy keys
     equality_policy_keys = [(k, v[0].policy_type) for k, v in policy_lookup.items() if v and v[0].policy_type == "EQUALITY"]
@@ -2911,9 +3140,9 @@ def merge_execution_data(
             for policy_detail in policy_detail_list:
                 if policy_detail.policy_type == "DATA_QUALITY":
                     dq_merged_count += 1
-                # For DATA_QUALITY, use rule_item_id (items.id) for Rule_ID display
+                # For DATA_QUALITY, FRESHNESS, and PROFILE_ANOMALY, use rule_item_id (items.id) for Rule_ID display
                 # For other policy types, use item_id (which is already correct)
-                if policy_detail.policy_type == "DATA_QUALITY" and exec_detail.rule_item_id:
+                if policy_detail.policy_type in ["DATA_QUALITY", "FRESHNESS", "PROFILE_ANOMALY"] and exec_detail.rule_item_id:
                     display_item_id = str(exec_detail.rule_item_id)  # items.id for Rule_ID
                 else:
                     display_item_id = exec_detail.item_id  # Use merge key for other types
@@ -2940,6 +3169,15 @@ def merge_execution_data(
                 # For EQUALITY, extract left_column and right_column from exec_detail
                 left_column = exec_detail.left_column if policy_detail.policy_type == "EQUALITY" else None
                 right_column = exec_detail.right_column if policy_detail.policy_type == "EQUALITY" else None
+                
+                # Debug: Log PROFILE_ANOMALY merge to track exec_id preservation and Rule_ID
+                if policy_detail.policy_type == "PROFILE_ANOMALY" and len(merged_records) < 5:
+                    log_info(
+                        f"DEBUG Merge PROFILE_ANOMALY: Creating record with "
+                        f"exec_id={exec_detail.exec_id}, item_id={exec_detail.item_id}, "
+                        f"rule_item_id={exec_detail.rule_item_id}, display_item_id={display_item_id}, "
+                        f"item_ver={exec_detail.item_ver}, policy_id={policy_detail.policy_id}"
+                    )
                 
                 record = ExecutionMetricsRecord(
                     policy_name=policy_detail.policy_name,
@@ -2979,6 +3217,7 @@ def merge_execution_data(
                     drift_threshold=policy_detail.drift_threshold,
                     anomaly_detected=exec_detail.anomaly_detected,
                     threshold_breached=exec_detail.threshold_breached,
+                    metric_anomalous=exec_detail.metric_anomalous,
                     # SCHEMA_DRIFT-specific fields from policy details
                     asset_addition=policy_detail.asset_addition,
                     asset_deletion=policy_detail.asset_deletion,
@@ -2993,6 +3232,88 @@ def merge_execution_data(
             unmatched_keys.append(key)
             if is_dq:
                 dq_unmatched_count += 1
+            
+            # Debug: Log unmatched PROFILE_ANOMALY execution details
+            if hasattr(exec_detail, 'metric_anomalous') and exec_detail.metric_anomalous is not None:
+                log_info(
+                    f"DEBUG Merge PROFILE_ANOMALY UNMATCHED: exec_id={exec_detail.exec_id}, "
+                    f"item_id={exec_detail.item_id}, item_ver={exec_detail.item_ver}, "
+                    f"merge_key={key}"
+                )
+                # For PROFILE_ANOMALY, if no policy detail match, try to find policy detail by (policy_id, version)
+                # This handles cases where item_id (ruleItemId) changed between versions
+                matching_policy_by_policy_id = None
+                if exec_detail.policy_id:
+                    # Try to find policy detail by (policy_id, version) instead of (item_id, version)
+                    fallback_key = (exec_detail.policy_id, exec_detail.item_ver)
+                    matching_policy_list = profile_anomaly_policy_lookup_by_policy_version.get(fallback_key, [])
+                    if matching_policy_list:
+                        matching_policy_by_policy_id = matching_policy_list[0]  # Use first match
+                        log_info(
+                            f"DEBUG Merge PROFILE_ANOMALY: Found policy detail by (policy_id, version) fallback: "
+                            f"exec_id={exec_detail.exec_id}, exec_item_id={exec_detail.item_id}, "
+                            f"policy_item_id={matching_policy_by_policy_id.id}, "
+                            f"policy_id={exec_detail.policy_id}, version={exec_detail.item_ver}"
+                        )
+                
+                if matching_policy_by_policy_id:
+                    # Create record using the policy detail found by version match
+                    policy_detail = matching_policy_by_policy_id
+                    # For PROFILE_ANOMALY, use rule_item_id (items.id) for Rule_ID display
+                    # For other types, use item_id
+                    if policy_detail.policy_type in ["DATA_QUALITY", "FRESHNESS", "PROFILE_ANOMALY"] and exec_detail.rule_item_id:
+                        display_item_id = str(exec_detail.rule_item_id)  # items.id for Rule_ID
+                    else:
+                        display_item_id = exec_detail.item_id  # Use merge key for other types
+                    
+                    # Create ExecutionMetricsRecord
+                    record = ExecutionMetricsRecord(
+                        policy_name=policy_detail.policy_name,
+                        policy_id=policy_detail.policy_id,
+                        rule_version=exec_detail.item_ver,
+                        exec_id=exec_detail.exec_id,
+                        table_asset_name=policy_detail.table_asset_name,
+                        item_column_name=exec_detail.item_column_name,  # From execution detail
+                        left_column=None,
+                        right_column=None,
+                        pde=exec_detail.pde,
+                        item_measurement_type=exec_detail.item_measurement_type,  # From execution detail
+                        rule_strategy=exec_detail.rule_strategy,
+                        rule_lower_threshold=exec_detail.rule_lower_threshold,
+                        rule_upper_threshold=exec_detail.rule_upper_threshold,
+                        item_id=display_item_id,  # Use execution detail's item_id
+                        result=exec_detail.result,
+                        result_status=exec_detail.result_status,
+                        overall_policy_status=exec_detail.overall_policy_status,
+                        overall_policy_quality_score=exec_detail.overall_policy_quality_score,
+                        rows_scanned=exec_detail.rows_scanned,
+                        rows_failed=exec_detail.rows_failed,
+                        startedAt=exec_detail.start_ts,
+                        started_at=convert_timestamp_to_datetime(exec_detail.start_ts, timezone),
+                        finishedAt=exec_detail.end_ts,
+                        finished_at=convert_timestamp_to_datetime(exec_detail.end_ts, timezone),
+                        execution_date=convert_timestamp_to_datetime(exec_detail.end_ts, timezone),
+                        execution_status=exec_detail.execution_status,
+                        policy_type=policy_detail.policy_type,
+                        policy_enabled=policy_detail.policy_enabled,
+                        label_key=policy_detail.label_key,
+                        label_value=policy_detail.label_value,
+                        policy_description=policy_detail.policy_description,
+                        rule_description=policy_detail.rule_description,
+                        drift_threshold=policy_detail.drift_threshold,
+                        anomaly_detected=exec_detail.anomaly_detected,
+                        threshold_breached=exec_detail.threshold_breached,
+                        metric_anomalous=exec_detail.metric_anomalous,
+                        asset_addition=None,
+                        asset_deletion=None,
+                        data_type=None,
+                        asset_relation_change=None,
+                        asset_metadata=None,
+                        metadata_configs=None,
+                    )
+                    merged_records.append(record)
+                    continue
+            
             # Even if no policy detail found, we might want to create a record with execution data only
             # For now, we skip it to maintain backward compatibility
     
@@ -3002,6 +3323,17 @@ def merge_execution_data(
         merged_type_counts[record.policy_type] = merged_type_counts.get(record.policy_type, 0) + 1
     
     log_info(f"Merge output: {len(merged_records)} merged records, breakdown: {merged_type_counts}")
+    
+    # Debug: Log PROFILE_ANOMALY merged records by exec_id
+    profile_anomaly_merged = [r for r in merged_records if r.policy_type == "PROFILE_ANOMALY"]
+    if profile_anomaly_merged:
+        profile_anomaly_exec_ids = {}
+        for record in profile_anomaly_merged:
+            exec_id = str(record.exec_id)
+            profile_anomaly_exec_ids[exec_id] = profile_anomaly_exec_ids.get(exec_id, 0) + 1
+        log_info(f"DEBUG Merge PROFILE_ANOMALY output: {len(profile_anomaly_merged)} records from {len(profile_anomaly_exec_ids)} unique exec_ids")
+        for exec_id, count in profile_anomaly_exec_ids.items():
+            log_info(f"DEBUG Merge PROFILE_ANOMALY exec_id={exec_id}: {count} records")
     log_info(f"Merge unmatched: {unmatched_exec_details} execution details without policy match")
     
     # Log DATA_QUALITY specific statistics
