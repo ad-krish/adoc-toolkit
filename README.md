@@ -127,7 +127,7 @@ MyPolicy,2025-11-05 23:54:17,1000
 
 #### Data Export
 - **[`export-metrics`](docs/export_execution_metrics.md)** - Export metrics data in various formats (JSON, CSV, Parquet, Avro)
-- **[`export-execution-metrics`](docs/export_execution_metrics.md)** - Export execution metrics with filtering options
+- **[`export-execution-metrics`](docs/export_execution_metrics.md)** - Export execution metrics with filtering options (supports DATA_QUALITY, EQUALITY, DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT, FRESHNESS)
 
 #### AI-Powered Features
 - **[`text-to-dq-policy`](docs/text_to_dq_policy.md)** - Generate data quality policies from natural language descriptions
