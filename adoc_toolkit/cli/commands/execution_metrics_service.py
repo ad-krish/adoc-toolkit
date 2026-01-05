@@ -769,17 +769,15 @@ def process_execution_details_parallel(
             left_column = None
             right_column = None
             if execution.policy_type == "EQUALITY":
-                # EQUALITY items don't have columnName - extract from columnMapping or use dimension
+                # EQUALITY items don't have columnName - extract from columnMapping
+                # Item_Column_Name should be NOT_APPLICABLE for EQUALITY (use left_column/right_column separately)
                 column_mapping = safe_get(item_data, "columnMapping", {})
                 if column_mapping and isinstance(column_mapping, dict):
                     # Extract left and right column names
                     left_column = safe_get(column_mapping, "leftColumnName")
                     right_column = safe_get(column_mapping, "rightColumnName")
-                    # Try to get leftColumnName or rightColumnName for column_name
-                    column_name = left_column or right_column
-                # If still no column name, use dimension as fallback
-                if not column_name:
-                    column_name = safe_get(item_data, "dimension")
+                # For EQUALITY, column_name should be None (will be set to NOT_APPLICABLE in export)
+                column_name = None
             
             # Extract measurement type - for DATA_QUALITY, use top-level item.dimension (no nested structure)
             # For FRESHNESS, measurement type comes from policy details (not execution details)
@@ -2044,17 +2042,15 @@ def process_execution_details(
                 left_column = None
                 right_column = None
                 if execution.policy_type == "EQUALITY":
-                    # EQUALITY items don't have columnName - extract from columnMapping or use dimension
+                    # EQUALITY items don't have columnName - extract from columnMapping
+                    # Item_Column_Name should be NOT_APPLICABLE for EQUALITY (use left_column/right_column separately)
                     column_mapping = safe_get(item_data, "columnMapping", {})
                     if column_mapping and isinstance(column_mapping, dict):
                         # Extract left and right column names
                         left_column = safe_get(column_mapping, "leftColumnName")
                         right_column = safe_get(column_mapping, "rightColumnName")
-                        # Try to get leftColumnName or rightColumnName for column_name
-                        column_name = left_column or right_column
-                    # If still no column name, use dimension as fallback
-                    if not column_name:
-                        column_name = safe_get(item_data, "dimension")
+                    # For EQUALITY, column_name should be None (will be set to NOT_APPLICABLE in export)
+                    column_name = None
                 
                 # Extract measurement type - for DATA_QUALITY, use top-level item.dimension (no nested structure)
                 # For FRESHNESS, measurement type comes from policy details (not execution details)
@@ -2771,10 +2767,13 @@ def process_reconciliation_records(
     right_asset_uid = asset_uid_map.get(right_asset_id) if right_asset_id else None
     
     # Extract execution-level fields
+    # IMPORTANT: Use execution.execution_id from PolicyExecution object (from executions list API)
+    # Do NOT extract from execution_data (API response) as it may have inconsistent IDs
+    # This ensures consistency across all policy types and matches the UI
     policy_name = safe_get(execution_data, "ruleName", "")
     policy_id = str(safe_get(execution_data, "ruleId", ""))
     rule_version = safe_get(execution_data, "ruleVersion", 1)
-    execution_id = str(safe_get(execution_data, "id", ""))
+    execution_id = execution.execution_id  # Use from PolicyExecution object, not from API response
     execution_status = safe_get(execution_data, "executionStatus", "")
     # Note: result_status will be extracted per item from items[].success
     policy_type = safe_get(execution_data, "ruleType", "EQUALITY")
@@ -3043,12 +3042,30 @@ def merge_execution_data(
     
     # Create lookup dictionary for policy details - handle multiple labels per item
     # Use list to store all PolicyDetail records for the same (id, rule_version) key
+    # NOTE: The same (id, rule_version) key might exist for different policy types,
+    # so we'll filter by policy_id during merge to prevent cross-policy type matching
     policy_lookup: dict[tuple[str, int], list[PolicyDetail]] = {}
     for detail in policy_details:
         key = (detail.id, detail.rule_version)
         if key not in policy_lookup:
             policy_lookup[key] = []
         policy_lookup[key].append(detail)
+    
+    # Debug: Check for duplicate keys across different policy types
+    duplicate_keys_by_policy_type = {}
+    for key, details_list in policy_lookup.items():
+        policy_types = set(pd.policy_type for pd in details_list)
+        if len(policy_types) > 1:
+            duplicate_keys_by_policy_type[key] = {
+                'policy_types': list(policy_types),
+                'policy_ids': [pd.policy_id for pd in details_list],
+                'count': len(details_list)
+            }
+    if duplicate_keys_by_policy_type:
+        log_info(
+            f"WARNING: Found {len(duplicate_keys_by_policy_type)} merge keys with multiple policy types: "
+            f"{list(duplicate_keys_by_policy_type.items())[:5]}"
+        )
     
     # Create secondary lookup for PROFILE_ANOMALY by (policy_id, rule_version) to handle item_id mismatches
     # This handles cases where ruleItemId changed between versions but policy_id and version match
@@ -3107,6 +3124,36 @@ def merge_execution_data(
     # Debug: Track EQUALITY execution details - collect all exec details from EQUALITY executions
     equality_exec_keys_all = []  # All EQUALITY exec detail keys (matched or not)
     
+    # Debug: Track execution IDs by policy type to detect cross-policy type issues
+    exec_id_by_policy_type = {}  # exec_id -> set of policy_types
+    for exec_detail in execution_details:
+        exec_id = str(exec_detail.exec_id)
+        if exec_id not in exec_id_by_policy_type:
+            exec_id_by_policy_type[exec_id] = set()
+        # Try to determine policy type from matching policy details
+        key = (exec_detail.item_id, exec_detail.item_ver)
+        policy_detail_list_for_key = policy_lookup.get(key, [])
+        if policy_detail_list_for_key:
+            # Filter by policy_id to get correct policy type
+            if exec_detail.policy_id:
+                matching_policy_details = [
+                    pd for pd in policy_detail_list_for_key 
+                    if pd.policy_id == exec_detail.policy_id
+                ]
+                if matching_policy_details:
+                    exec_id_by_policy_type[exec_id].add(matching_policy_details[0].policy_type)
+                else:
+                    # If no match by policy_id, check all (might be cross-policy issue)
+                    exec_id_by_policy_type[exec_id].update(pd.policy_type for pd in policy_detail_list_for_key)
+    
+    # Log any execution IDs that appear with multiple policy types (potential issue)
+    duplicate_exec_ids = {eid: types for eid, types in exec_id_by_policy_type.items() if len(types) > 1}
+    if duplicate_exec_ids:
+        log_error(
+            f"ERROR: Found {len(duplicate_exec_ids)} execution IDs associated with multiple policy types: "
+            f"{dict(duplicate_exec_ids)}"
+        )
+    
     for exec_detail in execution_details:
         key = (exec_detail.item_id, exec_detail.item_ver)
         
@@ -3123,6 +3170,15 @@ def merge_execution_data(
         
         policy_detail_list = policy_lookup.get(key, [])
         
+        # CRITICAL: Filter policy_detail_list to only include records with matching policy_id
+        # This prevents cross-policy type matching (e.g., SCHEMA_DRIFT matching with EQUALITY)
+        # The policy_id in ExecutionDetail should match the policy_id in PolicyDetail
+        if policy_detail_list and exec_detail.policy_id:
+            policy_detail_list = [
+                pd for pd in policy_detail_list 
+                if pd.policy_id == exec_detail.policy_id
+            ]
+        
         # Debug: Track EQUALITY execution details that don't match
         if not policy_detail_list:
             # Check if this might be an EQUALITY exec detail by looking for a pattern
@@ -3134,6 +3190,20 @@ def merge_execution_data(
             # ReconciliationRecord has all the necessary fields and more reconciliation-specific data
             if policy_detail_list[0].policy_type == "EQUALITY":
                 # Skip creating ExecutionMetricsRecord for EQUALITY - use ReconciliationRecord instead
+                continue
+            
+            # CRITICAL: Additional validation - ensure all policy details in the list have the same policy_type
+            # This prevents mixing policy types even if they have the same (item_id, item_ver) key
+            policy_type = policy_detail_list[0].policy_type
+            if not all(pd.policy_type == policy_type for pd in policy_detail_list):
+                log_error(
+                    f"ERROR: Mixed policy types found for merge key {key}: "
+                    f"{[pd.policy_type for pd in policy_detail_list]}. "
+                    f"Execution detail exec_id={exec_detail.exec_id}, policy_id={exec_detail.policy_id}. "
+                    f"Skipping this match."
+                )
+                unmatched_exec_details += 1
+                unmatched_keys.append(key)
                 continue
             
             # Create one ExecutionMetricsRecord per PolicyDetail (to handle multiple labels)
@@ -3150,8 +3220,11 @@ def merge_execution_data(
                 # For DATA_DRIFT and FRESHNESS, use item_measurement_type from policy_detail
                 # DATA_DRIFT: from details.items.metricType
                 # FRESHNESS: from details.items.measurementType (execution details have dimension="OTHERS" which is not useful)
+                # For SCHEMA_DRIFT, Item_Measurement_Type is NOT_APPLICABLE (should be None)
                 # For other policy types, use from exec_detail (they have their own field paths)
-                if policy_detail.policy_type in ["DATA_DRIFT", "FRESHNESS"] and policy_detail.item_measurement_type:
+                if policy_detail.policy_type == "SCHEMA_DRIFT":
+                    measurement_type = None  # NOT_APPLICABLE for SCHEMA_DRIFT
+                elif policy_detail.policy_type in ["DATA_DRIFT", "FRESHNESS"] and policy_detail.item_measurement_type:
                     measurement_type = policy_detail.item_measurement_type
                 else:
                     measurement_type = exec_detail.item_measurement_type
@@ -3191,10 +3264,11 @@ def merge_execution_data(
                     pde=exec_detail.pde,
                     item_measurement_type=measurement_type,
                     # For FRESHNESS, use threshold config from policy_detail (execution details don't have it)
+                    # For SCHEMA_DRIFT and PROFILE_ANOMALY, threshold values are NOT_APPLICABLE (should be None)
                     # For other policy types, use from exec_detail
-                    rule_strategy=policy_detail.rule_strategy if policy_detail.policy_type == "FRESHNESS" and policy_detail.rule_strategy else exec_detail.rule_strategy,
-                    rule_lower_threshold=policy_detail.rule_lower_threshold if policy_detail.policy_type == "FRESHNESS" and policy_detail.rule_lower_threshold is not None else exec_detail.rule_lower_threshold,
-                    rule_upper_threshold=policy_detail.rule_upper_threshold if policy_detail.policy_type == "FRESHNESS" and policy_detail.rule_upper_threshold is not None else exec_detail.rule_upper_threshold,
+                    rule_strategy=None if policy_detail.policy_type in ["SCHEMA_DRIFT", "PROFILE_ANOMALY"] else (policy_detail.rule_strategy if policy_detail.policy_type == "FRESHNESS" and policy_detail.rule_strategy else exec_detail.rule_strategy),
+                    rule_lower_threshold=None if policy_detail.policy_type in ["SCHEMA_DRIFT", "PROFILE_ANOMALY"] else (policy_detail.rule_lower_threshold if policy_detail.policy_type == "FRESHNESS" and policy_detail.rule_lower_threshold is not None else exec_detail.rule_lower_threshold),
+                    rule_upper_threshold=None if policy_detail.policy_type in ["SCHEMA_DRIFT", "PROFILE_ANOMALY"] else (policy_detail.rule_upper_threshold if policy_detail.policy_type == "FRESHNESS" and policy_detail.rule_upper_threshold is not None else exec_detail.rule_upper_threshold),
                     item_id=display_item_id,  # For DATA_QUALITY: items.id, for others: merge key
                     result=exec_detail.result,
                     result_status=exec_detail.result_status,
