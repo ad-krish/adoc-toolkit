@@ -286,6 +286,35 @@ def convert_column_names_to_title_case(df: pd.DataFrame) -> pd.DataFrame:
     return df_renamed
 
 
+def safe_set_not_applicable(df: pd.DataFrame, mask: pd.Series, column: str) -> None:
+    """Safely set "N/A" to a column, converting dtype if necessary.
+    
+    This function handles the case where a column has numeric dtype (int64, float64)
+    and we need to set string values. It converts the column to object dtype first
+    to avoid FutureWarning about incompatible dtypes.
+    
+    Args:
+        df: DataFrame to modify
+        mask: Boolean mask indicating which rows to update
+        column: Column name to update
+    """
+    if column not in df.columns:
+        return
+    
+    # If the column has numeric dtype and we're setting string values, convert to object dtype first
+    if df[column].dtype in ['int64', 'float64', 'Int64', 'Float64']:
+        # Convert to object dtype to allow string values
+        df[column] = df[column].astype('object')
+    # Also ensure object dtype for columns that might be all None/NaN
+    elif df[column].dtype == 'object' and df[column].isna().all():
+        # Column is already object dtype, but ensure it can hold strings
+        pass
+    
+    # Set the values - ensure we're working with a boolean mask
+    if mask.any():  # Only proceed if there are rows to update
+        df.loc[mask, column] = "N/A"
+
+
 def preprocess_execution_metrics_dataframe(
     df: pd.DataFrame, output_type: str
 ) -> pd.DataFrame:
@@ -298,7 +327,8 @@ def preprocess_execution_metrics_dataframe(
     Returns:
         Preprocessed DataFrame
     """
-    processed_df = df.replace("N/A", pd.NA).copy()
+    # Don't convert "N/A" to pd.NA - we want to keep "N/A" as a string value in the export
+    processed_df = df.copy()
 
     # Convert numeric columns
     numeric_columns = [
@@ -363,6 +393,8 @@ def export_execution_metrics_to_format(
     processed_df = preprocess_execution_metrics_dataframe(df, output_type)
 
     if output_type == "csv":
+        # Don't use na_rep - we only want "N/A" where we explicitly set it for policy-type-incompatible columns
+        # Missing values in applicable columns should remain empty/null
         processed_df.to_csv(output_path, index=False)
     elif output_type == "parquet":
         processed_df.to_parquet(output_path, index=False, compression="snappy")
@@ -842,34 +874,53 @@ Examples:
                 if "Pde" in df.columns:
                     df = df.drop(columns=["Pde"])
                 
-                # Fill unique columns with "NOT_APPLICABLE" based on policy type
+                # Ensure all required columns exist in the DataFrame (add missing reconciliation columns)
+                # This ensures the main CSV always has all 46 columns even when only DATA_QUALITY records are exported
+                if not df.empty:
+                    # Reconciliation-specific columns that should always be present
+                    required_recon_columns = [
+                        "Left_Column", "Right_Column", "Left_Rows_Scanned", "Right_Rows_Scanned",
+                        "Use_For_Joining", "Left_ASSET_UID", "Right_ASSET_UID", "Join_Type", "Operation"
+                    ]
+                    for col in required_recon_columns:
+                        if col not in df.columns:
+                            # Initialize as object dtype to allow string values like "N/A"
+                            df[col] = pd.Series(dtype='object', index=df.index)
+                
+                # Fill unique columns with "N/A" based on policy type
                 if not df.empty and "Policy_Type" in df.columns:
-                    # Reconciliation-specific columns (should be NOT_APPLICABLE for DATA_QUALITY)
+                    # Reconciliation-specific columns (should be N/A for DATA_QUALITY)
                     # Note: Policy_Description and Rule_Description are applicable for both DATA_QUALITY and RECONCILIATION
                     recon_unique_columns = [
                         "Left_Column", "Right_Column", "Left_Rows_Scanned", "Right_Rows_Scanned",
                         "Use_For_Joining", "Left_ASSET_UID", "Right_ASSET_UID", "Join_Type", "Operation"
                     ]
                     
-                    # For DATA_QUALITY records, set reconciliation-specific columns to NOT_APPLICABLE
+                    # For DATA_QUALITY records, set reconciliation-specific columns to N/A
                     dq_mask = df["Policy_Type"] == "DATA_QUALITY"
                     for col in recon_unique_columns:
                         if col in df.columns:
-                            # Fill NaN and empty string values with NOT_APPLICABLE for DATA_QUALITY records
-                            blank_mask = df[col].isna() | (df[col].astype(str).str.strip() == "")
-                            df.loc[dq_mask & blank_mask, col] = "NOT_APPLICABLE"
+                            # Set all DATA_QUALITY records to N/A for reconciliation columns
+                            # (these columns don't apply to DATA_QUALITY policies)
+                            safe_set_not_applicable(df, dq_mask, col)
                     
-                    # For RECONCILIATION (EQUALITY) records, set DATA_QUALITY-specific columns to NOT_APPLICABLE
+                    # For RECONCILIATION (EQUALITY) records, set DATA_QUALITY-specific columns to N/A
                     # Note: Most columns are shared, but any columns that only exist in DATA_QUALITY
-                    # should be set to NOT_APPLICABLE for RECONCILIATION records
+                    # should be set to N/A for RECONCILIATION records
                     recon_mask = df["Policy_Type"] == "EQUALITY"
                     # Get all columns that exist in the DataFrame
                     all_columns = df.columns.tolist()
                     # Find columns that are not in reconciliation unique columns and not common columns
                     # These might be DATA_QUALITY-specific
-                    # DATA_DRIFT-specific columns (should be NOT_APPLICABLE for other policy types)
+                    # DATA_DRIFT-specific columns (should be N/A for other policy types)
                     drift_unique_columns = [
                         "Drift_Threshold"
+                    ]
+                    
+                    # SCHEMA_DRIFT-specific columns (should be N/A for other policy types)
+                    schema_drift_unique_columns = [
+                        "Asset_Addition", "Asset_Deletion", "Data_Type", 
+                        "Asset_Relation_Change", "Asset_Metadata", "Metadata_Configs"
                     ]
                     
                     common_columns = [
@@ -880,68 +931,72 @@ Examples:
                         "Policy_Type", "Policy_Enabled", "Label_Key", "Label_Value", "Policy_Description", "Rule_Description"
                     ]
                     
-                    # For DATA_DRIFT records, set reconciliation-specific columns to NOT_APPLICABLE
+                    # For DATA_DRIFT records, set reconciliation-specific and SCHEMA_DRIFT-specific columns to N/A
                     drift_mask = df["Policy_Type"] == "DATA_DRIFT"
                     for col in recon_unique_columns:
                         if col in df.columns:
-                            # Fill NaN and empty string values with NOT_APPLICABLE
+                            # Fill NaN and empty string values with N/A
                             blank_mask = df[col].isna() | (df[col].astype(str).str.strip() == "")
-                            df.loc[drift_mask & blank_mask, col] = "NOT_APPLICABLE"
-                    
-                    # For DATA_QUALITY records, set reconciliation-specific and DATA_DRIFT-specific columns to NOT_APPLICABLE
-                    for col in recon_unique_columns + drift_unique_columns:
+                            safe_set_not_applicable(df, drift_mask & blank_mask, col)
+                    # Set SCHEMA_DRIFT-specific columns to N/A for DATA_DRIFT records
+                    for col in schema_drift_unique_columns:
                         if col in df.columns:
-                            # Fill NaN and empty string values with NOT_APPLICABLE
-                            blank_mask = df[col].isna() | (df[col].astype(str).str.strip() == "")
-                            df.loc[dq_mask & blank_mask, col] = "NOT_APPLICABLE"
+                            safe_set_not_applicable(df, drift_mask, col)
                     
-                    # For RECONCILIATION (EQUALITY) records, set DATA_QUALITY-specific and DATA_DRIFT-specific columns to NOT_APPLICABLE
-                    # Set Drift_Threshold to NOT_APPLICABLE for RECONCILIATION records
-                    for col in drift_unique_columns:
+                    # For DATA_QUALITY records, set DATA_DRIFT-specific and SCHEMA_DRIFT-specific columns to N/A
+                    # (reconciliation columns are already handled above)
+                    for col in drift_unique_columns + schema_drift_unique_columns:
                         if col in df.columns:
-                            # Fill NaN and empty string values with NOT_APPLICABLE
-                            blank_mask = df[col].isna() | (df[col].astype(str).str.strip() == "")
-                            df.loc[recon_mask & blank_mask, col] = "NOT_APPLICABLE"
+                            # Set all DATA_QUALITY records to N/A for DATA_DRIFT and SCHEMA_DRIFT columns
+                            safe_set_not_applicable(df, dq_mask, col)
                     
-                    # For EQUALITY records, ensure LEFT_ASSET_UID and RIGHT_ASSET_UID are NOT_APPLICABLE if blank
+                    # For RECONCILIATION (EQUALITY) records, set DATA_QUALITY-specific, DATA_DRIFT-specific, and SCHEMA_DRIFT-specific columns to N/A
+                    for col in drift_unique_columns + schema_drift_unique_columns:
+                        if col in df.columns:
+                            # Fill NaN and empty string values with N/A
+                            blank_mask = df[col].isna() | (df[col].astype(str).str.strip() == "")
+                            safe_set_not_applicable(df, recon_mask & blank_mask, col)
+                    
+                    # For EQUALITY records, ensure LEFT_ASSET_UID and RIGHT_ASSET_UID are N/A if blank
                     equality_asset_uid_columns = ["Left_ASSET_UID", "Right_ASSET_UID"]
                     for col in equality_asset_uid_columns:
                         if col in df.columns:
-                            # Fill NaN and empty string values with NOT_APPLICABLE for EQUALITY records
+                            # Fill NaN and empty string values with N/A for EQUALITY records
                             blank_mask = df[col].isna() | (df[col].astype(str).str.strip() == "")
-                            df.loc[recon_mask & blank_mask, col] = "NOT_APPLICABLE"
+                            safe_set_not_applicable(df, recon_mask & blank_mask, col)
                     
-                    # For EQUALITY records, Item_Column_Name should be NOT_APPLICABLE (use Left_Column/Right_Column separately)
+                    # For EQUALITY records, Item_Column_Name should be N/A (use Left_Column/Right_Column separately)
                     if "Item_Column_Name" in df.columns:
-                        # Fill NaN and empty string values with NOT_APPLICABLE for EQUALITY records
-                        blank_mask = df["Item_Column_Name"].isna() | (df["Item_Column_Name"].astype(str).str.strip() == "")
-                        df.loc[recon_mask & blank_mask, "Item_Column_Name"] = "NOT_APPLICABLE"
-                        # Also explicitly set to NOT_APPLICABLE even if it has a value (should not have left_column value)
-                        df.loc[recon_mask, "Item_Column_Name"] = "NOT_APPLICABLE"
+                        # Also explicitly set to N/A even if it has a value (should not have left_column value)
+                        safe_set_not_applicable(df, recon_mask, "Item_Column_Name")
                     
-                    # For FRESHNESS records, set reconciliation-specific, DATA_DRIFT-specific, and other NOT_APPLICABLE columns
+                    # For FRESHNESS records, set reconciliation-specific, DATA_DRIFT-specific, and other N/A columns
                     freshness_mask = df["Policy_Type"] == "FRESHNESS"
-                    # Set Rows_Scanned, Rows_Failed, Rule_Description, Item_Column_Name to NOT_APPLICABLE for FRESHNESS
+                    # Set Rows_Scanned, Rows_Failed, Rule_Description, Item_Column_Name to N/A for FRESHNESS
                     freshness_not_applicable_columns = ["Rows_Scanned", "Rows_Failed", "Rule_Description", "Item_Column_Name"]
                     for col in freshness_not_applicable_columns:
                         if col in df.columns:
-                            # Fill NaN and empty string values with NOT_APPLICABLE
+                            # Fill NaN and empty string values with N/A
                             blank_mask = df[col].isna() | (df[col].astype(str).str.strip() == "")
-                            df.loc[freshness_mask & blank_mask, col] = "NOT_APPLICABLE"
-                    # Set reconciliation-specific columns to NOT_APPLICABLE for FRESHNESS
+                            safe_set_not_applicable(df, freshness_mask & blank_mask, col)
+                    # Set reconciliation-specific columns to N/A for FRESHNESS
                     for col in recon_unique_columns:
                         if col in df.columns:
-                            # Fill NaN and empty string values with NOT_APPLICABLE
+                            # Fill NaN and empty string values with N/A
                             blank_mask = df[col].isna() | (df[col].astype(str).str.strip() == "")
-                            df.loc[freshness_mask & blank_mask, col] = "NOT_APPLICABLE"
-                    # Set DATA_DRIFT-specific columns to NOT_APPLICABLE for FRESHNESS
+                            safe_set_not_applicable(df, freshness_mask & blank_mask, col)
+                    # Set DATA_DRIFT-specific columns to N/A for FRESHNESS
                     for col in drift_unique_columns:
                         if col in df.columns:
-                            # Fill NaN and empty string values with NOT_APPLICABLE
+                            # Fill NaN and empty string values with N/A
                             blank_mask = df[col].isna() | (df[col].astype(str).str.strip() == "")
-                            df.loc[freshness_mask & blank_mask, col] = "NOT_APPLICABLE"
+                            safe_set_not_applicable(df, freshness_mask & blank_mask, col)
+                    # Set SCHEMA_DRIFT-specific columns to N/A for FRESHNESS
+                    for col in schema_drift_unique_columns:
+                        if col in df.columns:
+                            safe_set_not_applicable(df, freshness_mask, col)
                     
-                    # For SCHEMA_DRIFT records, set NOT_APPLICABLE columns
+                    # For SCHEMA_DRIFT records, set N/A columns
                     schema_drift_mask = df["Policy_Type"] == "SCHEMA_DRIFT"
                     schema_drift_not_applicable_columns = [
                         "Rule_Success_Rate", "Item_Column_Name", "Item_Measurement_Type",
@@ -950,27 +1005,46 @@ Examples:
                     ]
                     for col in schema_drift_not_applicable_columns:
                         if col in df.columns:
-                            # Fill NaN and empty string values with NOT_APPLICABLE
-                            # Also explicitly set values to NOT_APPLICABLE even if they have values (e.g., Rule_Upper_Threshold = 100)
-                            df.loc[schema_drift_mask, col] = "NOT_APPLICABLE"
+                            # Fill NaN and empty string values with N/A
+                            # Also explicitly set values to N/A even if they have values (e.g., Rule_Upper_Threshold = 100)
+                            safe_set_not_applicable(df, schema_drift_mask, col)
                     
-                    # For non-FRESHNESS records, set Anomaly_Detected and Threshold_Breached to NOT_APPLICABLE
+                    # For SCHEMA_DRIFT records, set reconciliation-specific columns to N/A
+                    for col in recon_unique_columns:
+                        if col in df.columns:
+                            # Set all SCHEMA_DRIFT records to N/A for reconciliation columns
+                            safe_set_not_applicable(df, schema_drift_mask, col)
+                    
+                    # For SCHEMA_DRIFT records, set DATA_DRIFT-specific columns to N/A
+                    for col in drift_unique_columns:
+                        if col in df.columns:
+                            # Set all SCHEMA_DRIFT records to N/A for DATA_DRIFT columns
+                            safe_set_not_applicable(df, schema_drift_mask, col)
+                    
+                    # For non-SCHEMA_DRIFT records, set SCHEMA_DRIFT-specific columns to N/A
+                    non_schema_drift_mask = df["Policy_Type"] != "SCHEMA_DRIFT"
+                    for col in schema_drift_unique_columns:
+                        if col in df.columns:
+                            # Set all non-SCHEMA_DRIFT records to N/A for SCHEMA_DRIFT columns
+                            safe_set_not_applicable(df, non_schema_drift_mask, col)
+                    
+                    # For non-FRESHNESS records, set Anomaly_Detected and Threshold_Breached to N/A
                     non_freshness_mask = df["Policy_Type"] != "FRESHNESS"
                     freshness_specific_columns = ["Anomaly_Detected", "Threshold_Breached"]
                     for col in freshness_specific_columns:
                         if col in df.columns:
-                            # Fill NaN and empty string values with NOT_APPLICABLE
+                            # Fill NaN and empty string values with N/A
                             blank_mask = df[col].isna() | (df[col].astype(str).str.strip() == "")
-                            df.loc[non_freshness_mask & blank_mask, col] = "NOT_APPLICABLE"
+                            safe_set_not_applicable(df, non_freshness_mask & blank_mask, col)
                     
-                    # For non-PROFILE_ANOMALY records, set Metric_Anomalous to NOT_APPLICABLE
+                    # For non-PROFILE_ANOMALY records, set Metric_Anomalous to N/A
                     non_profile_anomaly_mask = df["Policy_Type"] != "PROFILE_ANOMALY"
                     if "Metric_Anomalous" in df.columns:
-                        # Fill NaN and empty string values with NOT_APPLICABLE
+                        # Fill NaN and empty string values with N/A
                         blank_mask = df["Metric_Anomalous"].isna() | (df["Metric_Anomalous"].astype(str).str.strip() == "")
-                        df.loc[non_profile_anomaly_mask & blank_mask, "Metric_Anomalous"] = "NOT_APPLICABLE"
+                        safe_set_not_applicable(df, non_profile_anomaly_mask & blank_mask, "Metric_Anomalous")
                     
-                    # For PROFILE_ANOMALY records, set NOT_APPLICABLE columns
+                    # For PROFILE_ANOMALY records, set N/A columns
                     profile_anomaly_mask = df["Policy_Type"] == "PROFILE_ANOMALY"
                     profile_anomaly_not_applicable_columns = [
                         "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold",
@@ -981,36 +1055,37 @@ Examples:
                     ]
                     for col in profile_anomaly_not_applicable_columns:
                         if col in df.columns:
-                            # Fill NaN and empty string values with NOT_APPLICABLE
+                            # Fill NaN and empty string values with N/A
                             blank_mask = df[col].isna() | (df[col].astype(str).str.strip() == "")
-                            df.loc[profile_anomaly_mask & blank_mask, col] = "NOT_APPLICABLE"
-                    # For any column that's not common and not reconciliation-specific and not DATA_DRIFT-specific, 
-                    # set to NOT_APPLICABLE for RECONCILIATION records
+                            safe_set_not_applicable(df, profile_anomaly_mask & blank_mask, col)
+                    # For any column that's not common and not reconciliation-specific and not DATA_DRIFT-specific and not SCHEMA_DRIFT-specific, 
+                    # set to N/A for RECONCILIATION records
                     for col in all_columns:
-                        if col not in recon_unique_columns and col not in drift_unique_columns and col not in common_columns and col != "Policy_Type":
+                        if col not in recon_unique_columns and col not in drift_unique_columns and col not in schema_drift_unique_columns and col not in common_columns and col != "Policy_Type":
                             if col in df.columns:
-                                df.loc[recon_mask & df[col].isna(), col] = "NOT_APPLICABLE"
+                                safe_set_not_applicable(df, recon_mask & df[col].isna(), col)
                     
-                    # For DATA_DRIFT records, set Rows_Scanned, Rows_Failed, and Rule_Description to NOT_APPLICABLE
-                    # (these are NOT_APPLICABLE for DATA_DRIFT but should be included in main CSV)
+                    # For DATA_DRIFT records, set Rows_Scanned, Rows_Failed, and Rule_Description to N/A
+                    # (these are N/A for DATA_DRIFT but should be included in main CSV)
                     drift_not_applicable_columns = ["Rows_Scanned", "Rows_Failed", "Rule_Description"]
                     for col in drift_not_applicable_columns:
                         if col in df.columns:
-                            # Set to NOT_APPLICABLE for all DATA_DRIFT records (including those with NaN)
-                            df.loc[drift_mask, col] = "NOT_APPLICABLE"
+                            # Set to N/A for all DATA_DRIFT records (including those with NaN)
+                            safe_set_not_applicable(df, drift_mask, col)
                     
-                    # For DATA_DRIFT records, set DATA_QUALITY-specific columns to NOT_APPLICABLE
-                    # (columns that are not common, not reconciliation-specific, and not DATA_DRIFT-specific)
+                    # For DATA_DRIFT records, set DATA_QUALITY-specific columns to N/A
+                    # (columns that are not common, not reconciliation-specific, not DATA_DRIFT-specific, and not SCHEMA_DRIFT-specific)
                     for col in all_columns:
-                        if col not in recon_unique_columns and col not in drift_unique_columns and col not in common_columns and col != "Policy_Type":
+                        if col not in recon_unique_columns and col not in drift_unique_columns and col not in schema_drift_unique_columns and col not in common_columns and col != "Policy_Type":
                             if col in df.columns:
-                                df.loc[drift_mask & df[col].isna(), col] = "NOT_APPLICABLE"
+                                safe_set_not_applicable(df, drift_mask & df[col].isna(), col)
                     
-                    # For other policy types (not DATA_QUALITY, EQUALITY, DATA_DRIFT), set both reconciliation and DATA_DRIFT columns to NOT_APPLICABLE
-                    other_mask = ~(dq_mask | recon_mask | drift_mask)
-                    for col in recon_unique_columns + drift_unique_columns:
+                    # For other policy types (not DATA_QUALITY, EQUALITY, DATA_DRIFT, SCHEMA_DRIFT), 
+                    # set reconciliation, DATA_DRIFT, and SCHEMA_DRIFT columns to N/A
+                    other_mask = ~(dq_mask | recon_mask | drift_mask | schema_drift_mask)
+                    for col in recon_unique_columns + drift_unique_columns + schema_drift_unique_columns:
                         if col in df.columns:
-                            df.loc[other_mask & df[col].isna(), col] = "NOT_APPLICABLE"
+                            safe_set_not_applicable(df, other_mask & df[col].isna(), col)
                 
                 # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                 if "Rule_ID" in df.columns:
@@ -1133,7 +1208,7 @@ Examples:
                     if "Pde" in dq_df.columns:
                         dq_df = dq_df.drop(columns=["Pde"])
                     
-                    # For DATA_QUALITY CSV, exclude NOT_APPLICABLE columns and DATA_DRIFT-specific columns
+                    # For DATA_QUALITY CSV, exclude N/A columns and DATA_DRIFT-specific columns
                     # Exclude reconciliation-specific columns
                     recon_columns_to_exclude = [
                         "Left_Column", "Right_Column", "Left_Rows_Scanned", "Right_Rows_Scanned",
@@ -1141,17 +1216,17 @@ Examples:
                     ]
                     # Exclude DATA_DRIFT-specific columns
                     drift_columns_to_exclude = ["Drift_Threshold"]
-                    # Exclude columns that are NOT_APPLICABLE for DATA_QUALITY
+                    # Exclude columns that are N/A for DATA_QUALITY
                     for col in recon_columns_to_exclude + drift_columns_to_exclude:
                         if col in dq_df.columns:
                             dq_df = dq_df.drop(columns=[col])
                     
-                    # Also exclude any columns that are entirely "NOT_APPLICABLE" (including NaN that were filled)
+                    # Also exclude any columns that are entirely "N/A" (including NaN that were filled)
                     for col in dq_df.columns:
-                        # Check if all non-null values are "NOT_APPLICABLE" or if column is all NaN/None
+                        # Check if all non-null values are "N/A" or if column is all NaN/None
                         if col in dq_df.columns:
                             non_null_values = dq_df[col].dropna()
-                            if len(non_null_values) > 0 and (non_null_values == "NOT_APPLICABLE").all():
+                            if len(non_null_values) > 0 and (non_null_values == "N/A").all():
                                 dq_df = dq_df.drop(columns=[col])
                             elif len(non_null_values) == 0:
                                 # Column is all NaN/None, exclude it
@@ -1381,7 +1456,7 @@ Examples:
                     if "Pde" in recon_df.columns:
                         recon_df = recon_df.drop(columns=["Pde"])
                     
-                    # Exclude DATA_QUALITY-specific columns that are NOT_APPLICABLE for reconciliation
+                    # Exclude DATA_QUALITY-specific columns that are N/A for reconciliation
                     # These would be columns like Rule_Strategy, Rule_Lower_Threshold, Rule_Upper_Threshold, Table_Asset_Name, Item_Column_Name
                     dq_specific_columns = [
                         "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold", 
@@ -1391,12 +1466,12 @@ Examples:
                         if col in recon_df.columns:
                             recon_df = recon_df.drop(columns=[col])
                     
-                    # Also exclude any columns that are entirely "NOT_APPLICABLE" (including NaN that were filled)
+                    # Also exclude any columns that are entirely "N/A" (including NaN that were filled)
                     for col in recon_df.columns:
-                        # Check if all non-null values are "NOT_APPLICABLE" or if column is all NaN/None
+                        # Check if all non-null values are "N/A" or if column is all NaN/None
                         if col in recon_df.columns:
                             non_null_values = recon_df[col].dropna()
-                            if len(non_null_values) > 0 and (non_null_values == "NOT_APPLICABLE").all():
+                            if len(non_null_values) > 0 and (non_null_values == "N/A").all():
                                 recon_df = recon_df.drop(columns=[col])
                             elif len(non_null_values) == 0:
                                 # Column is all NaN/None, exclude it
@@ -1492,13 +1567,13 @@ Examples:
                             drift_df = drift_df.drop(columns=["Pde"])
                         
                         # For DATA_DRIFT CSV, exclude Rows_Scanned, Rows_Failed, and Rule_Description
-                        # (these are NOT_APPLICABLE for DATA_DRIFT)
+                        # (these are N/A for DATA_DRIFT)
                         columns_to_exclude = ["Rows_Scanned", "Rows_Failed", "Rule_Description"]
                         for col in columns_to_exclude:
                             if col in drift_df.columns:
                                 drift_df = drift_df.drop(columns=[col])
                         
-                        # Exclude reconciliation-specific columns that are NOT_APPLICABLE for DATA_DRIFT
+                        # Exclude reconciliation-specific columns that are N/A for DATA_DRIFT
                         recon_columns_to_exclude = [
                             "Left_Column", "Right_Column", "Left_Rows_Scanned", "Right_Rows_Scanned",
                             "Use_For_Joining", "Left_ASSET_UID", "Right_ASSET_UID", "Join_Type", "Operation"
@@ -1507,12 +1582,12 @@ Examples:
                             if col in drift_df.columns:
                                 drift_df = drift_df.drop(columns=[col])
                         
-                        # Also exclude any columns that are entirely "NOT_APPLICABLE" (including NaN that were filled)
+                        # Also exclude any columns that are entirely "N/A" (including NaN that were filled)
                         for col in drift_df.columns:
-                            # Check if all non-null values are "NOT_APPLICABLE" or if column is all NaN/None
+                            # Check if all non-null values are "N/A" or if column is all NaN/None
                             if col in drift_df.columns:
                                 non_null_values = drift_df[col].dropna()
-                                if len(non_null_values) > 0 and (non_null_values == "NOT_APPLICABLE").all():
+                                if len(non_null_values) > 0 and (non_null_values == "N/A").all():
                                     drift_df = drift_df.drop(columns=[col])
                                 elif len(non_null_values) == 0:
                                     # Column is all NaN/None, exclude it
@@ -1605,13 +1680,13 @@ Examples:
                             freshness_df = freshness_df.drop(columns=["Pde"])
                         
                         # For FRESHNESS CSV, exclude Rows_Scanned, Rows_Failed, Rule_Description, and Item_Column_Name
-                        # (these are NOT_APPLICABLE for FRESHNESS)
+                        # (these are N/A for FRESHNESS)
                         columns_to_exclude = ["Rows_Scanned", "Rows_Failed", "Rule_Description", "Item_Column_Name"]
                         for col in columns_to_exclude:
                             if col in freshness_df.columns:
                                 freshness_df = freshness_df.drop(columns=[col])
                         
-                        # Exclude reconciliation-specific columns that are NOT_APPLICABLE for FRESHNESS
+                        # Exclude reconciliation-specific columns that are N/A for FRESHNESS
                         recon_columns_to_exclude = [
                             "Left_Column", "Right_Column", "Left_Rows_Scanned", "Right_Rows_Scanned",
                             "Use_For_Joining", "Left_ASSET_UID", "Right_ASSET_UID", "Join_Type", "Operation"
@@ -1620,12 +1695,12 @@ Examples:
                             if col in freshness_df.columns:
                                 freshness_df = freshness_df.drop(columns=[col])
                         
-                        # Also exclude any columns that are entirely "NOT_APPLICABLE" (including NaN that were filled)
+                        # Also exclude any columns that are entirely "N/A" (including NaN that were filled)
                         for col in freshness_df.columns:
-                            # Check if all non-null values are "NOT_APPLICABLE" or if column is all NaN/None
+                            # Check if all non-null values are "N/A" or if column is all NaN/None
                             if col in freshness_df.columns:
                                 non_null_values = freshness_df[col].dropna()
-                                if len(non_null_values) > 0 and (non_null_values == "NOT_APPLICABLE").all():
+                                if len(non_null_values) > 0 and (non_null_values == "N/A").all():
                                     freshness_df = freshness_df.drop(columns=[col])
                                 elif len(non_null_values) == 0:
                                     # Column is all NaN/None, exclude it
@@ -1717,7 +1792,7 @@ Examples:
                         if "Pde" in schema_drift_df.columns:
                             schema_drift_df = schema_drift_df.drop(columns=["Pde"])
                         
-                        # For SCHEMA_DRIFT CSV, exclude NOT_APPLICABLE columns
+                        # For SCHEMA_DRIFT CSV, exclude N/A columns
                         columns_to_exclude = [
                             "Rule_Success_Rate", "Item_Column_Name", "Item_Measurement_Type",
                             "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold",
@@ -1727,7 +1802,7 @@ Examples:
                             if col in schema_drift_df.columns:
                                 schema_drift_df = schema_drift_df.drop(columns=[col])
                         
-                        # Exclude reconciliation-specific columns that are NOT_APPLICABLE for SCHEMA_DRIFT
+                        # Exclude reconciliation-specific columns that are N/A for SCHEMA_DRIFT
                         recon_columns_to_exclude = [
                             "Left_Column", "Right_Column", "Left_Rows_Scanned", "Right_Rows_Scanned",
                             "Use_For_Joining", "Left_ASSET_UID", "Right_ASSET_UID", "Join_Type", "Operation"
@@ -1736,18 +1811,18 @@ Examples:
                             if col in schema_drift_df.columns:
                                 schema_drift_df = schema_drift_df.drop(columns=[col])
                         
-                        # Exclude DATA_DRIFT-specific columns that are NOT_APPLICABLE for SCHEMA_DRIFT
+                        # Exclude DATA_DRIFT-specific columns that are N/A for SCHEMA_DRIFT
                         drift_columns_to_exclude = ["Drift_Threshold"]
                         for col in drift_columns_to_exclude:
                             if col in schema_drift_df.columns:
                                 schema_drift_df = schema_drift_df.drop(columns=[col])
                         
-                        # Also exclude any columns that are entirely "NOT_APPLICABLE" (including NaN that were filled)
+                        # Also exclude any columns that are entirely "N/A" (including NaN that were filled)
                         for col in schema_drift_df.columns:
-                            # Check if all non-null values are "NOT_APPLICABLE" or if column is all NaN/None
+                            # Check if all non-null values are "N/A" or if column is all NaN/None
                             if col in schema_drift_df.columns:
                                 non_null_values = schema_drift_df[col].dropna()
-                                if len(non_null_values) > 0 and (non_null_values == "NOT_APPLICABLE").all():
+                                if len(non_null_values) > 0 and (non_null_values == "N/A").all():
                                     schema_drift_df = schema_drift_df.drop(columns=[col])
                                 elif len(non_null_values) == 0:
                                     # Column is all NaN/None, exclude it
@@ -1839,7 +1914,7 @@ Examples:
                         if "Pde" in profile_anomaly_df.columns:
                             profile_anomaly_df = profile_anomaly_df.drop(columns=["Pde"])
                         
-                        # For PROFILE_ANOMALY CSV, exclude NOT_APPLICABLE columns
+                        # For PROFILE_ANOMALY CSV, exclude N/A columns
                         columns_to_exclude = [
                             "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold",
                             "Label_Key", "Label_Value", "Rule_Success_Rate", "Rule_Result_Status",
@@ -1851,7 +1926,7 @@ Examples:
                             if col in profile_anomaly_df.columns:
                                 profile_anomaly_df = profile_anomaly_df.drop(columns=[col])
                         
-                        # Exclude reconciliation-specific columns that are NOT_APPLICABLE for PROFILE_ANOMALY
+                        # Exclude reconciliation-specific columns that are N/A for PROFILE_ANOMALY
                         recon_columns_to_exclude = [
                             "Left_Column", "Right_Column", "Left_Rows_Scanned", "Right_Rows_Scanned",
                             "Use_For_Joining", "Left_ASSET_UID", "Right_ASSET_UID", "Join_Type", "Operation"
@@ -1860,17 +1935,17 @@ Examples:
                             if col in profile_anomaly_df.columns:
                                 profile_anomaly_df = profile_anomaly_df.drop(columns=[col])
                         
-                        # Exclude DATA_DRIFT-specific columns that are NOT_APPLICABLE for PROFILE_ANOMALY
+                        # Exclude DATA_DRIFT-specific columns that are N/A for PROFILE_ANOMALY
                         drift_columns_to_exclude = ["Drift_Threshold"]
                         for col in drift_columns_to_exclude:
                             if col in profile_anomaly_df.columns:
                                 profile_anomaly_df = profile_anomaly_df.drop(columns=[col])
                         
-                        # Also exclude any columns that are entirely "NOT_APPLICABLE" (including NaN that were filled)
+                        # Also exclude any columns that are entirely "N/A" (including NaN that were filled)
                         for col in list(profile_anomaly_df.columns):
-                            # Check if all non-null values are "NOT_APPLICABLE" or if column is all NaN/None
+                            # Check if all non-null values are "N/A" or if column is all NaN/None
                             non_null_values = profile_anomaly_df[col].dropna()
-                            if len(non_null_values) > 0 and (non_null_values == "NOT_APPLICABLE").all():
+                            if len(non_null_values) > 0 and (non_null_values == "N/A").all():
                                 profile_anomaly_df = profile_anomaly_df.drop(columns=[col])
                             elif len(non_null_values) == 0:
                                 # Column is all NaN/None, exclude it
