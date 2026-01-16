@@ -14,7 +14,7 @@ The `export-execution-metrics` command exports comprehensive execution metrics d
 - **Multiple Export Formats**: CSV (default) and Parquet formats with automatic data type handling
 - **Comprehensive Data**: Combines policy executions, detailed rule performance, and asset information
 - **Standardized Values**: Item_Measurement_Type uses all-caps values (EQUALITY_MATCH, ROW_COUNT_MATCH)
-- **NOT_APPLICABLE Handling**: Policy-specific columns automatically filled with "NOT_APPLICABLE" for other policy types
+- **N/A Handling**: Policy-specific columns automatically filled with "N/A" for other policy types
 - **Environment Integration**: Leverages the active environment configuration for API access
 - **Progress Tracking**: Real-time progress indicators with detailed status updates
 - **Data Validation**: Robust Pydantic-based validation with automatic type conversion and error handling
@@ -196,7 +196,7 @@ These columns are shared across both DATA_QUALITY and RECONCILIATION policy type
 
 #### DATA_QUALITY-Specific Columns
 
-These columns are only present in DATA_QUALITY records. For RECONCILIATION records, these columns are filled with "NOT_APPLICABLE":
+These columns are only present in DATA_QUALITY records. For RECONCILIATION records, these columns are filled with "N/A":
 
 | Column | Description | Data Source |
 |--------|-------------|-------------|
@@ -208,7 +208,7 @@ These columns are only present in DATA_QUALITY records. For RECONCILIATION recor
 
 #### RECONCILIATION-Specific Columns
 
-These columns are only present in RECONCILIATION (EQUALITY) records. For DATA_QUALITY records, these columns are filled with "NOT_APPLICABLE":
+These columns are only present in RECONCILIATION (EQUALITY) records. For DATA_QUALITY records, these columns are filled with "N/A":
 
 | Column | Description | Data Source |
 |--------|-------------|-------------|
@@ -232,15 +232,15 @@ The `Item_Measurement_Type` column (formerly `Recon_Type` for reconciliation) us
 - **EQUALITY_MATCH**: For reconciliation policies with `dimension` = "ACCURACY"
 - **ROW_COUNT_MATCH**: For reconciliation policies with `dimension` = "TIMELINESS"
 
-#### NOT_APPLICABLE Values
+#### N/A Values
 
 To maintain a consistent schema across policy types in the main CSV:
 
-- **DATA_QUALITY records**: All RECONCILIATION-specific columns are filled with "NOT_APPLICABLE" (all caps)
-- **RECONCILIATION records**: All DATA_QUALITY-specific columns are filled with "NOT_APPLICABLE" (all caps)
-- **Reconciliation-specific fields**: `Left_Rows_Scanned` and `Right_Rows_Scanned` are set to "NOT_APPLICABLE" for EQUALITY_MATCH records (only applicable for ROW_COUNT_MATCH)
+- **DATA_QUALITY records**: All RECONCILIATION-specific columns are filled with "N/A" (all caps)
+- **RECONCILIATION records**: All DATA_QUALITY-specific columns are filled with "N/A" (all caps)
+- **Reconciliation-specific fields**: `Left_Rows_Scanned` and `Right_Rows_Scanned` are set to "N/A" for EQUALITY_MATCH records (only applicable for ROW_COUNT_MATCH)
 
-**Note**: In the individual policy-type CSV files (data-quality-metrics, reconciliation-metrics, data-drift-metrics), columns that are entirely "NOT_APPLICABLE" for that policy type are automatically excluded to keep the files clean and focused on relevant data.
+**Note**: In the individual policy-type CSV files (data-quality-metrics, reconciliation-metrics, data-drift-metrics), columns that are entirely "N/A" for that policy type are automatically excluded to keep the files clean and focused on relevant data.
 
 ### Progress Tracking
 
@@ -402,7 +402,7 @@ After running the command, you'll get three files (if both DATA_QUALITY and RECO
 
 1. **Main consolidated file**: `execution-metrics-25-12-2023-14-30_prod.csv`
    - Contains both DATA_QUALITY and RECONCILIATION records
-   - Uses unified schema with NOT_APPLICABLE for policy-specific columns
+   - Uses unified schema with N/A for policy-specific columns
 
 2. **DATA_QUALITY file**: `data-quality-metrics-25-12-2023-14-30_prod.csv`
    - Contains only DATA_QUALITY policy records
@@ -423,7 +423,7 @@ The main export file contains consolidated execution metrics data for both DATA_
 
 This file uses a unified schema where:
 - Common columns are shared across both policy types
-- Policy-specific columns are filled with "NOT_APPLICABLE" for the other policy type
+- Policy-specific columns are filled with "N/A" for the other policy type
 - All records are consolidated into a single file for cross-policy analysis
 
 ### DATA_QUALITY Export File
