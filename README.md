@@ -125,6 +125,186 @@ MyPolicy,2025-11-05 23:54:17,1000
   ADOC > get /catalog-server/api/asset-types
   ```
 
+## 🔌 API Reference
+
+The ADOC Toolkit interacts with various ADOC platform APIs. Below is a comprehensive list of all APIs used by the toolkit and their purposes.
+
+### Policy Execution APIs
+
+#### 1. Policy Executions List
+- **Endpoint**: `GET /catalog-server/api/rules/executions`
+- **Purpose**: Retrieves a paginated list of policy executions with metadata, status, and performance scores
+- **Used By**: `export-execution-metrics` command
+- **Query Parameters**:
+  - `page`: Page number for pagination
+  - `size`: Number of executions per page
+  - `sortBy`: Sort criteria (e.g., `execution.startedAt:DESC`)
+  - `ruleType`: Filter by policy type (DATA_QUALITY, EQUALITY, DATA_DRIFT, etc.)
+
+### Execution Result APIs
+
+These APIs fetch detailed rule-level performance metrics for specific execution IDs:
+
+#### 2. DATA_QUALITY Execution Result
+- **Endpoint**: `GET /catalog-server/api/rules/data-quality/executions/:id/result`
+- **Purpose**: Fetches detailed rule-level performance metrics for DATA_QUALITY policy executions
+- **Used By**: `export-execution-metrics` command
+
+#### 3. RECONCILIATION (EQUALITY) Execution Result
+- **Endpoint**: `GET /catalog-server/api/rules/reconciliation/executions/:id/result`
+- **Purpose**: Fetches detailed rule-level performance metrics for RECONCILIATION (EQUALITY) policy executions
+- **Used By**: `export-execution-metrics` command
+
+#### 4. DATA_DRIFT Execution Result
+- **Endpoint**: `GET /catalog-server/api/rules/data-drift/executions/:id/result`
+- **Purpose**: Fetches detailed rule-level performance metrics for DATA_DRIFT policy executions
+- **Used By**: `export-execution-metrics` command
+
+#### 5. PROFILE_ANOMALY Execution Result
+- **Endpoint**: `GET /catalog-server/api/rules/profile-anomaly/executions/:id/result`
+- **Purpose**: Fetches detailed rule-level performance metrics for PROFILE_ANOMALY policy executions
+- **Used By**: `export-execution-metrics` command
+
+#### 6. SCHEMA_DRIFT Execution Result
+- **Endpoint**: `GET /catalog-server/api/rules/schema-drift/executions/:id/result`
+- **Purpose**: Fetches detailed rule-level performance metrics for SCHEMA_DRIFT policy executions
+- **Used By**: `export-execution-metrics` command
+
+#### 7. FRESHNESS (DATA_CADENCE) Execution Result
+- **Endpoint**: `GET /catalog-server/api/rules/data-cadence/executions/:id/result`
+- **Purpose**: Fetches detailed rule-level performance metrics for FRESHNESS (DATA_CADENCE) policy executions
+- **Used By**: `export-execution-metrics` command
+
+### Policy Details APIs
+
+These APIs retrieve policy configuration and rule details for different policy types:
+
+#### 8. DATA_QUALITY Policy Details
+- **Endpoint**: `GET /catalog-server/api/rules/data-quality/:id?version={v}`
+- **Purpose**: Retrieves DATA_QUALITY policy configuration, rule details, and asset information
+- **Used By**: `export-execution-metrics` command
+- **Parameters**:
+  - `:id`: Policy ID
+  - `version`: Policy version number
+
+#### 9. RECONCILIATION Policy Details
+- **Endpoint**: `GET /catalog-server/api/rules/reconciliation/:id?version={v}`
+- **Purpose**: Retrieves RECONCILIATION (EQUALITY) policy configuration, column mappings, and join details
+- **Used By**: `export-execution-metrics` command
+- **Parameters**:
+  - `:id`: Policy ID
+  - `version`: Policy version number
+
+#### 10. DATA_DRIFT Policy Details
+- **Endpoint**: `GET /catalog-server/api/rules/data-drift/:id?version={v}`
+- **Purpose**: Retrieves DATA_DRIFT policy configuration and drift threshold settings
+- **Used By**: `export-execution-metrics` command
+- **Parameters**:
+  - `:id`: Policy ID
+  - `version`: Policy version number
+
+#### 11. PROFILE_ANOMALY Policy Details
+- **Endpoint**: `GET /catalog-server/api/rules/profile-anomaly/:id?version={v}`
+- **Purpose**: Retrieves PROFILE_ANOMALY policy configuration and anomaly detection settings
+- **Used By**: `export-execution-metrics` command
+- **Parameters**:
+  - `:id`: Policy ID
+  - `version`: Policy version number
+
+#### 12. SCHEMA_DRIFT Policy Details
+- **Endpoint**: `GET /catalog-server/api/rules/schema-drift/:id?version=1`
+- **Purpose**: Retrieves SCHEMA_DRIFT policy configuration and schema drift rule settings
+- **Used By**: `export-execution-metrics` command
+- **Parameters**:
+  - `:id`: Policy ID
+  - `version`: Always uses version 1 for SCHEMA_DRIFT
+
+#### 13. FRESHNESS (DATA_CADENCE) Policy Details
+- **Endpoint**: `GET /catalog-server/api/rules/data-cadence/:id?version={v}`
+- **Purpose**: Retrieves FRESHNESS (DATA_CADENCE) policy configuration and threshold settings
+- **Used By**: `export-execution-metrics` command
+- **Parameters**:
+  - `:id`: Policy ID
+  - `version`: Policy version number
+
+### Asset Catalog APIs
+
+#### 14. Asset Search
+- **Endpoint**: `GET /catalog-server/api/assets/search`
+- **Purpose**: Search for assets in the catalog by name or IDs
+- **Used By**: `export-execution-metrics` command (for resolving asset names from IDs), `find-asset` command
+- **Query Parameters**:
+  - `name`: Asset name to search for
+  - `ids`: Comma-separated list of asset IDs
+
+#### 15. Asset Overview
+- **Endpoint**: `GET /catalog-server/api/assets/:id/overview`
+- **Purpose**: Retrieves overview information for a specific asset by ID
+- **Used By**: `export-execution-metrics` command (for resolving asset names)
+
+#### 16. Asset List
+- **Endpoint**: `GET /catalog-server/api/assets/list`
+- **Purpose**: Retrieve a paginated list of assets with filtering and sorting options
+- **Used By**: `export-metrics` command
+- **Query Parameters**:
+  - `page`: Page number (use -1 for all results)
+  - `size`: Number of assets per page (use -1 for all results)
+  - `sortBy`: Sort criteria (e.g., `dataQualityPolicyCount:DESC`)
+  - `asset_type_ids`: Comma-separated list of asset type IDs
+
+### Rules APIs
+
+#### 17. Rules List
+- **Endpoint**: `GET /catalog-server/api/rules`
+- **Purpose**: Retrieve a paginated list of rules with filtering options
+- **Used By**: `export-metrics` command
+- **Query Parameters**:
+  - `page`: Page number
+  - `size`: Number of rules per page
+  - `ruleStatus`: Filter by rule status
+  - `withLatestExecution`: Include latest execution information (boolean)
+  - `ruleStatus`: Comma-separated list of statuses (e.g., `ENABLED,ACTIVE`)
+
+### Additional Asset APIs
+
+The toolkit also supports access to many other asset-related APIs through the `get` command. See `config/adoc-toolkit-api-reference.json` for a complete list of available endpoints, including:
+
+- Asset metadata (`/catalog-server/api/assets/:id/metadata`)
+- Asset rules with latest execution (`/catalog-server/api/assets/:id/rulesWithLatestExecution`)
+- Asset scores (`/catalog-server/api/assets/:id/scores`)
+- Asset activity logs (`/catalog-server/api/assets/:id/activity`)
+- Asset comments (`/catalog-server/api/assets/:id/comments`)
+- Asset tags (`/catalog-server/api/assets/:id/tags`)
+- Asset labels (`/catalog-server/api/assets/:id/labels`)
+- And many more...
+
+### API Authentication
+
+All API requests are authenticated using:
+- **Access Key**: Provided in `accessKey` header
+- **Secret Key**: Provided in `secretKey` header
+
+These credentials are configured per environment in `config/environments.yaml` and automatically included in all API requests.
+
+### API Base URL
+
+The base URL for all API requests is configured per environment in `config/environments.yaml`:
+```yaml
+environments:
+  my-environment:
+    base_url: "https://your-adoc-instance.acceldata.app"
+    access_key: "YOUR_ACCESS_KEY"
+    secret_key: "YOUR_SECRET_KEY"
+```
+
+### Error Handling
+
+The toolkit includes robust error handling for API requests:
+- **Automatic Retries**: Configurable retry logic for transient failures (timeouts, connection errors)
+- **Error Messages**: Clear error messages for API failures
+- **HTTP Status Codes**: Proper handling of HTTP status codes (4xx, 5xx)
+- **Timeout Configuration**: Configurable request timeouts (default: 120 seconds)
+
 #### Data Export
 - **[`export-metrics`](docs/export_execution_metrics.md)** - Export metrics data in various formats (JSON, CSV, Parquet, Avro)
 - **[`export-execution-metrics`](docs/export_execution_metrics.md)** - Export execution metrics with filtering options (supports DATA_QUALITY, EQUALITY, DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT, FRESHNESS)

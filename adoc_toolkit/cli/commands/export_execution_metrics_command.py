@@ -749,7 +749,12 @@ Examples:
                     start_ts_marker, progress, args_model.policy_types, args_model.page_size
                 )
 
-                if not execution_records:
+                # Get reconciliation records (EQUALITY records are only in reconciliation_records, not in execution_records)
+                reconciliation_records = getattr(service, '_reconciliation_records', [])
+
+                # Consider we have data when either execution_records (merged) or reconciliation_records (EQUALITY) is non-empty
+                has_records = bool(execution_records or reconciliation_records)
+                if not has_records:
                     console.print(
                         "No new execution metrics data found since last run.",
                         style="yellow",
@@ -758,9 +763,6 @@ Examples:
 
                 # Create DataFrame
                 progress_task = progress.add_task("Creating DataFrame...", total=None)
-                
-                # Get reconciliation records
-                reconciliation_records = getattr(service, '_reconciliation_records', [])
 
                 # Create separate DataFrames for execution records and reconciliation records
                 # to preserve ALL columns from both
