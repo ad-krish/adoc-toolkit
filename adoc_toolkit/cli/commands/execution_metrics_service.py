@@ -436,14 +436,28 @@ def process_execution_details_parallel(
                     f"to {rule_version} from execution result"
                 )
         
+        # Extract execution status first to check if execution is still running
+        execution_status = safe_get(execution_data, "executionStatus", "")
+        
         # Extract result-level fields (same for all items in this execution)
         result_data = safe_get(exec_result_data, "result", {})
-        overall_policy_status = safe_get(result_data, "status")
-        overall_policy_quality_score = safe_get(result_data, "qualityScore")
+        
+        # For RUNNING or STARTED executions, don't use result data (it may be stale from previous execution)
+        if execution_status in ["RUNNING", "STARTED"]:
+            overall_policy_status = None
+            overall_policy_quality_score = None
+            log_info(
+                f"Execution {execution.execution_id} is {execution_status}, "
+                f"setting Overall_Policy_Status and Overall_Policy_Quality_Score to None"
+            )
+        else:
+            overall_policy_status = safe_get(result_data, "status")
+            overall_policy_quality_score = safe_get(result_data, "qualityScore")
         
         # For SCHEMA_DRIFT, set Overall_Policy_Quality_Score based on Overall_Policy_Status
         # If status is SUCCESSFUL, set to 100, else set to 0
-        if execution.policy_type == "SCHEMA_DRIFT":
+        # Skip this logic for RUNNING/STARTED executions (keep None values)
+        if execution.policy_type == "SCHEMA_DRIFT" and execution_status not in ["RUNNING", "STARTED"]:
             if overall_policy_status and str(overall_policy_status).upper() == "SUCCESSFUL":
                 overall_policy_quality_score = 100.0
             else:
@@ -476,7 +490,7 @@ def process_execution_details_parallel(
                 )
         
         # Log execution status and items count for debugging
-        execution_status = safe_get(exec_result_data, "execution", {}).get("executionStatus")
+        # Note: execution_status was already extracted above before extracting result data
         log_info(
             f"Fetched execution details for {execution.policy_type} "
             f"exec_id={execution.execution_id} (status: {execution_status}): {len(items)} items"
@@ -1819,9 +1833,11 @@ def process_execution_details(
 
             exec_result_data = response.json()
             
+            # Extract execution data from API response
+            execution_data = safe_get(exec_result_data, "execution", {})
+            
             # For DATA_DRIFT and FRESHNESS, extract execution.ruleVersion from the result and update execution object
             if execution.policy_type == "DATA_DRIFT" or execution.policy_type == "FRESHNESS":
-                execution_data = safe_get(exec_result_data, "execution", {})
                 rule_version = safe_get(execution_data, "ruleVersion")
                 if rule_version is not None:
                     execution.policy_version = rule_version
@@ -1830,14 +1846,28 @@ def process_execution_details(
                         f"to {rule_version} from execution result"
                     )
             
+            # Extract execution status first to check if execution is still running
+            execution_status = safe_get(execution_data, "executionStatus", "")
+            
             # Extract result-level fields (same for all items in this execution)
             result_data = safe_get(exec_result_data, "result", {})
-            overall_policy_status = safe_get(result_data, "status")
-            overall_policy_quality_score = safe_get(result_data, "qualityScore")
+            
+            # For RUNNING or STARTED executions, don't use result data (it may be stale from previous execution)
+            if execution_status in ["RUNNING", "STARTED"]:
+                overall_policy_status = None
+                overall_policy_quality_score = None
+                log_info(
+                    f"Execution {execution.execution_id} is {execution_status}, "
+                    f"setting Overall_Policy_Status and Overall_Policy_Quality_Score to None"
+                )
+            else:
+                overall_policy_status = safe_get(result_data, "status")
+                overall_policy_quality_score = safe_get(result_data, "qualityScore")
             
             # For SCHEMA_DRIFT, set Overall_Policy_Quality_Score based on Overall_Policy_Status
             # If status is SUCCESSFUL, set to 100, else set to 0
-            if execution.policy_type == "SCHEMA_DRIFT":
+            # Skip this logic for RUNNING/STARTED executions (keep None values)
+            if execution.policy_type == "SCHEMA_DRIFT" and execution_status not in ["RUNNING", "STARTED"]:
                 if overall_policy_status and str(overall_policy_status).upper() == "SUCCESSFUL":
                     overall_policy_quality_score = 100.0
                 else:
@@ -2786,8 +2816,18 @@ def process_reconciliation_records(
     rows_scanned = safe_get(result_data, "rows")
     left_rows_scanned = safe_get(result_data, "leftRowsScanned")
     right_rows_scanned = safe_get(result_data, "rightRowsScanned")
-    overall_policy_status = safe_get(result_data, "status")
-    overall_policy_quality_score = safe_get(result_data, "qualityScore")
+    
+    # For RUNNING or STARTED executions, don't use result data (it may be stale from previous execution)
+    if execution_status in ["RUNNING", "STARTED"]:
+        overall_policy_status = None
+        overall_policy_quality_score = None
+        log_info(
+            f"Reconciliation execution {execution_id} is {execution_status}, "
+            f"setting Overall_Policy_Status and Overall_Policy_Quality_Score to None"
+        )
+    else:
+        overall_policy_status = safe_get(result_data, "status")
+        overall_policy_quality_score = safe_get(result_data, "qualityScore")
     
     # Extract timestamps
     started_at_ts = safe_get(execution_data, "startedAt")
