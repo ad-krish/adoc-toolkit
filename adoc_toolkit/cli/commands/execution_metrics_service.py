@@ -436,18 +436,20 @@ def process_execution_details_parallel(
                     f"to {rule_version} from execution result"
                 )
         
-        # Extract execution status first to check if execution is still running
+        # Use list API execution status as source of truth for "still running" check.
+        # The result API may return cached/completed result with status and qualityScore; we must not use those when the list API says RUNNING/STARTED.
+        execution_status_from_list = (execution.execution_status or "").strip().upper()
         execution_status = safe_get(execution_data, "executionStatus", "")
         
         # Extract result-level fields (same for all items in this execution)
         result_data = safe_get(exec_result_data, "result", {})
         
         # For RUNNING or STARTED executions, don't use result data (it may be stale from previous execution)
-        if execution_status in ["RUNNING", "STARTED"]:
+        if execution_status_from_list in ["RUNNING", "STARTED"]:
             overall_policy_status = None
             overall_policy_quality_score = None
             log_info(
-                f"Execution {execution.execution_id} is {execution_status}, "
+                f"Execution {execution.execution_id} is {execution_status_from_list} (from list API), "
                 f"setting Overall_Policy_Status and Overall_Policy_Quality_Score to None"
             )
         else:
@@ -457,7 +459,7 @@ def process_execution_details_parallel(
         # For SCHEMA_DRIFT, set Overall_Policy_Quality_Score based on Overall_Policy_Status
         # If status is SUCCESSFUL, set to 100, else set to 0
         # Skip this logic for RUNNING/STARTED executions (keep None values)
-        if execution.policy_type == "SCHEMA_DRIFT" and execution_status not in ["RUNNING", "STARTED"]:
+        if execution.policy_type == "SCHEMA_DRIFT" and execution_status_from_list not in ["RUNNING", "STARTED"]:
             if overall_policy_status and str(overall_policy_status).upper() == "SUCCESSFUL":
                 overall_policy_quality_score = 100.0
             else:
@@ -490,14 +492,14 @@ def process_execution_details_parallel(
                 )
         
         # Log execution status and items count for debugging
-        # Note: execution_status was already extracted above before extracting result data
+        # Note: execution_status_from_list is from list API (source of truth for RUNNING/STARTED)
         log_info(
             f"Fetched execution details for {execution.policy_type} "
-            f"exec_id={execution.execution_id} (status: {execution_status}): {len(items)} items"
+            f"exec_id={execution.execution_id} (status: {execution_status_from_list or execution_status}): {len(items)} items"
         )
         
         # Warn if execution is still running and has no items
-        if execution_status in ["RUNNING", "STARTED"] and not items:
+        if execution_status_from_list in ["RUNNING", "STARTED"] and not items:
             log_info(
                 f"⚠️  Execution {execution.execution_id} is still {execution_status} "
                 f"and has no items yet (may need to wait for completion)"
@@ -1846,18 +1848,19 @@ def process_execution_details(
                         f"to {rule_version} from execution result"
                     )
             
-            # Extract execution status first to check if execution is still running
+            # Use list API execution status as source of truth for "still running" check
+            execution_status_from_list = (execution.execution_status or "").strip().upper()
             execution_status = safe_get(execution_data, "executionStatus", "")
             
             # Extract result-level fields (same for all items in this execution)
             result_data = safe_get(exec_result_data, "result", {})
             
             # For RUNNING or STARTED executions, don't use result data (it may be stale from previous execution)
-            if execution_status in ["RUNNING", "STARTED"]:
+            if execution_status_from_list in ["RUNNING", "STARTED"]:
                 overall_policy_status = None
                 overall_policy_quality_score = None
                 log_info(
-                    f"Execution {execution.execution_id} is {execution_status}, "
+                    f"Execution {execution.execution_id} is {execution_status_from_list} (from list API), "
                     f"setting Overall_Policy_Status and Overall_Policy_Quality_Score to None"
                 )
             else:
@@ -1867,7 +1870,7 @@ def process_execution_details(
             # For SCHEMA_DRIFT, set Overall_Policy_Quality_Score based on Overall_Policy_Status
             # If status is SUCCESSFUL, set to 100, else set to 0
             # Skip this logic for RUNNING/STARTED executions (keep None values)
-            if execution.policy_type == "SCHEMA_DRIFT" and execution_status not in ["RUNNING", "STARTED"]:
+            if execution.policy_type == "SCHEMA_DRIFT" and execution_status_from_list not in ["RUNNING", "STARTED"]:
                 if overall_policy_status and str(overall_policy_status).upper() == "SUCCESSFUL":
                     overall_policy_quality_score = 100.0
                 else:
@@ -2804,7 +2807,10 @@ def process_reconciliation_records(
     policy_id = str(safe_get(execution_data, "ruleId", ""))
     rule_version = safe_get(execution_data, "ruleVersion", 1)
     execution_id = execution.execution_id  # Use from PolicyExecution object, not from API response
+    # Use list API execution status as source of truth for "still running" check and for display
+    execution_status_from_list = (execution.execution_status or "").strip().upper()
     execution_status = safe_get(execution_data, "executionStatus", "")
+    display_execution_status = execution.execution_status or execution_status or ""
     # Note: result_status will be extracted per item from items[].success
     policy_type = safe_get(execution_data, "ruleType", "EQUALITY")
     # Map DATA_CADENCE (API) to FRESHNESS (internal)
@@ -2818,11 +2824,11 @@ def process_reconciliation_records(
     right_rows_scanned = safe_get(result_data, "rightRowsScanned")
     
     # For RUNNING or STARTED executions, don't use result data (it may be stale from previous execution)
-    if execution_status in ["RUNNING", "STARTED"]:
+    if execution_status_from_list in ["RUNNING", "STARTED"]:
         overall_policy_status = None
         overall_policy_quality_score = None
         log_info(
-            f"Reconciliation execution {execution_id} is {execution_status}, "
+            f"Reconciliation execution {execution_id} is {execution_status_from_list} (from list API), "
             f"setting Overall_Policy_Status and Overall_Policy_Quality_Score to None"
         )
     else:
@@ -2982,7 +2988,7 @@ def process_reconciliation_records(
                     Started_At_UTC=started_at,
                     Finished_At_UTC=finished_at,
                     Execution_Date_UTC=execution_date,
-                    Execution_Status=execution_status,
+                    Execution_Status=display_execution_status,
                     Rule_Result_Status=result_status,
                     Overall_Policy_Status=overall_policy_status,
                     Overall_Policy_Quality_Score=overall_policy_quality_score,
@@ -3018,7 +3024,7 @@ def process_reconciliation_records(
                 Started_At_UTC=started_at,
                 Finished_At_UTC=finished_at,
                 Execution_Date_UTC=execution_date,
-                Execution_Status=execution_status,
+                Execution_Status=display_execution_status,
                 Rule_Result_Status=result_status,
                 Overall_Policy_Status=overall_policy_status,
                 Overall_Policy_Quality_Score=overall_policy_quality_score,
@@ -3739,10 +3745,14 @@ class ExecutionMetricsService(TraceableMixin):
             # Remove the task after completion
             progress.remove_task(task4)
 
-            # Final summary by policy type
+            # Final summary by policy type (merged records + reconciliation/EQUALITY records)
             final_type_counts = {}
             for record in merged_records:
                 final_type_counts[record.policy_type] = final_type_counts.get(record.policy_type, 0) + 1
+            if reconciliation_records:
+                final_type_counts["EQUALITY"] = final_type_counts.get("EQUALITY", 0) + len(reconciliation_records)
+            
+            total_export_records = len(merged_records) + len(reconciliation_records)
             
             # Print final summary to console
             console.print(f"\n{'='*70}")
@@ -3751,12 +3761,12 @@ class ExecutionMetricsService(TraceableMixin):
             console.print(f"[cyan]Total Executions Found:[/cyan]       {len(policy_executions)}")
             console.print(f"[cyan]Execution Details Fetched:[/cyan]   {len(execution_details)}")
             console.print(f"[cyan]Policy Details Fetched:[/cyan]      {len(policy_details)}")
-            console.print(f"[bold cyan]Records Ready for Export:[/bold cyan]   [bold green]{len(merged_records)}[/bold green]")
+            console.print(f"[bold cyan]Records Ready for Export:[/bold cyan]   [bold green]{total_export_records}[/bold green]")
             console.print()
             console.print(f"[bold cyan]📊 Records by Policy Type:[/bold cyan]")
             for ptype in sorted(final_type_counts.keys()):
                 count = final_type_counts[ptype]
-                percentage = (count / len(merged_records) * 100) if merged_records else 0
+                percentage = (count / total_export_records * 100) if total_export_records else 0
                 console.print(f"   • {ptype:20s}: [bold]{count:5d}[/bold] ({percentage:5.1f}%)")
             console.print(f"{'='*70}\n")
             
@@ -3767,6 +3777,8 @@ class ExecutionMetricsService(TraceableMixin):
             log_info(f"  Total execution details fetched: {len(execution_details)}")
             log_info(f"  Total policy details fetched: {len(policy_details)}")
             log_info(f"  Total merged records: {len(merged_records)}")
+            log_info(f"  Reconciliation records (EQUALITY): {len(reconciliation_records)}")
+            log_info(f"  Total records for export: {total_export_records}")
             log_info(f"  Breakdown by policy type: {final_type_counts}")
             log_info("=" * 60)
 
