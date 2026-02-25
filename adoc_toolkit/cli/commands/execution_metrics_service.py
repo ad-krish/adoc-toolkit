@@ -2151,6 +2151,21 @@ def process_execution_details(
                     anomaly_detected = safe_get(item, "anomalyDetected")
                     threshold_breached = safe_get(item, "thresholdBreached")
                 
+                # Extract metric_anomalous for PROFILE_ANOMALY only
+                metric_anomalous = None
+                if execution.policy_type == "PROFILE_ANOMALY":
+                    # For PROFILE_ANOMALY, extract from columnMetricWithAnomalyDetails
+                    anomaly_details = safe_get(item, "anomalyDetails", {})
+                    column_metric_details = safe_get(anomaly_details, "columnMetricWithAnomalyDetails", {})
+                    # If columnMetricWithAnomalyDetails exists, extract isMetricAnomalous from first metric
+                    if column_metric_details and isinstance(column_metric_details, dict):
+                        for column_name_key, metric_list in column_metric_details.items():
+                            if isinstance(metric_list, list) and len(metric_list) > 0:
+                                metric_obj = metric_list[0]
+                                if isinstance(metric_obj, dict):
+                                    metric_anomalous = safe_get(metric_obj, "isMetricAnomalous")
+                                    break
+                
                 execution_detail = ExecutionDetail(
                     item_id=extracted_item_id,
                     item_column_name=column_name,
@@ -2176,6 +2191,7 @@ def process_execution_details(
                     execution_status=execution.execution_status,
                     anomaly_detected=anomaly_detected,
                     threshold_breached=threshold_breached,
+                    metric_anomalous=metric_anomalous,
                 )
                 execution_details.append(execution_detail)
 
