@@ -129,6 +129,9 @@ class ExecutionDetail(BaseModel):
     threshold_breached: bool | None = Field(
         default=None, description="Threshold breached flag from items.thresholdBreached (for FRESHNESS only)"
     )
+    metric_anomalous: bool | None = Field(
+        default=None, description="Metric anomalous flag from items.columnMetricWithAnomalyDetails.{columnName}[].isMetricAnomalous (for PROFILE_ANOMALY only)"
+    )
 
     @field_validator("item_id", "exec_id", mode="before")
     @classmethod
@@ -283,6 +286,9 @@ class ExecutionMetricsRecord(BaseModel):
     )
     threshold_breached: bool | None = Field(
         default=None, description="Threshold breached flag from items.thresholdBreached (for FRESHNESS only)"
+    )
+    metric_anomalous: bool | None = Field(
+        default=None, description="Metric anomalous flag from items.columnMetricWithAnomalyDetails.{columnName}[].isMetricAnomalous (for PROFILE_ANOMALY only)"
     )
     asset_addition: bool | None = Field(
         default=None, description="Asset addition flag from details.items.schemaDriftRuleConfig.assetAddition (for SCHEMA_DRIFT only)"

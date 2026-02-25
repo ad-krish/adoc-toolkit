@@ -298,7 +298,7 @@ def preprocess_execution_metrics_dataframe(
     Returns:
         Preprocessed DataFrame
     """
-    processed_df = df.replace("N/A", pd.NA).copy()
+    processed_df = df.replace("NOT_APPLICABLE", pd.NA).copy()
 
     # Convert numeric columns
     numeric_columns = [
@@ -821,12 +821,42 @@ Examples:
                 
                 # Merge both DataFrames to include ALL columns from both
                 # This will create a DataFrame with all columns, with NaN for missing values
+                # CRITICAL: When one DataFrame is empty, pd.concat won't include columns from the empty DataFrame.
+                # We need to ensure all columns from both DataFrames are always included.
+                
+                # Define all expected columns from ReconciliationRecord (after processing/renaming)
+                # These are columns that exist in ReconciliationRecord but may not exist in ExecutionMetricsRecord
+                # Note: Left_Column and Right_Column exist in both, but we include them here to be safe
+                reconciliation_specific_columns = [
+                    "Left_Column", "Right_Column", "Left_Rows_Scanned", "Right_Rows_Scanned", 
+                    "Use_For_Joining", "Left_ASSET_UID", "Right_ASSET_UID", "Join_Type", "Operation"
+                ]
+                
+                # Define all expected columns from ExecutionMetricsRecord (after processing/renaming)
+                # These are columns that exist in ExecutionMetricsRecord but may not exist in ReconciliationRecord
+                execution_specific_columns = [
+                    "Table_Asset_Name", "Item_Column_Name", "Item_Measurement_Type",
+                    "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold",
+                    "Anomaly_Detected", "Threshold_Breached", "Asset_Addition", "Asset_Deletion",
+                    "Data_Type", "Asset_Relation_Change", "Asset_Metadata", "Metadata_Configs",
+                    "Drift_Threshold"
+                ]
+                
+                # Merge the DataFrames
                 if not exec_df.empty and not recon_df_raw.empty:
                     df = pd.concat([exec_df, recon_df_raw], ignore_index=True, sort=False)
                 elif not exec_df.empty:
+                    # When only exec_df has data, add missing reconciliation columns
                     df = exec_df.copy()
+                    for col in reconciliation_specific_columns:
+                        if col not in df.columns:
+                            df[col] = None
                 elif not recon_df_raw.empty:
+                    # When only recon_df_raw has data, add missing execution columns
                     df = recon_df_raw.copy()
+                    for col in execution_specific_columns:
+                        if col not in df.columns:
+                            df[col] = None
                 else:
                     df = pd.DataFrame()
                 
