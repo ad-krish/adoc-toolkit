@@ -128,7 +128,7 @@
       "default": "gemini"
     },
     "apikey": {
-      "value": "AIzaSyDrVqKiaAYS8N0bn-xkAxKRp_guGHaAsvI",
+      "value": null,
       "description": "API key for the selected LLM vendor",
       "type": "string",
       "options": [
