@@ -4192,8 +4192,8 @@ class ExecutionMetricsService(TraceableMixin):
         data_collector = ThreadSafeDataCollector()
         reconciliation_collector = ThreadSafeDataCollector()
 
-        # Determine number of workers (limit to avoid overwhelming the API)
-        max_workers = min(len(policy_executions), 10)
+        # Determine number of workers (limit to avoid API rate limiting / 429)
+        max_workers = min(len(policy_executions), 6)
 
         # Track which worker is available
         available_workers = list(range(max_workers))
@@ -4347,10 +4347,8 @@ class ExecutionMetricsService(TraceableMixin):
         # Create thread-safe data collector
         data_collector = ThreadSafeDataCollector()
 
-        # Determine number of workers (limit to avoid overwhelming the API)
-        max_workers = min(
-            len(unique_executions), 8
-        )  # Slightly fewer workers for policy details
+        # Determine number of workers (limit to avoid API rate limiting / 429)
+        max_workers = min(len(unique_executions), 5)
 
         # Track which worker is available
         available_workers = list(range(max_workers))

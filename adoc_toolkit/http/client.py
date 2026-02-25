@@ -1,6 +1,7 @@
 """HTTP client for ADOC API interactions."""
 
 import json
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -292,6 +293,20 @@ class ADOCHTTPClient(_AuditMixin):
                         status_code=response.status_code,
                         retries=attempt,
                     )
+                    # Retry on 429 (Too Many Requests) with exponential backoff
+                    if response.status_code == 429 and attempt < retries:
+                        retry_after = response.headers.get("Retry-After")
+                        if retry_after and retry_after.isdigit():
+                            delay = int(retry_after)
+                        else:
+                            delay = min(2 ** (attempt + 1), 60)  # 2, 4, 8, ... up to 60s
+                        self.console.print(
+                            f"Rate limited (429), retrying in {delay}s... "
+                            f"(attempt {attempt + 1}/{retries})",
+                            style="yellow",
+                        )
+                        time.sleep(delay)
+                        continue
                     if self.response_handler:
                         try:
                             self.response_handler(http_response)
