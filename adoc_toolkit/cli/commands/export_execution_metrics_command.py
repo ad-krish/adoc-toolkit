@@ -870,7 +870,7 @@ Examples:
                 # These are columns that exist in ExecutionMetricsRecord but may not exist in ReconciliationRecord
                 execution_specific_columns = [
                     "Table_Asset_Name", "Item_Column_Name", "Item_Measurement_Type",
-                    "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold",
+                    "Rule_Identifier", "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold",
                     "Anomaly_Detected", "Threshold_Breached", "Asset_Addition", "Asset_Deletion",
                     "Data_Type", "Asset_Relation_Change", "Asset_Metadata", "Metadata_Configs",
                     "Drift_Threshold"
@@ -1032,8 +1032,8 @@ Examples:
                     schema_drift_mask = df["Policy_Type"] == "SCHEMA_DRIFT"
                     schema_drift_not_applicable_columns = [
                         "Rule_Success_Rate", "Item_Column_Name", "Item_Measurement_Type",
-                        "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold",
-                        "Rows_Scanned", "Rows_Failed", "Rule_Description"
+                        "Rule_Identifier", "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold",
+                        "Rows_Scanned", "Rows_Failed", "Total_Failed_Records", "Rule_Description"
                     ]
                     for col in schema_drift_not_applicable_columns:
                         if col in df.columns:
@@ -1069,6 +1069,11 @@ Examples:
                             blank_mask = df[col].isna() | (df[col].astype(str).str.strip() == "")
                             safe_set_not_applicable(df, non_freshness_mask & blank_mask, col)
                     
+                    # For FRESHNESS records, set Total_Failed_Records to N/A (not supported)
+                    freshness_mask = df["Policy_Type"] == "FRESHNESS"
+                    if "Total_Failed_Records" in df.columns:
+                        safe_set_not_applicable(df, freshness_mask, "Total_Failed_Records")
+
                     # For non-PROFILE_ANOMALY records, set Metric_Anomalous to N/A
                     non_profile_anomaly_mask = df["Policy_Type"] != "PROFILE_ANOMALY"
                     if "Metric_Anomalous" in df.columns:
@@ -1081,7 +1086,7 @@ Examples:
                     profile_anomaly_not_applicable_columns = [
                         "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold",
                         "Label_Key", "Label_Value", "Rule_Success_Rate", "Rule_Result_Status",
-                        "Rows_Scanned", "Rows_Failed", "Asset_Addition", "Asset_Deletion",
+                        "Rows_Scanned", "Rows_Failed", "Total_Failed_Records", "Asset_Addition", "Asset_Deletion",
                         "Data_Type", "Asset_Relation_Change", "Asset_Metadata", "Metadata_Configs",
                         "Policy_Description", "Rule_Description"
                     ]
@@ -1099,7 +1104,7 @@ Examples:
                     
                     # For DATA_DRIFT records, set Rows_Scanned, Rows_Failed, and Rule_Description to N/A
                     # (these are N/A for DATA_DRIFT but should be included in main CSV)
-                    drift_not_applicable_columns = ["Rows_Scanned", "Rows_Failed", "Rule_Description"]
+                    drift_not_applicable_columns = ["Rows_Scanned", "Rows_Failed", "Total_Failed_Records", "Rule_Description"]
                     for col in drift_not_applicable_columns:
                         if col in df.columns:
                             # Set to N/A for all DATA_DRIFT records (including those with NaN)
@@ -1119,6 +1124,22 @@ Examples:
                         if col in df.columns:
                             safe_set_not_applicable(df, other_mask & df[col].isna(), col)
                 
+                # Reorder columns: put Rule_Identifier right after Item_Measurement_Type
+                if "Rule_Identifier" in df.columns and "Item_Measurement_Type" in df.columns:
+                    cols = list(df.columns)
+                    cols.remove("Rule_Identifier")
+                    imt_idx = cols.index("Item_Measurement_Type")
+                    cols = cols[:imt_idx + 1] + ["Rule_Identifier"] + cols[imt_idx + 1:]
+                    df = df[cols]
+
+                # Reorder columns: put Total_Failed_Records right after Rows_Failed
+                if "Total_Failed_Records" in df.columns and "Rows_Failed" in df.columns:
+                    cols = list(df.columns)
+                    cols.remove("Total_Failed_Records")
+                    rf_idx = cols.index("Rows_Failed")
+                    cols = cols[:rf_idx + 1] + ["Total_Failed_Records"] + cols[rf_idx + 1:]
+                    df = df[cols]
+
                 # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                 if "Rule_ID" in df.columns:
                     cols = list(df.columns)
@@ -1264,6 +1285,22 @@ Examples:
                                 # Column is all NaN/None, exclude it
                                 dq_df = dq_df.drop(columns=[col])
                     
+                    # Reorder columns: put Rule_Identifier right after Item_Measurement_Type
+                    if "Rule_Identifier" in dq_df.columns and "Item_Measurement_Type" in dq_df.columns:
+                        cols = list(dq_df.columns)
+                        cols.remove("Rule_Identifier")
+                        imt_idx = cols.index("Item_Measurement_Type")
+                        cols = cols[:imt_idx + 1] + ["Rule_Identifier"] + cols[imt_idx + 1:]
+                        dq_df = dq_df[cols]
+
+                    # Reorder columns: put Total_Failed_Records right after Rows_Failed
+                    if "Total_Failed_Records" in dq_df.columns and "Rows_Failed" in dq_df.columns:
+                        cols = list(dq_df.columns)
+                        cols.remove("Total_Failed_Records")
+                        rf_idx = cols.index("Rows_Failed")
+                        cols = cols[:rf_idx + 1] + ["Total_Failed_Records"] + cols[rf_idx + 1:]
+                        dq_df = dq_df[cols]
+
                     # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                     if "Rule_ID" in dq_df.columns:
                         cols = list(dq_df.columns)
@@ -1509,6 +1546,24 @@ Examples:
                                 # Column is all NaN/None, exclude it
                                 recon_df = recon_df.drop(columns=[col])
                     
+                    # Reorder columns: put Rule_Identifier right after Item_Measurement_Type
+                    if "Rule_Identifier" in recon_df.columns and "Item_Measurement_Type" in recon_df.columns:
+                        cols = list(recon_df.columns)
+                        cols.remove("Rule_Identifier")
+                        imt_idx = cols.index("Item_Measurement_Type")
+                        cols = cols[:imt_idx + 1] + ["Rule_Identifier"] + cols[imt_idx + 1:]
+                        recon_df = recon_df[cols]
+
+                    # Reorder columns: put Total_Failed_Records right after Rows_Failed (or Rows_Failed/Drift)
+                    if "Total_Failed_Records" in recon_df.columns:
+                        rows_failed_col = "Rows_Failed/Drift" if "Rows_Failed/Drift" in recon_df.columns else "Rows_Failed"
+                        if rows_failed_col in recon_df.columns:
+                            cols = list(recon_df.columns)
+                            cols.remove("Total_Failed_Records")
+                            rf_idx = cols.index(rows_failed_col)
+                            cols = cols[:rf_idx + 1] + ["Total_Failed_Records"] + cols[rf_idx + 1:]
+                            recon_df = recon_df[cols]
+
                     # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                     if "Rule_ID" in recon_df.columns:
                         cols = list(recon_df.columns)
@@ -1598,9 +1653,9 @@ Examples:
                         if "Pde" in drift_df.columns:
                             drift_df = drift_df.drop(columns=["Pde"])
                         
-                        # For DATA_DRIFT CSV, exclude Rows_Scanned, Rows_Failed, and Rule_Description
+                        # For DATA_DRIFT CSV, exclude Rows_Scanned, Rows_Failed, Total_Failed_Records, and Rule_Description
                         # (these are N/A for DATA_DRIFT)
-                        columns_to_exclude = ["Rows_Scanned", "Rows_Failed", "Rule_Description"]
+                        columns_to_exclude = ["Rows_Scanned", "Rows_Failed", "Total_Failed_Records", "Rule_Description"]
                         for col in columns_to_exclude:
                             if col in drift_df.columns:
                                 drift_df = drift_df.drop(columns=[col])
@@ -1625,6 +1680,22 @@ Examples:
                                     # Column is all NaN/None, exclude it
                                     drift_df = drift_df.drop(columns=[col])
                         
+                        # Reorder columns: put Rule_Identifier right after Item_Measurement_Type
+                        if "Rule_Identifier" in drift_df.columns and "Item_Measurement_Type" in drift_df.columns:
+                            cols = list(drift_df.columns)
+                            cols.remove("Rule_Identifier")
+                            imt_idx = cols.index("Item_Measurement_Type")
+                            cols = cols[:imt_idx + 1] + ["Rule_Identifier"] + cols[imt_idx + 1:]
+                            drift_df = drift_df[cols]
+
+                        # Reorder columns: put Total_Failed_Records right after Rows_Failed
+                        if "Total_Failed_Records" in drift_df.columns and "Rows_Failed" in drift_df.columns:
+                            cols = list(drift_df.columns)
+                            cols.remove("Total_Failed_Records")
+                            rf_idx = cols.index("Rows_Failed")
+                            cols = cols[:rf_idx + 1] + ["Total_Failed_Records"] + cols[rf_idx + 1:]
+                            drift_df = drift_df[cols]
+
                         # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                         if "Rule_ID" in drift_df.columns:
                             cols = list(drift_df.columns)
@@ -1711,9 +1782,9 @@ Examples:
                         if "Pde" in freshness_df.columns:
                             freshness_df = freshness_df.drop(columns=["Pde"])
                         
-                        # For FRESHNESS CSV, exclude Rows_Scanned, Rows_Failed, Rule_Description, and Item_Column_Name
+                        # For FRESHNESS CSV, exclude Rows_Scanned, Rows_Failed, Total_Failed_Records, Rule_Description, and Item_Column_Name
                         # (these are N/A for FRESHNESS)
-                        columns_to_exclude = ["Rows_Scanned", "Rows_Failed", "Rule_Description", "Item_Column_Name"]
+                        columns_to_exclude = ["Rows_Scanned", "Rows_Failed", "Total_Failed_Records", "Rule_Description", "Item_Column_Name"]
                         for col in columns_to_exclude:
                             if col in freshness_df.columns:
                                 freshness_df = freshness_df.drop(columns=[col])
@@ -1738,6 +1809,22 @@ Examples:
                                     # Column is all NaN/None, exclude it
                                     freshness_df = freshness_df.drop(columns=[col])
                         
+                        # Reorder columns: put Rule_Identifier right after Item_Measurement_Type
+                        if "Rule_Identifier" in freshness_df.columns and "Item_Measurement_Type" in freshness_df.columns:
+                            cols = list(freshness_df.columns)
+                            cols.remove("Rule_Identifier")
+                            imt_idx = cols.index("Item_Measurement_Type")
+                            cols = cols[:imt_idx + 1] + ["Rule_Identifier"] + cols[imt_idx + 1:]
+                            freshness_df = freshness_df[cols]
+
+                        # Reorder columns: put Total_Failed_Records right after Rows_Failed
+                        if "Total_Failed_Records" in freshness_df.columns and "Rows_Failed" in freshness_df.columns:
+                            cols = list(freshness_df.columns)
+                            cols.remove("Total_Failed_Records")
+                            rf_idx = cols.index("Rows_Failed")
+                            cols = cols[:rf_idx + 1] + ["Total_Failed_Records"] + cols[rf_idx + 1:]
+                            freshness_df = freshness_df[cols]
+
                         # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                         if "Rule_ID" in freshness_df.columns:
                             cols = list(freshness_df.columns)
@@ -1828,7 +1915,7 @@ Examples:
                         columns_to_exclude = [
                             "Rule_Success_Rate", "Item_Column_Name", "Item_Measurement_Type",
                             "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold",
-                            "Rows_Scanned", "Rows_Failed", "Rule_Description"
+                            "Rows_Scanned", "Rows_Failed", "Total_Failed_Records", "Rule_Description"
                         ]
                         for col in columns_to_exclude:
                             if col in schema_drift_df.columns:
@@ -1860,6 +1947,22 @@ Examples:
                                     # Column is all NaN/None, exclude it
                                     schema_drift_df = schema_drift_df.drop(columns=[col])
                         
+                        # Reorder columns: put Rule_Identifier right after Item_Measurement_Type (if present)
+                        if "Rule_Identifier" in schema_drift_df.columns and "Item_Measurement_Type" in schema_drift_df.columns:
+                            cols = list(schema_drift_df.columns)
+                            cols.remove("Rule_Identifier")
+                            imt_idx = cols.index("Item_Measurement_Type")
+                            cols = cols[:imt_idx + 1] + ["Rule_Identifier"] + cols[imt_idx + 1:]
+                            schema_drift_df = schema_drift_df[cols]
+
+                        # Reorder columns: put Total_Failed_Records right after Rows_Failed
+                        if "Total_Failed_Records" in schema_drift_df.columns and "Rows_Failed" in schema_drift_df.columns:
+                            cols = list(schema_drift_df.columns)
+                            cols.remove("Total_Failed_Records")
+                            rf_idx = cols.index("Rows_Failed")
+                            cols = cols[:rf_idx + 1] + ["Total_Failed_Records"] + cols[rf_idx + 1:]
+                            schema_drift_df = schema_drift_df[cols]
+
                         # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                         if "Rule_ID" in schema_drift_df.columns:
                             cols = list(schema_drift_df.columns)
@@ -1950,7 +2053,7 @@ Examples:
                         columns_to_exclude = [
                             "Rule_Strategy", "Rule_Lower_Threshold", "Rule_Upper_Threshold",
                             "Label_Key", "Label_Value", "Rule_Success_Rate", "Rule_Result_Status",
-                            "Rows_Scanned", "Rows_Failed", "Asset_Addition", "Asset_Deletion",
+                            "Rows_Scanned", "Rows_Failed", "Total_Failed_Records", "Asset_Addition", "Asset_Deletion",
                             "Data_Type", "Asset_Relation_Change", "Asset_Metadata", "Metadata_Configs",
                             "Policy_Description", "Rule_Description"
                         ]
@@ -1983,6 +2086,22 @@ Examples:
                                 # Column is all NaN/None, exclude it
                                 profile_anomaly_df = profile_anomaly_df.drop(columns=[col])
                         
+                        # Reorder columns: put Rule_Identifier right after Item_Measurement_Type
+                        if "Rule_Identifier" in profile_anomaly_df.columns and "Item_Measurement_Type" in profile_anomaly_df.columns:
+                            cols = list(profile_anomaly_df.columns)
+                            cols.remove("Rule_Identifier")
+                            imt_idx = cols.index("Item_Measurement_Type")
+                            cols = cols[:imt_idx + 1] + ["Rule_Identifier"] + cols[imt_idx + 1:]
+                            profile_anomaly_df = profile_anomaly_df[cols]
+
+                        # Reorder columns: put Total_Failed_Records right after Rows_Failed
+                        if "Total_Failed_Records" in profile_anomaly_df.columns and "Rows_Failed" in profile_anomaly_df.columns:
+                            cols = list(profile_anomaly_df.columns)
+                            cols.remove("Total_Failed_Records")
+                            rf_idx = cols.index("Rows_Failed")
+                            cols = cols[:rf_idx + 1] + ["Total_Failed_Records"] + cols[rf_idx + 1:]
+                            profile_anomaly_df = profile_anomaly_df[cols]
+
                         # Generate PROFILE_ANOMALY filename
                         profile_anomaly_filename = generate_execution_metrics_filename(
                             "profile-anomaly-metrics-%d-%m-%y-%h-%M",
