@@ -202,6 +202,7 @@ These columns are only present in DATA_QUALITY records. For RECONCILIATION recor
 
 | Column | Description | Data Source |
 |--------|-------------|-------------|
+| Datasource_Name | Datasource name extracted from Table_Asset_Name | First segment before the first `.` in `Table_Asset_Name` |
 | Table_Asset_Name | Name of the table asset | `asset.name` (resolved from asset ID) |
 | Item_Column_Name | Column name being evaluated | `item.columnName` |
 | Rule_Strategy | Threshold strategy | `rule.strategy` |
@@ -219,7 +220,9 @@ These columns are only present in RECONCILIATION (EQUALITY) records. For DATA_QU
 | Left_Rows_Scanned | Left rows scanned | `result.leftRowsScanned` (only for ROW_COUNT_MATCH) |
 | Right_Rows_Scanned | Right rows scanned | `result.rightRowsScanned` (only for ROW_COUNT_MATCH) |
 | Use_For_Joining | Use for joining flag | `details.columnMappings.useForJoining` |
+| Left_Datasource_Name | Datasource name extracted from Left_ASSET_UID | First segment before the first `.` in `Left_ASSET_UID` |
 | Left_ASSET_UID | Left asset UID | `rule.leftBackingAsset.tableAssetId` |
+| Right_Datasource_Name | Datasource name extracted from Right_ASSET_UID | First segment before the first `.` in `Right_ASSET_UID` |
 | Right_ASSET_UID | Right asset UID | `rule.rightBackingAsset.tableAssetId` |
 | Join_Type | Join type | `details.joinType` |
 | Operation | Operation type | `details.columnMappings.operation` |
@@ -243,6 +246,8 @@ To maintain a consistent schema across policy types in the main CSV:
 - **Reconciliation-specific fields**: `Left_Rows_Scanned` and `Right_Rows_Scanned` are set to "N/A" for EQUALITY_MATCH records (only applicable for ROW_COUNT_MATCH)
 - **Rule_Identifier**: Set to "N/A" for SCHEMA_DRIFT records (not supported). Populated for all other policy types
 - **Total_Failed_Records**: Set to "N/A" for DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT, and FRESHNESS records (not supported). Only populated for DATA_QUALITY and EQUALITY
+- **Datasource_Name**: Derived from `Table_Asset_Name` (first segment before the first `.`). Set to "N/A" for EQUALITY records (use `Left_Datasource_Name` / `Right_Datasource_Name` instead)
+- **Left_Datasource_Name** / **Right_Datasource_Name**: Derived from `Left_ASSET_UID` / `Right_ASSET_UID`. Set to "N/A" for non-EQUALITY records (use `Datasource_Name` instead)
 
 **Note**: In the individual policy-type CSV files (data-quality-metrics, reconciliation-metrics, data-drift-metrics), columns that are entirely "N/A" for that policy type are automatically excluded to keep the files clean and focused on relevant data.
 

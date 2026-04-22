@@ -307,7 +307,7 @@ The toolkit includes robust error handling for API requests:
 
 #### Data Export
 - **[`export-metrics`](docs/export_execution_metrics.md)** - Export metrics data in various formats (JSON, CSV, Parquet, Avro)
-- **[`export-execution-metrics`](docs/export_execution_metrics.md)** - Export execution metrics with filtering options (supports DATA_QUALITY, EQUALITY, DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT, FRESHNESS). Includes `Rule_Identifier` (rule name from policy details) and `Total_Failed_Records` (execution-level failed rows for DATA_QUALITY/EQUALITY)
+- **[`export-execution-metrics`](docs/export_execution_metrics.md)** - Export execution metrics with filtering options (supports DATA_QUALITY, EQUALITY, DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT, FRESHNESS). Includes `Rule_Identifier`, `Total_Failed_Records`, and derived `Datasource_Name` / `Left_Datasource_Name` / `Right_Datasource_Name` columns
 
 #### AI-Powered Features
 - **[`text-to-dq-policy`](docs/text_to_dq_policy.md)** - Generate data quality policies from natural language descriptions

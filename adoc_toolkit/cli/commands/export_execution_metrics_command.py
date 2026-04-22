@@ -286,6 +286,57 @@ def convert_column_names_to_title_case(df: pd.DataFrame) -> pd.DataFrame:
     return df_renamed
 
 
+def extract_datasource_name(value: Any) -> str | None:
+    """Extract the datasource name (first segment before the first dot) from an asset path.
+
+    E.g. 'snowflake_new.MIGRATE_KRISH_DB.CALL_CENTER' -> 'snowflake_new'
+    """
+    if pd.isna(value) or value is None or str(value).strip() in ("", "N/A"):
+        return None
+    parts = str(value).split(".", 1)
+    return parts[0] if parts[0] else None
+
+
+def add_datasource_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Derive and insert Datasource_Name, Left_Datasource_Name, Right_Datasource_Name columns.
+
+    - Datasource_Name is derived from Table_Asset_Name and placed before it.
+    - Left_Datasource_Name is derived from Left_ASSET_UID and placed before it.
+    - Right_Datasource_Name is derived from Right_ASSET_UID and placed before it.
+    """
+    if df.empty:
+        return df
+
+    if "Table_Asset_Name" in df.columns:
+        df["Datasource_Name"] = df["Table_Asset_Name"].apply(extract_datasource_name)
+    if "Left_ASSET_UID" in df.columns:
+        df["Left_Datasource_Name"] = df["Left_ASSET_UID"].apply(extract_datasource_name)
+    if "Right_ASSET_UID" in df.columns:
+        df["Right_Datasource_Name"] = df["Right_ASSET_UID"].apply(extract_datasource_name)
+
+    cols = list(df.columns)
+
+    # Position Datasource_Name before Table_Asset_Name
+    if "Datasource_Name" in cols and "Table_Asset_Name" in cols:
+        cols.remove("Datasource_Name")
+        idx = cols.index("Table_Asset_Name")
+        cols = cols[:idx] + ["Datasource_Name"] + cols[idx:]
+
+    # Position Left_Datasource_Name before Left_ASSET_UID
+    if "Left_Datasource_Name" in cols and "Left_ASSET_UID" in cols:
+        cols.remove("Left_Datasource_Name")
+        idx = cols.index("Left_ASSET_UID")
+        cols = cols[:idx] + ["Left_Datasource_Name"] + cols[idx:]
+
+    # Position Right_Datasource_Name before Right_ASSET_UID
+    if "Right_Datasource_Name" in cols and "Right_ASSET_UID" in cols:
+        cols.remove("Right_Datasource_Name")
+        idx = cols.index("Right_ASSET_UID")
+        cols = cols[:idx] + ["Right_Datasource_Name"] + cols[idx:]
+
+    return df[cols]
+
+
 def safe_set_not_applicable(df: pd.DataFrame, mask: pd.Series, column: str) -> None:
     """Safely set "N/A" to a column, converting dtype if necessary.
     
@@ -1140,6 +1191,19 @@ Examples:
                     cols = cols[:rf_idx + 1] + ["Total_Failed_Records"] + cols[rf_idx + 1:]
                     df = df[cols]
 
+                # Derive and insert datasource name columns
+                df = add_datasource_columns(df)
+
+                # Set Datasource_Name to N/A for EQUALITY (recon has Left/Right instead)
+                if "Datasource_Name" in df.columns and "Policy_Type" in df.columns:
+                    equality_mask = df["Policy_Type"] == "EQUALITY"
+                    safe_set_not_applicable(df, equality_mask, "Datasource_Name")
+                # Set Left/Right_Datasource_Name to N/A for non-EQUALITY
+                for ds_col in ["Left_Datasource_Name", "Right_Datasource_Name"]:
+                    if ds_col in df.columns and "Policy_Type" in df.columns:
+                        non_equality_mask = df["Policy_Type"] != "EQUALITY"
+                        safe_set_not_applicable(df, non_equality_mask, ds_col)
+
                 # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                 if "Rule_ID" in df.columns:
                     cols = list(df.columns)
@@ -1300,6 +1364,13 @@ Examples:
                         rf_idx = cols.index("Rows_Failed")
                         cols = cols[:rf_idx + 1] + ["Total_Failed_Records"] + cols[rf_idx + 1:]
                         dq_df = dq_df[cols]
+
+                    # Derive and insert datasource name columns
+                    dq_df = add_datasource_columns(dq_df)
+                    # Exclude Left/Right_Datasource_Name (N/A for DATA_QUALITY)
+                    for ds_col in ["Left_Datasource_Name", "Right_Datasource_Name"]:
+                        if ds_col in dq_df.columns:
+                            dq_df = dq_df.drop(columns=[ds_col])
 
                     # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                     if "Rule_ID" in dq_df.columns:
@@ -1564,6 +1635,12 @@ Examples:
                             cols = cols[:rf_idx + 1] + ["Total_Failed_Records"] + cols[rf_idx + 1:]
                             recon_df = recon_df[cols]
 
+                    # Derive and insert datasource name columns
+                    recon_df = add_datasource_columns(recon_df)
+                    # Exclude Datasource_Name (N/A for EQUALITY/Reconciliation)
+                    if "Datasource_Name" in recon_df.columns:
+                        recon_df = recon_df.drop(columns=["Datasource_Name"])
+
                     # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                     if "Rule_ID" in recon_df.columns:
                         cols = list(recon_df.columns)
@@ -1696,6 +1773,12 @@ Examples:
                             cols = cols[:rf_idx + 1] + ["Total_Failed_Records"] + cols[rf_idx + 1:]
                             drift_df = drift_df[cols]
 
+                        # Derive and insert datasource name columns
+                        drift_df = add_datasource_columns(drift_df)
+                        for ds_col in ["Left_Datasource_Name", "Right_Datasource_Name"]:
+                            if ds_col in drift_df.columns:
+                                drift_df = drift_df.drop(columns=[ds_col])
+
                         # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                         if "Rule_ID" in drift_df.columns:
                             cols = list(drift_df.columns)
@@ -1824,6 +1907,12 @@ Examples:
                             rf_idx = cols.index("Rows_Failed")
                             cols = cols[:rf_idx + 1] + ["Total_Failed_Records"] + cols[rf_idx + 1:]
                             freshness_df = freshness_df[cols]
+
+                        # Derive and insert datasource name columns
+                        freshness_df = add_datasource_columns(freshness_df)
+                        for ds_col in ["Left_Datasource_Name", "Right_Datasource_Name"]:
+                            if ds_col in freshness_df.columns:
+                                freshness_df = freshness_df.drop(columns=[ds_col])
 
                         # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                         if "Rule_ID" in freshness_df.columns:
@@ -1963,6 +2052,12 @@ Examples:
                             cols = cols[:rf_idx + 1] + ["Total_Failed_Records"] + cols[rf_idx + 1:]
                             schema_drift_df = schema_drift_df[cols]
 
+                        # Derive and insert datasource name columns
+                        schema_drift_df = add_datasource_columns(schema_drift_df)
+                        for ds_col in ["Left_Datasource_Name", "Right_Datasource_Name"]:
+                            if ds_col in schema_drift_df.columns:
+                                schema_drift_df = schema_drift_df.drop(columns=[ds_col])
+
                         # Reorder columns: put Label_Key and Label_Value right after Rule_ID
                         if "Rule_ID" in schema_drift_df.columns:
                             cols = list(schema_drift_df.columns)
@@ -2101,6 +2196,12 @@ Examples:
                             rf_idx = cols.index("Rows_Failed")
                             cols = cols[:rf_idx + 1] + ["Total_Failed_Records"] + cols[rf_idx + 1:]
                             profile_anomaly_df = profile_anomaly_df[cols]
+
+                        # Derive and insert datasource name columns
+                        profile_anomaly_df = add_datasource_columns(profile_anomaly_df)
+                        for ds_col in ["Left_Datasource_Name", "Right_Datasource_Name"]:
+                            if ds_col in profile_anomaly_df.columns:
+                                profile_anomaly_df = profile_anomaly_df.drop(columns=[ds_col])
 
                         # Generate PROFILE_ANOMALY filename
                         profile_anomaly_filename = generate_execution_metrics_filename(
