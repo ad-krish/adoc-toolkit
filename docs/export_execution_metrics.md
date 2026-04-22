@@ -179,9 +179,11 @@ These columns are shared across both DATA_QUALITY and RECONCILIATION policy type
 | Label_Key | Label key from policy details | `rule.enabled` / `details.columnMappings.labels.key` |
 | Label_Value | Label value from policy details | `details.items.labels.value` / `details.columnMappings.labels.value` |
 | Item_Measurement_Type | Type of measurement | `dimension` → "EQUALITY_MATCH" (ACCURACY) or "ROW_COUNT_MATCH" (TIMELINESS) |
+| Rule_Identifier | Rule identifier name from policy details | `details.items.name` (DATA_QUALITY, DATA_DRIFT, PROFILE_ANOMALY), `details.columnMappings.name` (EQUALITY), `details.items.displayName` (FRESHNESS). N/A for SCHEMA_DRIFT |
 | Rule_Success_Rate | Rule success rate as percentage | `items.resultPercent` |
 | Rows_Scanned | Number of rows scanned | `result.rows` |
 | Rows_Failed | Number of rows that failed | `items.rowsFailed` (DATA_QUALITY) or `items.leftRowsFailed` (RECONCILIATION) |
+| Total_Failed_Records | Total failed records at execution level | `result.failedRows`. Only for DATA_QUALITY and EQUALITY. N/A for DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT, FRESHNESS |
 | Rule_Result_Status | Rule result status | `items.success` → "SUCCESSFUL" or "FAILED" (all caps) |
 | Overall_Policy_Status | Overall policy status | `result.status` |
 | Overall_Policy_Quality_Score(Percentage) | Overall policy quality score | `result.qualityScore` |
@@ -239,6 +241,8 @@ To maintain a consistent schema across policy types in the main CSV:
 - **DATA_QUALITY records**: All RECONCILIATION-specific columns are filled with "N/A" (all caps)
 - **RECONCILIATION records**: All DATA_QUALITY-specific columns are filled with "N/A" (all caps)
 - **Reconciliation-specific fields**: `Left_Rows_Scanned` and `Right_Rows_Scanned` are set to "N/A" for EQUALITY_MATCH records (only applicable for ROW_COUNT_MATCH)
+- **Rule_Identifier**: Set to "N/A" for SCHEMA_DRIFT records (not supported). Populated for all other policy types
+- **Total_Failed_Records**: Set to "N/A" for DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT, and FRESHNESS records (not supported). Only populated for DATA_QUALITY and EQUALITY
 
 **Note**: In the individual policy-type CSV files (data-quality-metrics, reconciliation-metrics, data-drift-metrics), columns that are entirely "N/A" for that policy type are automatically excluded to keep the files clean and focused on relevant data.
 

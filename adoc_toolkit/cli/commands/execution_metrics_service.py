@@ -465,6 +465,14 @@ def process_execution_details_parallel(
             else:
                 overall_policy_quality_score = 0.0
         
+        # Extract Total_Failed_Records from result.failedRows (only for DATA_QUALITY and EQUALITY)
+        if execution_status_from_list in ["RUNNING", "STARTED"]:
+            total_failed_records = None
+        elif execution.policy_type in ("DATA_QUALITY", "EQUALITY"):
+            total_failed_records = safe_get(result_data, "failedRows")
+        else:
+            total_failed_records = None  # N/A for DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT, FRESHNESS
+
         # Debug logging for SCHEMA_DRIFT
         if execution.policy_type == "SCHEMA_DRIFT":
             log_info(
@@ -937,6 +945,7 @@ def process_execution_details_parallel(
                                         overall_policy_quality_score=overall_policy_quality_score,
                                         rows_scanned=rows_scanned,  # None (NOT_APPLICABLE for PROFILE_ANOMALY)
                                         rows_failed=rows_failed,  # None (NOT_APPLICABLE for PROFILE_ANOMALY)
+                                        total_failed_records=total_failed_records,
                                         exec_id=actual_execution_id,
                                         policy_id=execution_policy_id,  # For merge fallback
                                         start_ts=execution.start_ts,
@@ -975,6 +984,7 @@ def process_execution_details_parallel(
                         overall_policy_quality_score=overall_policy_quality_score,
                         rows_scanned=rows_scanned,  # None (NOT_APPLICABLE for PROFILE_ANOMALY)
                         rows_failed=rows_failed,  # None (NOT_APPLICABLE for PROFILE_ANOMALY)
+                        total_failed_records=total_failed_records,
                         exec_id=actual_execution_id,
                         policy_id=execution_policy_id,  # For merge fallback
                         start_ts=execution.start_ts,
@@ -1006,6 +1016,7 @@ def process_execution_details_parallel(
                     overall_policy_quality_score=overall_policy_quality_score,
                     rows_scanned=rows_scanned,
                     rows_failed=rows_failed,
+                    total_failed_records=total_failed_records,
                     exec_id=actual_execution_id,
                     policy_id=execution_policy_id,  # For merge fallback
                     start_ts=execution.start_ts,
@@ -1342,6 +1353,9 @@ def process_policy_details_parallel(
                 
                 # Extract column name (use leftColumnName for EQUALITY)
                 column_name = safe_get(col_map, "leftColumnName")
+
+                # Extract Rule_Identifier from columnMappings.name for EQUALITY
+                rule_identifier = safe_get(col_map, "name")
                 
                 # Extract labels from columnMapping - create one PolicyDetail per label
                 item_labels = safe_get(col_map, "labels", [])
@@ -1364,6 +1378,7 @@ def process_policy_details_parallel(
                             policy_enabled=policy_enabled,
                             label_key=label_key,
                             label_value=label_value,
+                            rule_identifier=rule_identifier,
                         )
                         policy_details.append(policy_detail)
                 else:
@@ -1381,6 +1396,7 @@ def process_policy_details_parallel(
                         policy_enabled=policy_enabled,
                         label_key=None,
                         label_value=None,
+                        rule_identifier=rule_identifier,
                     )
                     policy_details.append(policy_detail)
         else:
@@ -1473,6 +1489,14 @@ def process_policy_details_parallel(
                     column_name = None  # Will be set to NOT_APPLICABLE later
                 else:
                     column_name = safe_get(item, "columnName")
+
+                # Extract Rule_Identifier based on policy type
+                if execution.policy_type in ("DATA_QUALITY", "DATA_DRIFT", "PROFILE_ANOMALY"):
+                    rule_identifier = safe_get(item, "name")
+                elif execution.policy_type == "FRESHNESS":
+                    rule_identifier = safe_get(item, "displayName")
+                else:
+                    rule_identifier = None  # SCHEMA_DRIFT not supported
                 
                 # Extract DATA_DRIFT-specific fields (only for DATA_DRIFT)
                 item_measurement_type = None
@@ -1516,6 +1540,7 @@ def process_policy_details_parallel(
                         rule_description=None,  # Rule_Description is NOT_APPLICABLE for DATA_DRIFT
                         item_measurement_type=item_measurement_type,
                         drift_threshold=drift_threshold,
+                        rule_identifier=rule_identifier,
                     )
                     policy_details.append(policy_detail)
                 elif execution.policy_type == "FRESHNESS":
@@ -1547,6 +1572,7 @@ def process_policy_details_parallel(
                         rule_strategy=rule_strategy,
                         rule_lower_threshold=rule_lower_threshold,
                         rule_upper_threshold=rule_upper_threshold,
+                        rule_identifier=rule_identifier,
                     )
                     policy_details.append(policy_detail)
                 elif execution.policy_type == "SCHEMA_DRIFT":
@@ -1596,6 +1622,7 @@ def process_policy_details_parallel(
                         asset_relation_change=asset_relation_change,
                         asset_metadata=asset_metadata,
                         metadata_configs=metadata_configs,
+                        rule_identifier=rule_identifier,
                     )
                     policy_details.append(policy_detail)
                 else:
@@ -1625,6 +1652,7 @@ def process_policy_details_parallel(
                                 rule_description=rule_description,
                                 item_measurement_type=item_measurement_type,
                                 drift_threshold=drift_threshold,
+                                rule_identifier=rule_identifier,
                             )
                             policy_details.append(policy_detail)
                     else:
@@ -1646,6 +1674,7 @@ def process_policy_details_parallel(
                             rule_description=rule_description,
                             item_measurement_type=item_measurement_type,
                             drift_threshold=drift_threshold,
+                            rule_identifier=rule_identifier,
                         )
                         policy_details.append(policy_detail)
 
@@ -1876,6 +1905,14 @@ def process_execution_details(
                 else:
                     overall_policy_quality_score = 0.0
             
+            # Extract Total_Failed_Records from result.failedRows (only for DATA_QUALITY and EQUALITY)
+            if execution_status_from_list in ["RUNNING", "STARTED"]:
+                total_failed_records = None
+            elif execution.policy_type in ("DATA_QUALITY", "EQUALITY"):
+                total_failed_records = safe_get(result_data, "failedRows")
+            else:
+                total_failed_records = None  # N/A for DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT, FRESHNESS
+
             # Debug logging for SCHEMA_DRIFT
             if execution.policy_type == "SCHEMA_DRIFT":
                 log_info(
@@ -2185,6 +2222,7 @@ def process_execution_details(
                     overall_policy_quality_score=overall_policy_quality_score,
                     rows_scanned=rows_scanned,
                     rows_failed=rows_failed,
+                    total_failed_records=total_failed_records,
                     exec_id=execution.execution_id,
                     start_ts=execution.start_ts,
                     end_ts=execution.end_ts,
@@ -2433,6 +2471,9 @@ def process_policy_details(
                     
                     # Extract column name (use leftColumnName for EQUALITY)
                     column_name = safe_get(col_map, "leftColumnName")
+
+                    # Extract Rule_Identifier from columnMappings.name for EQUALITY
+                    rule_identifier = safe_get(col_map, "name")
                     
                     # Extract labels from columnMapping - create one PolicyDetail per label
                     item_labels = safe_get(col_map, "labels", [])
@@ -2455,6 +2496,7 @@ def process_policy_details(
                                 policy_enabled=policy_enabled,
                                 label_key=label_key,
                                 label_value=label_value,
+                                rule_identifier=rule_identifier,
                             )
                             policy_details.append(policy_detail)
                     else:
@@ -2472,6 +2514,7 @@ def process_policy_details(
                             policy_enabled=policy_enabled,
                             label_key=None,
                             label_value=None,
+                            rule_identifier=rule_identifier,
                         )
                         policy_details.append(policy_detail)
             else:
@@ -2555,6 +2598,14 @@ def process_policy_details(
                         column_name = None  # Will be set to NOT_APPLICABLE later
                     else:
                         column_name = safe_get(item, "columnName")
+
+                    # Extract Rule_Identifier based on policy type
+                    if execution.policy_type in ("DATA_QUALITY", "DATA_DRIFT", "PROFILE_ANOMALY"):
+                        rule_identifier = safe_get(item, "name")
+                    elif execution.policy_type == "FRESHNESS":
+                        rule_identifier = safe_get(item, "displayName")
+                    else:
+                        rule_identifier = None  # SCHEMA_DRIFT not supported
                     
                     # Extract DATA_DRIFT-specific fields (only for DATA_DRIFT)
                     item_measurement_type = None
@@ -2598,6 +2649,7 @@ def process_policy_details(
                             rule_description=None,  # Rule_Description is NOT_APPLICABLE for DATA_DRIFT
                             item_measurement_type=item_measurement_type,
                             drift_threshold=drift_threshold,
+                            rule_identifier=rule_identifier,
                         )
                         policy_details.append(policy_detail)
                     elif execution.policy_type == "FRESHNESS":
@@ -2629,6 +2681,7 @@ def process_policy_details(
                             rule_strategy=rule_strategy,
                             rule_lower_threshold=rule_lower_threshold,
                             rule_upper_threshold=rule_upper_threshold,
+                            rule_identifier=rule_identifier,
                         )
                         policy_details.append(policy_detail)
                     elif execution.policy_type == "SCHEMA_DRIFT":
@@ -2678,6 +2731,7 @@ def process_policy_details(
                             asset_relation_change=asset_relation_change,
                             asset_metadata=asset_metadata,
                             metadata_configs=metadata_configs,
+                            rule_identifier=rule_identifier,
                         )
                         policy_details.append(policy_detail)
                     else:
@@ -2707,6 +2761,7 @@ def process_policy_details(
                                     rule_description=rule_description,
                                     item_measurement_type=item_measurement_type,
                                     drift_threshold=drift_threshold,
+                                    rule_identifier=rule_identifier,
                                 )
                                 policy_details.append(policy_detail)
                         else:
@@ -2728,6 +2783,7 @@ def process_policy_details(
                                 rule_description=rule_description,
                                 item_measurement_type=item_measurement_type,
                                 drift_threshold=drift_threshold,
+                                rule_identifier=rule_identifier,
                             )
                             policy_details.append(policy_detail)
 
@@ -2851,6 +2907,12 @@ def process_reconciliation_records(
         overall_policy_status = safe_get(result_data, "status")
         overall_policy_quality_score = safe_get(result_data, "qualityScore")
     
+    # Extract Total_Failed_Records from result.failedRows
+    if execution_status_from_list in ["RUNNING", "STARTED"]:
+        total_failed_records = None
+    else:
+        total_failed_records = safe_get(result_data, "failedRows")
+
     # Extract timestamps
     started_at_ts = safe_get(execution_data, "startedAt")
     finished_at_ts = safe_get(execution_data, "finishedAt")
@@ -2969,6 +3031,9 @@ def process_reconciliation_records(
             left_rows_value = "NOT_APPLICABLE"
             right_rows_value = "NOT_APPLICABLE"
         
+        # Extract Rule_Identifier from matched columnMapping (from policy details)
+        rule_identifier = safe_get(matched_col_map, "name") if matched_col_map else None
+
         # Extract labels from matched columnMapping (from policy details)
         # Create one ReconciliationRecord per label (flatten labels)
         col_map_labels = []
@@ -2990,9 +3055,11 @@ def process_reconciliation_records(
                     Right_Column=right_column,
                     Rule_ID=rule_id,
                     Recon_Type=recon_type,
+                    Rule_Identifier=rule_identifier,
                     Result_Percentage=result_percentage,
                     Rows_Scanned=rows_scanned,
                     Rows_Failed=rows_failed_value,
+                    Total_Failed_Records=total_failed_records,
                     Left_Rows_Scanned=left_rows_value,
                     Right_Rows_Scanned=right_rows_value,
                     Use_For_Joining=use_for_joining,
@@ -3026,9 +3093,11 @@ def process_reconciliation_records(
                 Right_Column=right_column,
                 Rule_ID=rule_id,
                 Recon_Type=recon_type,
+                Rule_Identifier=rule_identifier,
                 Result_Percentage=result_percentage,
                 Rows_Scanned=rows_scanned,
                 Rows_Failed=rows_failed_value,
+                Total_Failed_Records=total_failed_records,
                 Left_Rows_Scanned=left_rows_value,
                 Right_Rows_Scanned=right_rows_value,
                 Use_For_Joining=use_for_joining,
@@ -3325,6 +3394,7 @@ def merge_execution_data(
                     right_column=right_column,
                     pde=exec_detail.pde,
                     item_measurement_type=measurement_type,
+                    rule_identifier=policy_detail.rule_identifier,
                     # For FRESHNESS, use threshold config from policy_detail (execution details don't have it)
                     # For SCHEMA_DRIFT and PROFILE_ANOMALY, threshold values are NOT_APPLICABLE (should be None)
                     # For other policy types, use from exec_detail
@@ -3338,6 +3408,7 @@ def merge_execution_data(
                     overall_policy_quality_score=exec_detail.overall_policy_quality_score,
                     rows_scanned=exec_detail.rows_scanned,
                     rows_failed=exec_detail.rows_failed,
+                    total_failed_records=exec_detail.total_failed_records,
                     startedAt=exec_detail.start_ts,
                     started_at=convert_timestamp_to_datetime(exec_detail.start_ts, timezone),
                     finishedAt=exec_detail.end_ts,
@@ -3414,6 +3485,7 @@ def merge_execution_data(
                         right_column=None,
                         pde=exec_detail.pde,
                         item_measurement_type=exec_detail.item_measurement_type,  # From execution detail
+                        rule_identifier=policy_detail.rule_identifier,
                         rule_strategy=exec_detail.rule_strategy,
                         rule_lower_threshold=exec_detail.rule_lower_threshold,
                         rule_upper_threshold=exec_detail.rule_upper_threshold,
@@ -3424,6 +3496,7 @@ def merge_execution_data(
                         overall_policy_quality_score=exec_detail.overall_policy_quality_score,
                         rows_scanned=exec_detail.rows_scanned,
                         rows_failed=exec_detail.rows_failed,
+                        total_failed_records=exec_detail.total_failed_records,
                         startedAt=exec_detail.start_ts,
                         started_at=convert_timestamp_to_datetime(exec_detail.start_ts, timezone),
                         finishedAt=exec_detail.end_ts,

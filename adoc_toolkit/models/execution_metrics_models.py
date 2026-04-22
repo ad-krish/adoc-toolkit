@@ -119,6 +119,9 @@ class ExecutionDetail(BaseModel):
     rows_failed: int | None = Field(
         default=None, description="Number of failed rows"
     )
+    total_failed_records: int | None = Field(
+        default=None, description="Total failed records from result.failedRows (execution-level, only for DATA_QUALITY and EQUALITY)"
+    )
     exec_id: str = Field(description="Execution identifier")
     policy_id: str | None = Field(default=None, description="Policy identifier from execution.ruleId (for merge fallback)")
     start_ts: int | None = Field(default=None, description="Start timestamp")
@@ -191,6 +194,9 @@ class PolicyDetail(BaseModel):
     item_measurement_type: str | None = Field(
         default=None, description="Item measurement type from details.items.metricType (for DATA_DRIFT) or details.items.measurementType (for FRESHNESS)"
     )
+    rule_identifier: str | None = Field(
+        default=None, description="Rule identifier from details.items.name (DATA_QUALITY, DATA_DRIFT, PROFILE_ANOMALY), details.columnMappings.name (EQUALITY), or details.items.displayName (FRESHNESS)"
+    )
     drift_threshold: float | None = Field(
         default=None, description="Drift threshold from details.items.driftThreshold (for DATA_DRIFT)"
     )
@@ -254,6 +260,9 @@ class ExecutionMetricsRecord(BaseModel):
     item_measurement_type: str | None = Field(
         default=None, description="Measurement type"
     )
+    rule_identifier: str | None = Field(
+        default=None, description="Rule identifier from policy details API"
+    )
     rule_strategy: str | None = Field(default=None, description="Rule strategy")
     rule_lower_threshold: float | None = Field(
         default=None, description="Lower threshold"
@@ -274,6 +283,9 @@ class ExecutionMetricsRecord(BaseModel):
     )
     rows_scanned: int | None = Field(default=None, description="Rows scanned")
     rows_failed: int | None = Field(default=None, description="Rows failed")
+    total_failed_records: int | None = Field(
+        default=None, description="Total failed records from result.failedRows (execution-level, only for DATA_QUALITY and EQUALITY)"
+    )
     startedAt: int | None = Field(default=None, description="Start timestamp (milliseconds)")
     started_at: datetime | None = Field(
         default=None, description="Start date (human-readable)"
@@ -345,9 +357,11 @@ class ReconciliationRecord(BaseModel):
     Right_Column: str | None = Field(default=None, description="Right column name from items.columnMapping.rightColumnName")
     Rule_ID: str = Field(description="Rule item ID from items.ruleItemId")
     Recon_Type: str | None = Field(default=None, description="Reconciliation type based on dimension (Equality_Match or Row_Count_Match)")
+    Rule_Identifier: str | None = Field(default=None, description="Rule identifier from details.columnMappings.name")
     Result_Percentage: float | None = Field(default=None, description="Result percentage from items.resultPercent")
     Rows_Scanned: int | None = Field(default=None, description="Rows scanned from result.rows")
     Rows_Failed: int | None = Field(default=None, description="Failed rows from result.failedRows or drift for Row_Count_Match")
+    Total_Failed_Records: int | None = Field(default=None, description="Total failed records from result.failedRows (execution-level)")
     Left_Rows_Scanned: int | str | None = Field(default=None, description="Left rows scanned from result.leftRowsScanned (only for Row_Count_Match)")
     Right_Rows_Scanned: int | str | None = Field(default=None, description="Right rows scanned from result.rightRowsScanned (only for Row_Count_Match)")
     Use_For_Joining: str | None = Field(default=None, description="Use for joining from details.columnMappings.useForJoining")
