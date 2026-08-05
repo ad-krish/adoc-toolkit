@@ -184,7 +184,6 @@ from .help_command import HelpCommand
 from .history_command import HistoryCommand
 from .set_config_command import SetConfigCommand
 from .show_env_command import ShowEnvCommand
-from .text_to_dq_policy_command import TextToDQPolicyCommand
 from .use_command import UseCommand
 from .your_command import YourCommandNameCommand  # Add this line
 
@@ -198,7 +197,6 @@ __all__ = [
     "HistoryCommand",
     "SetConfigCommand",
     "ShowEnvCommand",
-    "TextToDQPolicyCommand",
     "UseCommand",
     "YourCommandNameCommand",  # Add this line
 ]

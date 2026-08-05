@@ -278,6 +278,9 @@ htmlcov/
 ehthumbs.db
 Thumbs.db 
 
+# S3 offline packages cache
+packages/
+
 # AI Files
 .cursorrules
 CLAUDE.md

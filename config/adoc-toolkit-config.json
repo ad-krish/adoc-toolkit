@@ -37,14 +37,13 @@
     },
     "response": {
       "type": {
-        "value": "human",
+        "value": "json",
         "description": "Response format type",
         "type": "string",
         "options": [
           "json",
           "table",
-          "csv",
-          "human"
+          "csv"
         ],
         "default": "json"
       }
@@ -112,56 +111,6 @@
         ],
         "default": 120
       }
-    }
-  },
-  "llm": {
-    "vendor": {
-      "value": "grok",
-      "description": "LLM vendor to use for AI operations",
-      "type": "string",
-      "options": [
-        "claude",
-        "gemini",
-        "grok",
-        "chatgpt"
-      ],
-      "default": "gemini"
-    },
-    "apikey": {
-      "value": null,
-      "description": "API key for the selected LLM vendor",
-      "type": "string",
-      "options": [
-        "your-api-key-here",
-        "none"
-      ],
-      "default": null
-    },
-    "model": {
-      "value": "gemini-1.5-pro",
-      "description": "Model name for the selected LLM vendor",
-      "type": "string",
-      "options": [
-        "grok-beta",
-        "grok-2"
-      ],
-      "default": "grok-beta"
-    },
-    "temperature": {
-      "value": 0.8,
-      "description": "Temperature for LLM response generation",
-      "type": "float",
-      "options": [
-        0.0,
-        0.1,
-        0.2,
-        0.5,
-        0.7,
-        1.0,
-        1.5,
-        2.0
-      ],
-      "default": 0.2
     }
   }
 }

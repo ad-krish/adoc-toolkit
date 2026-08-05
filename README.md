@@ -1,90 +1,66 @@
- # ADOC Toolkit
+# ADOC Toolkit
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](https://github.com/niranta-life/adoc-toolkit/actions)
-[![Docs](https://img.shields.io/badge/docs-passing-brightgreen)](https://github.com/niranta-life/adoc-toolkit)
-[![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen)](https://github.com/niranta-life/adoc-toolkit/blob/main/CONTRIBUTING.md)
+[![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-orange.svg)](https://docs.astral.sh/ruff/)
 
-**Acceldata Observability Cloud ("ADOC") toolkit** for managing and interacting with ADOC SaaS platform. This interactive command-line tool provides easy access to ADOC APIs, data export capabilities, and AI-powered data quality policy generation.
+**Acceldata Observability Cloud (ADOC) Toolkit** — an interactive command-line tool for accessing ADOC APIs and exporting policy execution and metrics data.
 
-## 🚀 Quick Start
+> **Customer documentation:** See [`docs/ADOC_Toolkit_Customer_Guide.pdf`](docs/ADOC_Toolkit_Customer_Guide.pdf) for the full customer-facing guide, including export column applicability and N/A rules.
 
-### Prerequisites
+## Prerequisites
+
 - **Python 3.10 or higher**
-- **[uv](https://docs.astral.sh/uv/getting-started/installation/)** (recommended) or pip
+- **[uv](https://docs.astral.sh/uv/getting-started/installation/)** (recommended) or `pip`
+- Network access to your ADOC instance (or offline install via S3 — see below)
+- ADOC API credentials (`access_key` / `secret_key`)
 
-### Installation
+## Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/niranta-life/adoc-toolkit.git
+git clone <repository-url>
 cd adoc-toolkit
 
 # Install dependencies
 uv sync
 
-# Run the toolkit
+# Optional: Parquet / Avro export support
+uv sync --extra export
+
+# Run
 uv run adoc-toolkit
 ```
 
-### Cross-Platform Launcher Scripts
-
-For convenience, use the provided launcher scripts that handle dependency installation automatically:
+### Cross-platform launchers
 
 ```bash
-# Unix (Linux/macOS)
+# Unix (Linux / macOS)
 bin/adoc-toolkit
 
 # Windows
 bin\adoc-toolkit.bat
 ```
 
-## 📖 User Guide
+### Offline / air-gapped install (S3)
 
-### Getting Started
+On a machine with internet access, publish dependency wheels:
 
-1. **Start the interactive shell**:
-   ```bash
-   uv run adoc-toolkit
-   ```
+```bash
+make s3-push S3_PATH=s3://your-bucket/adoc-toolkit/packages
+# or: bin/s3-push-packages.sh s3://your-bucket/adoc-toolkit/packages
+```
 
-2. **Configure your environment** (required before making API calls):
-   ```bash
-   ADOC > use <environment-name>
-   ```
-   
-   > **📋 Environment Setup**: Before using the toolkit, you need to configure your ADOC environments. See the [Environment Setup Guide](docs/environment-setup.md) for detailed instructions on configuring `config/environments.yaml`.
+On the target machine (AWS CLI required):
 
-3. **Explore available commands**:
-   ```bash
-   ADOC > help
-   ```
+```bash
+make s3-pull S3_PATH=s3://your-bucket/adoc-toolkit/packages
+# or: bin/s3-pull-install.sh s3://your-bucket/adoc-toolkit/packages
+```
 
-### Interactive CLI Features
+## Environment setup
 
-The ADOC Toolkit provides a rich interactive command-line interface with several productivity features:
+Create `config/environments.yaml` before using API or export commands:
 
-- **Command History Navigation**: Use ↑ and ↓ arrow keys to browse through your command history
-- **Auto-completion**: Press Tab to get intelligent suggestions for commands and parameters
-- **Command History**: Use the `history` command to view and recall previous commands
-- **Environment Switching**: Easily switch between different ADOC environments
-- **Rich Output**: Colorized output and formatted tables for better readability
-
-### Core Commands
-
-#### Environment Management
-- **[`use`](docs/use.md)** - Switch to a different ADOC environment
-- **[`show-env`](docs/show_env.md)** - Display current environment configuration
-
-> **📋 Environment Setup**: Configure your environments in `config/environments.yaml`. See the [Environment Setup Guide](docs/environment-setup.md) for detailed instructions.
-
-##### Timezone Configuration
-
-The toolkit supports configurable timezones for datetime fields in exported data. By default, all timestamps use **UTC**, but you can configure each environment to use a specific timezone.
-
-**Configuration** (`config/environments.yaml`):
 ```yaml
 environments:
   cs-india:
@@ -92,594 +68,222 @@ environments:
     base_url: "https://cs-india.acceldata.app"
     access_key: "YOUR_ACCESS_KEY"
     secret_key: "YOUR_SECRET_KEY"
-    timezone: "Asia/Kolkata"  # Optional, defaults to UTC
+    timezone: "Asia/Kolkata"   # Optional; default UTC. Use IANA names only.
+
+default_environment: "cs-india"
 ```
 
-**Supported Timezones**: Use [IANA timezone names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones):
-- `UTC` (default)
-- `America/New_York` (US Eastern Time)
-- `America/Los_Angeles` (US Pacific Time)
-- `Europe/London` (UK Time)
-- `Asia/Kolkata` (Indian Standard Time)
-- `Asia/Tokyo` (Japan Standard Time)
-- `Australia/Sydney` (Australian Eastern Time)
-- And many more...
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Must match the environment key |
+| `base_url` | Yes | ADOC instance URL |
+| `access_key` | Yes | API access key |
+| `secret_key` | Yes | API secret key |
+| `timezone` | No | IANA timezone (e.g. `Asia/Kolkata`). Do **not** use abbreviations (`IST`, `EST`) |
 
-**⚠️ Important**: Use full IANA timezone names (e.g., `Asia/Kolkata`), **not** abbreviations (e.g., `IST`, `PST`, `EST`). Abbreviations are ambiguous and not supported.
+Credentials can also use env vars: `${ADOC_ACCESS_KEY}`, `${ADOC_SECRET_KEY}`.
 
-**What Gets Affected**:
-- 📊 **Exported Data**: Column headers include timezone (e.g., `execution_date (UTC)` or `execution_date (Asia/Kolkata)`) in both `export-execution-metrics` and `export-metrics` commands
-- 📁 **Tracking Files**: Timestamps in `.last_run_tracking.json` use configured timezone
-- ⏰ **All DateTime Fields**: Automatically converted to your configured timezone
+See [Environment Setup Guide](docs/environment-setup.md) for validation rules and security guidance.
 
-**Example Output**:
-```csv
-policy_name,execution_date (Asia/Kolkata),rows_scanned
-MyPolicy,2025-11-05 23:54:17,1000
-```
+## Quick start
 
-#### API Access
-- **[`get`](docs/get.md)** - Make GET requests to ADOC API endpoints
-  ```bash
-  ADOC > get /catalog-server/api/assets/search name=Snowflake
-  ADOC > get /catalog-server/api/asset-types
-  ```
-
-## 🔌 API Reference
-
-The ADOC Toolkit interacts with various ADOC platform APIs. Below is a comprehensive list of all APIs used by the toolkit and their purposes.
-
-### Policy Execution APIs
-
-#### 1. Policy Executions List
-- **Endpoint**: `GET /catalog-server/api/rules/executions`
-- **Purpose**: Retrieves a paginated list of policy executions with metadata, status, and performance scores
-- **Used By**: `export-execution-metrics` command
-- **Query Parameters**:
-  - `page`: Page number for pagination
-  - `size`: Number of executions per page
-  - `sortBy`: Sort criteria (e.g., `execution.startedAt:DESC`)
-  - `ruleType`: Filter by policy type (DATA_QUALITY, EQUALITY, DATA_DRIFT, etc.)
-
-### Execution Result APIs
-
-These APIs fetch detailed rule-level performance metrics for specific execution IDs:
-
-#### 2. DATA_QUALITY Execution Result
-- **Endpoint**: `GET /catalog-server/api/rules/data-quality/executions/:id/result`
-- **Purpose**: Fetches detailed rule-level performance metrics for DATA_QUALITY policy executions
-- **Used By**: `export-execution-metrics` command
-
-#### 3. RECONCILIATION (EQUALITY) Execution Result
-- **Endpoint**: `GET /catalog-server/api/rules/reconciliation/executions/:id/result`
-- **Purpose**: Fetches detailed rule-level performance metrics for RECONCILIATION (EQUALITY) policy executions
-- **Used By**: `export-execution-metrics` command
-
-#### 4. DATA_DRIFT Execution Result
-- **Endpoint**: `GET /catalog-server/api/rules/data-drift/executions/:id/result`
-- **Purpose**: Fetches detailed rule-level performance metrics for DATA_DRIFT policy executions
-- **Used By**: `export-execution-metrics` command
-
-#### 5. PROFILE_ANOMALY Execution Result
-- **Endpoint**: `GET /catalog-server/api/rules/profile-anomaly/executions/:id/result`
-- **Purpose**: Fetches detailed rule-level performance metrics for PROFILE_ANOMALY policy executions
-- **Used By**: `export-execution-metrics` command
-
-#### 6. SCHEMA_DRIFT Execution Result
-- **Endpoint**: `GET /catalog-server/api/rules/schema-drift/executions/:id/result`
-- **Purpose**: Fetches detailed rule-level performance metrics for SCHEMA_DRIFT policy executions
-- **Used By**: `export-execution-metrics` command
-
-#### 7. FRESHNESS (DATA_CADENCE) Execution Result
-- **Endpoint**: `GET /catalog-server/api/rules/data-cadence/executions/:id/result`
-- **Purpose**: Fetches detailed rule-level performance metrics for FRESHNESS (DATA_CADENCE) policy executions
-- **Used By**: `export-execution-metrics` command
-
-### Policy Details APIs
-
-These APIs retrieve policy configuration and rule details for different policy types:
-
-#### 8. DATA_QUALITY Policy Details
-- **Endpoint**: `GET /catalog-server/api/rules/data-quality/:id?version={v}`
-- **Purpose**: Retrieves DATA_QUALITY policy configuration, rule details, and asset information
-- **Used By**: `export-execution-metrics` command
-- **Parameters**:
-  - `:id`: Policy ID
-  - `version`: Policy version number
-
-#### 9. RECONCILIATION Policy Details
-- **Endpoint**: `GET /catalog-server/api/rules/reconciliation/:id?version={v}`
-- **Purpose**: Retrieves RECONCILIATION (EQUALITY) policy configuration, column mappings, and join details
-- **Used By**: `export-execution-metrics` command
-- **Parameters**:
-  - `:id`: Policy ID
-  - `version`: Policy version number
-
-#### 10. DATA_DRIFT Policy Details
-- **Endpoint**: `GET /catalog-server/api/rules/data-drift/:id?version={v}`
-- **Purpose**: Retrieves DATA_DRIFT policy configuration and drift threshold settings
-- **Used By**: `export-execution-metrics` command
-- **Parameters**:
-  - `:id`: Policy ID
-  - `version`: Policy version number
-
-#### 11. PROFILE_ANOMALY Policy Details
-- **Endpoint**: `GET /catalog-server/api/rules/profile-anomaly/:id?version={v}`
-- **Purpose**: Retrieves PROFILE_ANOMALY policy configuration and anomaly detection settings
-- **Used By**: `export-execution-metrics` command
-- **Parameters**:
-  - `:id`: Policy ID
-  - `version`: Policy version number
-
-#### 12. SCHEMA_DRIFT Policy Details
-- **Endpoint**: `GET /catalog-server/api/rules/schema-drift/:id?version=1`
-- **Purpose**: Retrieves SCHEMA_DRIFT policy configuration and schema drift rule settings
-- **Used By**: `export-execution-metrics` command
-- **Parameters**:
-  - `:id`: Policy ID
-  - `version`: Always uses version 1 for SCHEMA_DRIFT
-
-#### 13. FRESHNESS (DATA_CADENCE) Policy Details
-- **Endpoint**: `GET /catalog-server/api/rules/data-cadence/:id?version={v}`
-- **Purpose**: Retrieves FRESHNESS (DATA_CADENCE) policy configuration and threshold settings
-- **Used By**: `export-execution-metrics` command
-- **Parameters**:
-  - `:id`: Policy ID
-  - `version`: Policy version number
-
-### Asset Catalog APIs
-
-#### 14. Asset Search
-- **Endpoint**: `GET /catalog-server/api/assets/search`
-- **Purpose**: Search for assets in the catalog by name or IDs
-- **Used By**: `export-execution-metrics` command (for resolving asset names from IDs), `find-asset` command
-- **Query Parameters**:
-  - `name`: Asset name to search for
-  - `ids`: Comma-separated list of asset IDs
-
-#### 15. Asset Overview
-- **Endpoint**: `GET /catalog-server/api/assets/:id/overview`
-- **Purpose**: Retrieves overview information for a specific asset by ID
-- **Used By**: `export-execution-metrics` command (for resolving asset names)
-
-#### 16. Asset List
-- **Endpoint**: `GET /catalog-server/api/assets/list`
-- **Purpose**: Retrieve a paginated list of assets with filtering and sorting options
-- **Used By**: `export-metrics` command
-- **Query Parameters**:
-  - `page`: Page number (use -1 for all results)
-  - `size`: Number of assets per page (use -1 for all results)
-  - `sortBy`: Sort criteria (e.g., `dataQualityPolicyCount:DESC`)
-  - `asset_type_ids`: Comma-separated list of asset type IDs
-
-### Rules APIs
-
-#### 17. Rules List
-- **Endpoint**: `GET /catalog-server/api/rules`
-- **Purpose**: Retrieve a paginated list of rules with filtering options
-- **Used By**: `export-metrics` command
-- **Query Parameters**:
-  - `page`: Page number
-  - `size`: Number of rules per page
-  - `ruleStatus`: Filter by rule status
-  - `withLatestExecution`: Include latest execution information (boolean)
-  - `ruleStatus`: Comma-separated list of statuses (e.g., `ENABLED,ACTIVE`)
-
-### Additional Asset APIs
-
-The toolkit also supports access to many other asset-related APIs through the `get` command. See `config/adoc-toolkit-api-reference.json` for a complete list of available endpoints, including:
-
-- Asset metadata (`/catalog-server/api/assets/:id/metadata`)
-- Asset rules with latest execution (`/catalog-server/api/assets/:id/rulesWithLatestExecution`)
-- Asset scores (`/catalog-server/api/assets/:id/scores`)
-- Asset activity logs (`/catalog-server/api/assets/:id/activity`)
-- Asset comments (`/catalog-server/api/assets/:id/comments`)
-- Asset tags (`/catalog-server/api/assets/:id/tags`)
-- Asset labels (`/catalog-server/api/assets/:id/labels`)
-- And many more...
-
-### API Authentication
-
-All API requests are authenticated using:
-- **Access Key**: Provided in `accessKey` header
-- **Secret Key**: Provided in `secretKey` header
-
-These credentials are configured per environment in `config/environments.yaml` and automatically included in all API requests.
-
-### API Base URL
-
-The base URL for all API requests is configured per environment in `config/environments.yaml`:
-```yaml
-environments:
-  my-environment:
-    base_url: "https://your-adoc-instance.acceldata.app"
-    access_key: "YOUR_ACCESS_KEY"
-    secret_key: "YOUR_SECRET_KEY"
-```
-
-### Error Handling
-
-The toolkit includes robust error handling for API requests:
-- **Automatic Retries**: Configurable retry logic for transient failures (timeouts, connection errors)
-- **Error Messages**: Clear error messages for API failures
-- **HTTP Status Codes**: Proper handling of HTTP status codes (4xx, 5xx)
-- **Timeout Configuration**: Configurable request timeouts (default: 120 seconds)
-
-#### Data Export
-- **[`export-metrics`](docs/export_execution_metrics.md)** - Export metrics data in various formats (JSON, CSV, Parquet, Avro)
-- **[`export-execution-metrics`](docs/export_execution_metrics.md)** - Export execution metrics with filtering options (supports DATA_QUALITY, EQUALITY, DATA_DRIFT, PROFILE_ANOMALY, SCHEMA_DRIFT, FRESHNESS). Includes `Rule_Identifier`, `Total_Failed_Records`, and derived `Datasource_Name` / `Left_Datasource_Name` / `Right_Datasource_Name` columns
-
-#### AI-Powered Features
-- **[`text-to-dq-policy`](docs/text_to_dq_policy.md)** - Generate data quality policies from natural language descriptions
-- **[`human-response`](docs/human_response.md)** - Get human-readable explanations of data quality results
-
-#### Configuration
-- **[`set-config`](docs/set_config.md)** - Configure toolkit settings
-- **[`show-config`](docs/set_config.md)** - Display current configuration
-
-#### Utilities
-- **[`history`](docs/history.md)** - View command history
-- **[`help`](docs/help.md)** - Get help for commands
-- **[`find-asset`](docs/find-asset.md)** - Search for assets
-- **`exit`** - Exit the interactive shell
-
-### Key Features
-
-- **Interactive Shell**: Rich command-line interface with auto-completion and command history navigation
-- **Command History**: Use ↑/↓ arrow keys to navigate through previous commands
-- **Environment Management**: Easy switching between different ADOC environments
-- **Timezone Support**: Configurable timezone for datetime fields with automatic conversion (UTC default)
-- **API Integration**: Direct access to ADOC platform APIs with automatic authentication
-- **Data Export**: Export metrics in multiple formats (JSON, CSV, Parquet, Avro) with timezone-aware timestamps
-- **AI Integration**: Generate data quality policies using LLM models
-- **Cross-Platform**: Works on Windows, macOS, and Linux
-- **Auto-completion**: Intelligent suggestions for commands and parameters
-
-### Example Workflows
-
-#### Basic API Exploration
 ```bash
-ADOC > use se-demo
-ADOC > get /catalog-server/api/asset-types
-ADOC > get /catalog-server/api/assets/search name=Snowflake
-```
-
-#### Data Export
-```bash
-ADOC > export-metrics --format csv --output metrics.csv
-ADOC > export-execution-metrics --status completed --days 7
-```
-
-#### AI-Powered Policy Generation
-```bash
-ADOC > text-to-dq-policy "Check that customer email addresses are valid and not null"
-```
-
-#### Timezone-Aware Data Export
-```bash
-# Configure timezone in config/environments.yaml:
-# timezone: "Asia/Kolkata"
+uv run adoc-toolkit
 
 ADOC > use cs-india
+ADOC (cs-india) > help
+ADOC (cs-india) > export-execution-metrics --backload -7d
+ADOC (cs-india) > export-metrics --output-type csv
+```
+
+## Interactive commands
+
+| Command | Aliases | Purpose |
+|---------|---------|---------|
+| `help` | `h`, `?` | List commands or show help for one command |
+| `exit` | `quit`, `q` | Exit the shell |
+| `use` | — | Switch active ADOC environment |
+| `show-env` | `env` | Show current environment (keys masked) |
+| `history` | `hist` | View command / execution history |
+| `set-config` | `config`, `set` | Configure HTTP, logging, and audit settings |
+| `get` | `g` | HTTP GET to ADOC API endpoints |
+| `find-asset` | `search`, `search-asset`, `asset-search` | Search assets by name |
+| `export-metrics` | `export`, `metrics` | Export rule / asset / alert summary metrics |
+| `export-execution-metrics` | `exec-metrics`, `execution-metrics` | Export rule-level execution metrics |
+| `example` | `ex`, `demo` | Developer template command |
+
+> There is **no** separate `show-config` command. Use `set-config --list` or `set-config --show <key>`.
+
+API and export commands require an active environment (`use <name>` first).
+
+### Configuration (`set-config`)
+
+```bash
+ADOC > set-config --list
+ADOC > set-config --show http.timeout
+ADOC > set-config http.timeout 120
+ADOC > set-config http.response.type table
+ADOC > set-config log.level INFO
+```
+
+| Key | Default | Options |
+|-----|---------|---------|
+| `http.timeout` | `120` | 30, 60, 120, 300 |
+| `http.retries` | `3` | 0, 1, 3, 5 |
+| `http.proxy` | `null` | URL, or `none` to clear |
+| `http.response.type` | `json` | `json`, `table`, `csv` |
+| `log.level` | `TRACE` | `TRACE`, `DEBUG`, `INFO`, `ERROR` |
+| `log.filepath` | `null` | File path |
+| `log.rotate.onsize` | `10MB` | 10MB, 50MB, 100MB, 1GB |
+| `log.rotate.ontime` | `120` | Minutes |
+| `audit.logfile` | `null` | File path |
+
+Stored in `config/adoc-toolkit-config.json`. Details: [set-config](docs/set_config.md).
+
+## Data export
+
+### `export-execution-metrics`
+
+Exports rule-level execution metrics for one or more policy types. Supports incremental runs via a tracking file.
+
+```bash
 ADOC > export-execution-metrics
-# Output CSV will have: execution_date (Asia/Kolkata) column
-# All timestamps automatically converted to Indian Standard Time
+ADOC > export-execution-metrics --backload -7d --policy-types DATA_QUALITY,EQUALITY
+ADOC > export-execution-metrics --output-type parquet --page-size 500
+ADOC > export-execution-metrics --output-dir ./reports --output-filename exec-%d-%m-%y
 ```
 
-## 📚 Documentation
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--output-type` | `csv` | `csv` or `parquet` |
+| `--output-dir` | `./output/execution-metrics/` | Output directory |
+| `--output-filename` | `execution-metrics-%d-%m-%y-%h-%M` | Filename template; env name appended |
+| `--backload` | *(none)* | Override tracking: `-7d`, `-12h`, `2024-01-15`, etc. (max 60 days) |
+| `--policy-types` | `DATA_QUALITY,EQUALITY` | Comma-separated: `DATA_QUALITY`, `EQUALITY`, `DATA_DRIFT`, `PROFILE_ANOMALY`, `SCHEMA_DRIFT`, `FRESHNESS` |
+| `--page-size` | `100` | API page size (1–1000) |
 
-### User Guides
-- **[Environment Setup](docs/environment-setup.md)** - Configure ADOC environments
-- **[HTTP Client Usage](docs/http_client.md)** - Understanding HTTP requests and responses
-- **[LLM Configuration](docs/llm_config.md)** - Configure AI/LLM features
-- **[LLM Client Usage](docs/llm_client_usage.md)** - Using AI-powered features
-- **[Tracing Guide](docs/tracing-guide.md)** - Debugging and monitoring
+**Outputs (per run):**
+- Main consolidated file: `{filename}_{env}.csv|parquet`
+- Per-policy-type files when data exists (e.g. `data-quality-metrics-…`, `reconciliation-metrics-…`)
+- Tracking file: `.last_run_tracking.json`
 
-### Command Reference
-- **[get](docs/get.md)** - HTTP GET requests with auto-completion
-- **[use](docs/use.md)** - Environment management
-- **[show-env](docs/show_env.md)** - Display environment configuration
-- **[set-config](docs/set_config.md)** - Configuration management
-- **[history](docs/history.md)** - Command history and recall
-- **[help](docs/help.md)** - Built-in help system
-- **[find-asset](docs/find-asset.md)** - Asset search functionality
-- **[export-execution-metrics](docs/export_execution_metrics.md)** - Data export capabilities
-- **[text-to-dq-policy](docs/text_to_dq_policy.md)** - AI-powered policy generation
-- **[human-response](docs/human_response.md)** - Human-readable explanations
+**Incremental behavior:**
+- With `--backload` → uses that start time (ignores tracking file)
+- Without `--backload` and no tracking file → last **30 days**
+- Without `--backload` and tracking file exists → since last successful run
 
-### Development Guides
-- **[Command Development](docs/command-development.md)** - How to add new commands
+**N/A / applicability:** Policy-specific columns are filled with `"N/A"` when not applicable. Per-type files drop columns that are entirely N/A. Full matrix: [Customer Guide PDF](docs/ADOC_Toolkit_Customer_Guide.pdf) and [export-execution-metrics](docs/export_execution_metrics.md).
 
-## 🛠️ Development
+Key derived columns:
+- `Datasource_Name` — first segment of `Table_Asset_Name` (not used for EQUALITY)
+- `Left_Datasource_Name` / `Right_Datasource_Name` — from asset UIDs (EQUALITY only)
+- `Rule_Identifier`, `Total_Failed_Records`, `Metric_Anomalous` (PROFILE_ANOMALY)
 
-### Prerequisites
-- **Python 3.10+**
-- **[uv](https://docs.astral.sh/uv/getting-started/installation/)**
-- **Git**
+Note: **Labels** (`Label_Key` / `Label_Value`) are exported here. **Tags** are exported by `export-metrics` only.
 
-### Development Setup
+### `export-metrics`
+
+Exports enabled/active rules with latest execution metrics, asset info, and related alerts.
 
 ```bash
-# Clone and setup
-git clone https://github.com/niranta-life/adoc-toolkit.git
-cd adoc-toolkit
-
-# Complete development setup (install + dev dependencies)
-make dev-setup
+ADOC > export-metrics --output-type csv
+ADOC > export-metrics --page-size 500 --output-dir ./reports
 ```
 
-### Available Make Commands
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--output-type` | `csv` | `csv`, `parquet`, or `avro` |
+| `--output-dir` | `./output/export-metrics/` | Output directory |
+| `--output-filename` | `ad-metrics-%d-%m-%y-%h-%M` | Filename template |
+| `--page-size` | `100` | API page size (1–1000) |
 
-#### Setup Commands
+**Columns include:** Rule Name, Rule ID, Rule Type, Asset ID, Execution Status, Execution Date ({timezone}), Quality Score, Records Processed, Execution Duration (ms), Open Alerts, **Tags**, plus asset and alert fields when available.
+
+Tags are tag **names** only (not IDs), e.g. `{'critical', 'prod'}`, or `N/A` if none.
+
+## API access
+
 ```bash
-make install          # Install dependencies using uv
-make dev-setup        # Complete development setup (install + dev deps)
+ADOC > get /catalog-server/api/asset-types
+ADOC > get /catalog-server/api/assets/search name=Snowflake
+ADOC > find-asset CALL_CENTER
 ```
 
-#### Testing Commands
-```bash
-make test             # Run all tests
-make test-verbose     # Run tests with verbose output
-make test-watch       # Run tests in watch mode (requires pytest-watch)
-make test-coverage    # Run tests with coverage report
-make test-export      # Run export-metrics command tests only
-make test-http        # Run HTTP client tests only
-make test-audit       # Run audit functionality tests only
-make test-logs        # Run logging tests only
-```
+Authentication uses `accessKey` and `secretKey` headers from the active environment.
 
-#### Code Quality Commands
-```bash
-make lint             # Run linting checks (ruff)
-make format           # Format code (ruff format)
-make type-check       # Run type checking (mypy)
-make all-checks       # Run all code quality checks
-```
+### Endpoints used by exports
 
-#### Development Commands
-```bash
-make clean            # Clean up temporary files and caches
-make clean-logs       # Clean up logs directory
-make clean-output     # Clean up output directory
-make clean-all        # Clean everything (temp files, logs, output)
-make build            # Build the package
-make run              # Run the interactive toolkit
-```
+**export-execution-metrics**
+- `GET /catalog-server/api/rules/executions`
+- Result APIs: `…/data-quality|reconciliation|data-drift|profile-anomaly|schema-drift|data-cadence/executions/{id}/result`
+- Policy detail APIs for each type
+- `GET /catalog-server/api/assets/{id}/overview`, `…/assets/search`
 
-#### Quick Test Combinations
-```bash
-make test-core        # Run core functionality tests
-make test-cli         # Run CLI functionality tests
-make ci-test          # Run all CI checks (format, lint, type-check, test)
-```
+**export-metrics**
+- `GET /catalog-server/api/assets/list`
+- `GET /catalog-server/api/rules?withLatestExecution=true&ruleStatus=ENABLED,ACTIVE`
+- Incidents listing API for alerts
 
-### Development Workflow
+Full endpoint catalog: `config/adoc-toolkit-api-reference.json`.
 
-1. **Setup development environment**:
-   ```bash
-   make dev-setup
-   ```
-
-2. **Run tests before making changes**:
-   ```bash
-   make test
-   ```
-
-3. **Make your changes** and run quality checks:
-   ```bash
-   make format lint type-check
-   ```
-
-4. **Test your changes**:
-   ```bash
-   make test
-   ```
-
-5. **Run the toolkit** to test interactively:
-   ```bash
-   make run
-   ```
-
-### Code Quality Standards
-
-- **Type Hints**: Required for all public APIs and complex functions
-- **Documentation**: Docstrings for all public functions and classes
-- **Testing**: Comprehensive test coverage with pytest
-- **Code Style**: Follow PEP 8, enforced by ruff
-- **Line Length**: 88 characters maximum
-
-### Project Structure
+## Project structure
 
 ```
 adoc-toolkit/
 ├── adoc_toolkit/           # Main package
-│   ├── cli/               # Command-line interface
-│   │   ├── commands/      # Individual command implementations
-│   │   ├── interactive.py # Interactive processor
-│   │   └── main.py        # CLI entry point
-│   ├── models/            # Pydantic data models
-│   ├── http/              # HTTP client and utilities
-│   ├── llm/               # LLM integration
-│   ├── audit/             # Audit functionality
-│   └── tracing/           # Tracing and monitoring
-├── bin/                   # Cross-platform launcher scripts
-├── config/                # Configuration files and API references
-├── docs/                  # Command documentation
-├── tests/                 # Test files
-├── Makefile               # Development commands
-└── pyproject.toml         # Project configuration
+│   ├── cli/commands/       # Interactive commands
+│   ├── models/             # Pydantic models
+│   ├── http/               # HTTP client & response formatter
+│   ├── audit/              # Audit logging
+│   └── tracing/            # Tracing / monitoring
+├── bin/                    # Launchers + S3 offline install scripts
+├── config/                 # Config & API reference
+├── docs/                   # Guides (incl. customer PDF)
+├── tests/
+├── Makefile
+└── pyproject.toml
 ```
 
-### Adding New Commands
+## Development
 
-When adding new interactive commands, create three files:
-
-1. **Command Implementation**: `adoc_toolkit/cli/commands/<command_name>_command.py`
-2. **Test File**: `tests/test_<command_name>_command.py`
-3. **Documentation**: `docs/<command_name>.md`
-
-See the [Command Development Guide](docs/command-development.md) for detailed instructions.
-
-## 🤝 Contributing
-
-We welcome contributions from the community! This guide will help you get started.
-
-### How to Contribute
-
-#### 1. **Fork and Clone**
 ```bash
-# Fork the repository on GitHub, then clone your fork
-git clone https://github.com/YOUR_USERNAME/adoc-toolkit.git
-cd adoc-toolkit
-
-# Add the original repository as upstream
-git remote add upstream https://github.com/niranta-life/adoc-toolkit.git
+make dev-setup      # Install + dev deps
+make test           # Run tests
+make format lint type-check
+make run            # Interactive shell
+make s3-push S3_PATH=s3://bucket/path
+make s3-pull S3_PATH=s3://bucket/path
 ```
 
-#### 2. **Setup Development Environment**
-```bash
-# Install dependencies and development tools
-make dev-setup
+See `make help` for all targets. Contribution guide: conventional commits, type hints, tests, ruff.
 
-# Verify everything works
-make test
-```
+## Documentation
 
-#### 3. **Create a Feature Branch**
-```bash
-# Create and switch to a new branch
-git checkout -b feature/your-feature-name
+| Doc | Description |
+|-----|-------------|
+| [Customer Guide (PDF)](docs/ADOC_Toolkit_Customer_Guide.pdf) | Full customer-facing guide + column applicability |
+| [Environment Setup](docs/environment-setup.md) | `environments.yaml` |
+| [export-execution-metrics](docs/export_execution_metrics.md) | Execution metrics export |
+| [set-config](docs/set_config.md) | Configuration reference |
+| [get](docs/get.md) / [use](docs/use.md) / [find-asset](docs/find-asset.md) | Command guides |
+| [HTTP Client](docs/http_client.md) | HTTP behavior |
+| [Command Development](docs/command-development.md) | Adding commands |
 
-# Or for bug fixes
-git checkout -b fix/your-bug-description
-```
-
-#### 4. **Make Your Changes**
-
-Follow our development standards:
-
-- **Code Style**: Follow PEP 8 (enforced by ruff)
-- **Type Hints**: Add type hints to all public functions
-- **Documentation**: Add docstrings to all public functions and classes
-- **Testing**: Write tests for new functionality
-- **Documentation**: Update relevant documentation
-
-#### 5. **Test Your Changes**
-```bash
-# Run all quality checks
-make ci-test
-
-# Run specific test suites
-make test-cli        # CLI functionality tests
-make test-http       # HTTP client tests
-make test-export     # Export functionality tests
-
-# Test interactively
-make run
-```
-
-#### 6. **Commit Your Changes**
-```bash
-# Use conventional commit messages
-git commit -m "feat: add new command for asset search"
-git commit -m "fix: resolve HTTP timeout issue"
-git commit -m "docs: update environment setup guide"
-```
-
-#### 7. **Push and Create Pull Request**
-```bash
-# Push your branch
-git push origin feature/your-feature-name
-
-# Create a pull request on GitHub
-```
-
-### Contribution Guidelines
-
-#### **Code Standards**
-- **Python 3.10+**: Use modern Python features
-- **Type Hints**: Required for all public APIs
-- **Docstrings**: Use Google-style docstrings
-- **Testing**: Maintain >90% test coverage
-- **Linting**: Code must pass ruff checks
-
-#### **Commit Message Format**
-Use [Conventional Commits](https://www.conventionalcommits.org/):
-```
-feat: add new command for data export
-fix: resolve authentication timeout issue
-docs: update environment setup guide
-test: add tests for new export functionality
-refactor: simplify HTTP client configuration
-```
-
-#### **Pull Request Process**
-1. **Description**: Clearly describe what you're changing and why
-2. **Testing**: Include tests for new functionality
-3. **Documentation**: Update relevant documentation
-4. **Screenshots**: Include screenshots for UI changes
-5. **Checklist**: Use the PR template checklist
-
-#### **What We're Looking For**
-- **Bug Fixes**: Clear, reproducible bug reports with fixes
-- **New Features**: Well-designed, tested new functionality
-- **Documentation**: Improvements to guides and examples
-- **Performance**: Optimizations that improve user experience
-- **Testing**: Additional test coverage
-
-#### **Getting Help**
-- **Issues**: Use GitHub Issues for bug reports and feature requests
-- **Discussions**: Use GitHub Discussions for questions and ideas
-- **Documentation**: Check the `docs/` directory for detailed guides
-
-### Development Resources
-
-#### **Key Documentation**
-- **[Command Development Guide](docs/command-development.md)** - How to add new commands
-- **[Environment Setup](docs/environment-setup.md)** - Development environment setup
-- **[HTTP Client Usage](docs/http_client.md)** - Understanding HTTP integration
-- **[LLM Configuration](docs/llm_config.md)** - AI/LLM feature development
-
-#### **Testing Guidelines**
-- **Unit Tests**: Test individual functions and classes
-- **Integration Tests**: Test command interactions
-- **CLI Tests**: Test command-line interface behavior
-- **Mock External Services**: Don't rely on external APIs in tests
-
-#### **Code Review Checklist**
-- [ ] Code follows project style guidelines
-- [ ] Type hints are present and correct
-- [ ] Docstrings are complete and accurate
-- [ ] Tests are comprehensive and pass
-- [ ] Documentation is updated
-- [ ] No breaking changes (or clearly documented)
-
-## 📦 Optional Features
-
-### Export Format Support
-
-Install additional dependencies for extended export format support:
+## Optional export formats
 
 ```bash
 uv sync --extra export
 ```
 
-This enables:
-- **Parquet** export format (requires pyarrow)
-- **Avro** export format (requires fastavro)
+Enables **Parquet** (`pyarrow`) and **Avro** (`fastavro`) for `export-metrics`.  
+`export-execution-metrics` supports **CSV** and **Parquet** only.
 
-## 📄 License
+## License
 
-Apache License 2.0 - see [LICENSE](LICENSE) file for details.
+Apache License 2.0 — see [LICENSE](LICENSE).
 
-## 🆘 Support
+## Support
 
-- **Documentation**: Check the `docs/` directory for detailed command documentation
-- **Environment Setup**: See the [Environment Setup Guide](docs/environment-setup.md) for configuring your ADOC environments
-- **Issues**: Report bugs and feature requests on [GitHub Issues](https://github.com/niranta-life/adoc-toolkit/issues)
-- **Discussions**: Ask questions and share ideas on [GitHub Discussions](https://github.com/niranta-life/adoc-toolkit/discussions)
-- **Help**: Use `help` command in the interactive shell for command assistance
-
----
-
-**Made with ❤️ by the ADOC Toolkit Team**
+- Docs: `docs/` and the [Customer Guide PDF](docs/ADOC_Toolkit_Customer_Guide.pdf)
+- Interactive help: `help` / `help <command>`
+- Issues: report via your project repository

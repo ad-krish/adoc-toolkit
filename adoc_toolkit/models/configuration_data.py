@@ -7,7 +7,6 @@ from pydantic import BaseModel, Field
 from ..audit.audit_config import AuditConfig
 from ..http.http_config import HTTPConfig
 from ..logs.log_config import LogConfig
-from .llm_config import LLMConfig
 
 
 class ConfigItem(BaseModel):
@@ -36,7 +35,6 @@ class ConfigurationData(BaseModel):
     log: LogConfig = Field(
         default_factory=LogConfig, description="Application logging configuration"
     )
-    llm: LLMConfig = Field(default_factory=LLMConfig, description="LLM configuration")
     # Allow additional fields for backward compatibility with tests
     model_config = {"extra": "allow"}
 
@@ -162,25 +160,6 @@ class ConfigurationData(BaseModel):
                 if hasattr(self.log.rotate, rotate_key):
                     setattr(self.log.rotate, rotate_key, value)
                     return
-
-        # Handle known LLM configuration with validation
-        if key.startswith("llm.") and len(parts) == 2:
-            llm_key = parts[1]
-            if hasattr(self.llm, llm_key):
-                # Special handling for llm.vendor to convert string to enum
-                if llm_key == "vendor" and isinstance(value, str):
-                    from .llm_config import LLMVendor
-
-                    try:
-                        value = LLMVendor(value.lower())
-                    except ValueError:
-                        valid_vendors = [vendor.value for vendor in LLMVendor]
-                        raise ValueError(
-                            f"Invalid LLM vendor '{value}'. Must be one of: "
-                            f"{', '.join(valid_vendors)}"
-                        ) from None
-                setattr(self.llm, llm_key, value)
-                return
 
         # For arbitrary nested keys (for tests and future extensibility)
         obj = self

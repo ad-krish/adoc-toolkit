@@ -1,7 +1,7 @@
 # Makefile for ADOC Toolkit
 # Use this file to run common development tasks
 
-.PHONY: help install test test-verbose test-watch test-coverage lint format type-check clean clean-logs clean-output clean-all build dev-setup all-checks
+.PHONY: help install test test-verbose test-watch test-coverage lint format type-check clean clean-logs clean-output clean-all build dev-setup all-checks s3-push s3-pull
 
 # Default target - show help
 help:
@@ -165,3 +165,20 @@ test-cli: test-export
 # CI/CD friendly commands
 ci-test: format lint type-check test
 	@echo "✅ CI checks completed!"
+
+# S3 package management
+s3-push:
+ifndef S3_PATH
+	@echo "❌ S3_PATH is required. Usage: make s3-push S3_PATH=s3://bucket/path"
+	@exit 1
+endif
+	@echo "📤 Pushing packages to S3..."
+	bin/s3-push-packages.sh $(S3_PATH)
+
+s3-pull:
+ifndef S3_PATH
+	@echo "❌ S3_PATH is required. Usage: make s3-pull S3_PATH=s3://bucket/path"
+	@exit 1
+endif
+	@echo "📥 Pulling and installing packages from S3..."
+	bin/s3-pull-install.sh $(S3_PATH)

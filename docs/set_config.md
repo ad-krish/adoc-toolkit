@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `set-config` command allows you to configure various settings for the ADOC Toolkit. You can customize HTTP behavior, logging, audit trails, and AI/LLM settings to match your environment and preferences.
+The `set-config` command allows you to configure various settings for the ADOC Toolkit. You can customize HTTP behavior, logging, and audit trails to match your environment and preferences.
 
 ## Usage
 
@@ -17,7 +17,6 @@ set-config --show <key>
 The `--list` option displays all configuration settings in a single table, organized by category:
 
 - **HTTP Configuration**: Network and API settings
-- **LLM Configuration**: AI/LLM vendor and model settings  
 - **Logging Configuration**: Log levels, file paths, and rotation
 - **Audit Configuration**: Audit trail settings
 
@@ -41,14 +40,11 @@ The command displays configuration in a single organized table with category hea
 │ Configuration    │        │                                       ││                                     │
 │ http.timeout     │ 120    │ HTTP request timeout in seconds       ││ 30, 60, 120, 300                    │
 │ http.retries     │ 3      │ Number of retry attempts for failed   ││ 0, 1, 3, 5                          │
-│ http.response.t… │ json   │ Response format type                  ││ json, table, csv, human             │
+│ http.response.t… │ json   │ Response format type                  ││ json, table, csv                    │
 │                  │        │                                       ││                                     │
-│ LLM              │        │                                       ││                                     │
+│ Logging          │        │                                       ││                                     │
 │ Configuration    │        │                                       ││                                     │
-│ llm.vendor       │ gemini │ LLM vendor to use for AI operations   ││ claude, gemini, grok, chatgpt       │
-│ llm.model        │ gemin… │ Model name for the selected LLM       ││ gemini-1.5-pro, gemini-1.5-flash,   │
-│ llm.temperature  │ 0.2    │ Temperature for LLM response          ││ 0.0, 0.1, 0.2, 0.5, 0.7, 1.0, 1.5, │
-│                  │        │ generation                            ││ 2.0                                 │
+│ log.level        │ INFO   │ Logging level for application logs    ││ TRACE, DEBUG, INFO, ERROR           │
 └──────────────────┴────────┴───────────────────────────────────────┴┴─────────────────────────────────────┘
 ```
 
@@ -98,7 +94,7 @@ Control how the toolkit interacts with ADOC APIs:
 #### `http.response.type`
 - **Purpose**: Format for displaying API responses
 - **Default**: `json`
-- **Options**: `json`, `table`, `csv`, `human`
+- **Options**: `json`, `table`, `csv`
 - **Example**: `set-config http.response.type table`
 
 ### 📝 Logging Configuration
@@ -139,28 +135,6 @@ Track command execution for compliance:
 - **Options**: Any file path
 - **Example**: `set-config audit.logfile ./audit.log`
 
-### 🤖 AI/LLM Configuration
-
-Configure AI-powered features like data quality policy generation:
-
-#### `llm.vendor`
-- **Purpose**: Choose your preferred AI provider
-- **Default**: `gemini`
-- **Options**: `claude`, `gemini`, `grok`, `chatgpt`
-- **Example**: `set-config llm.vendor claude`
-
-#### `llm.apikey`
-- **Purpose**: API key for your chosen LLM vendor
-- **Default**: None
-- **Format**: Your API key from the vendor
-- **Example**: `set-config llm.apikey sk-your-api-key-here`
-
-#### `llm.model`
-- **Purpose**: Specific model to use (auto-set based on vendor)
-- **Default**: Varies by vendor
-- **Options**: Vendor-specific models
-- **Example**: `set-config llm.model claude-3-5-sonnet-20241022`
-
 ## Examples
 
 ### HTTP Configuration Examples
@@ -198,22 +172,6 @@ ADOC > set-config log.rotate.ontime 240
 ADOC > set-config audit.logfile ./audit.log
 ```
 
-### AI/LLM Examples
-
-```bash
-# Switch to Claude for AI features
-ADOC > set-config llm.vendor claude
-ADOC > set-config llm.apikey sk-your-claude-key
-
-# Use ChatGPT instead
-ADOC > set-config llm.vendor chatgpt
-ADOC > set-config llm.apikey sk-your-openai-key
-
-# Switch back to Gemini
-ADOC > set-config llm.vendor gemini
-ADOC > set-config llm.apikey your-gemini-key
-```
-
 ### Viewing Configuration
 
 ```bash
@@ -223,7 +181,6 @@ ADOC > set-config --list
 # Show specific setting
 ADOC > set-config --show http.timeout
 ADOC > set-config --show log.level
-ADOC > set-config --show llm.vendor
 ```
 
 ## Auto-completion
@@ -235,8 +192,7 @@ The command provides intelligent suggestions:
 - **Value suggestions**: Context-aware options for each setting
   - Timeout values: 30, 60, 120, 300
   - Log levels: TRACE, DEBUG, INFO, ERROR
-  - LLM vendors: claude, gemini, grok, chatgpt
-  - Response types: json, table, csv, human
+  - Response types: json, table, csv
 
 ### Auto-completion Examples
 
@@ -248,10 +204,6 @@ ADOC > set-config http.<TAB>
 # Get value suggestions
 ADOC > set-config log.level <TAB>
 # Shows: TRACE, DEBUG, INFO, ERROR
-
-# Complete LLM vendor
-ADOC > set-config llm.vendor <TAB>
-# Shows: claude, gemini, grok, chatgpt
 ```
 
 ## Error Handling
@@ -303,7 +255,7 @@ ADOC > set log.level DEBUG         # Alternative alias
 1. **Development**: Use shorter timeouts (30-60s) and fewer retries (0-1) for faster feedback
 2. **Production**: Use longer timeouts (120-300s) and more retries (3-5) for reliability
 3. **Proxy**: Always use HTTPS proxies when possible for security
-4. **Response Format**: Use `table` or `human` for better readability of large datasets
+4. **Response Format**: Use `table` for better readability of large datasets
 
 ### Logging Configuration
 
@@ -312,19 +264,11 @@ ADOC > set log.level DEBUG         # Alternative alias
 3. **File Logging**: Enable file logging for persistent records
 4. **Rotation**: Set appropriate rotation limits to manage disk space
 
-### AI/LLM Configuration
-
-1. **Vendor Selection**: Choose based on your organization's AI policies
-2. **API Keys**: Store keys securely and rotate regularly
-3. **Model Selection**: Use the latest models for best results
-4. **Testing**: Test AI features with different vendors to find the best fit
-
 ### Security Considerations
 
-1. **API Keys**: Never share or commit API keys to version control
-2. **Proxy Configuration**: Use secure proxies and validate connectivity
-3. **Audit Logging**: Enable audit logging for compliance requirements
-4. **Configuration Review**: Regularly review settings for security implications
+1. **Proxy Configuration**: Use secure proxies and validate connectivity
+2. **Audit Logging**: Enable audit logging for compliance requirements
+3. **Configuration Review**: Regularly review settings for security implications
 
 ## Related Commands
 

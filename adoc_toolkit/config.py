@@ -7,7 +7,6 @@ from typing import Any
 from pydantic import ValidationError
 
 from .models import ConfigItem, ConfigurationData
-from .models.llm_config import LLMConfig
 
 
 class ConfigManager:
@@ -61,6 +60,11 @@ class ConfigManager:
                             # Load as enhanced structure
                             self._config = self._load_enhanced_config(data)
                         else:
+                            # Drop removed LLM settings and migrate obsolete response type
+                            data.pop("llm", None)
+                            response = data.get("http", {}).get("response", {})
+                            if isinstance(response, dict) and response.get("type") == "human":
+                                response["type"] = "json"
                             # Load as legacy structure
                             self._config = ConfigurationData.from_dict(data)
                     else:
@@ -102,24 +106,14 @@ class ConfigManager:
         # Convert the data to legacy format
         legacy_data = convert_enhanced_to_legacy(data)
 
+        # Drop removed LLM settings and migrate obsolete response type
+        legacy_data.pop("llm", None)
+        response = legacy_data.get("http", {}).get("response", {})
+        if isinstance(response, dict) and response.get("type") == "human":
+            response["type"] = "json"
+
         # Load as legacy structure
         config = ConfigurationData.from_dict(legacy_data)
-
-        # Handle custom LLM model options after loading
-        if "llm" in legacy_data and "model_options" in legacy_data["llm"]:
-            model_options = legacy_data["llm"]["model_options"]
-            if isinstance(model_options, dict):
-                # Set the custom model options on the LLM config
-                config.llm.model_options = model_options
-
-                # Validate that model_options has the expected structure
-                for vendor in ["claude", "gemini", "grok", "chatgpt"]:
-                    if vendor not in model_options:
-                        # Use default for missing vendors
-                        default_config = LLMConfig()
-                        config.llm.model_options[vendor] = (
-                            default_config.get_all_model_options()[vendor]
-                        )
 
         return config
 
@@ -179,7 +173,7 @@ class ConfigManager:
                         "value": self._config.http.response.type,
                         "description": "Response format type",
                         "type": "string",
-                        "options": ["json", "table", "csv", "human"],
+                        "options": ["json", "table", "csv"],
                         "default": "json",
                     }
                 },
@@ -225,38 +219,6 @@ class ConfigManager:
                         "options": [60, 120, 240, 480],
                         "default": 120,
                     },
-                },
-            },
-            "llm": {
-                "vendor": {
-                    "value": self._config.llm.vendor.value,
-                    "description": "LLM vendor to use for AI operations",
-                    "type": "string",
-                    "options": ["claude", "gemini", "grok", "chatgpt"],
-                    "default": "gemini",
-                },
-                "apikey": {
-                    "value": self._config.llm.apikey,
-                    "description": "API key for the selected LLM vendor",
-                    "type": "string",
-                    "options": ["your-api-key-here", "none"],
-                    "default": None,
-                },
-                "model": {
-                    "value": self._config.llm.get_model(),
-                    "description": "Model name for the selected LLM vendor",
-                    "type": "string",
-                    "options": self._config.llm.get_model_options(),
-                    "default": self._config.llm._get_default_model(
-                        self._config.llm.vendor
-                    ),
-                },
-                "temperature": {
-                    "value": self._config.llm.temperature,
-                    "description": "Temperature for LLM response generation",
-                    "type": "float",
-                    "options": [0.0, 0.1, 0.2, 0.5, 0.7, 1.0, 1.5, 2.0],
-                    "default": 0.2,
                 },
             },
         }
@@ -466,8 +428,6 @@ class ConfigManager:
                 return value
             elif key == "log.rotate.ontime":
                 return int(value)
-            elif key == "llm.temperature":
-                return float(value)
             elif key == "log.level":
                 # Convert string to LogLevel enum
                 from adoc_toolkit.logs import LogLevel
@@ -492,24 +452,10 @@ class ConfigManager:
                         f"Invalid response type '{value}'. Must be one of: "
                         f"{', '.join(valid_types)}"
                     ) from None
-            elif key == "llm.vendor":
-                # Convert string to LLMVendor enum
-                from adoc_toolkit.models.llm_config import LLMVendor
-
-                try:
-                    return LLMVendor(value.lower())
-                except ValueError:
-                    valid_vendors = [vendor.value for vendor in LLMVendor]
-                    raise ValueError(
-                        f"Invalid LLM vendor '{value}'. Must be one of: "
-                        f"{', '.join(valid_vendors)}"
-                    ) from None
             elif key in (
                 "log.filepath",
                 "log.rotate.onsize",
                 "audit.logfile",
-                "llm.apikey",
-                "llm.model",
             ):
                 if value.lower() in ("none", "null", ""):
                     return None
@@ -523,10 +469,6 @@ class ConfigManager:
                 raise ValueError("Retries must be an integer") from e
             elif key == "log.rotate.ontime":
                 raise ValueError("Log rotation time must be an integer") from e
-            elif key == "llm.vendor":
-                raise ValueError(
-                    "LLM vendor must be one of: claude, gemini, grok, chatgpt"
-                ) from e
             else:
                 raise
 

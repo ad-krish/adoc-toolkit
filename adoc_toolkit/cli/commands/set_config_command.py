@@ -47,7 +47,7 @@ class SetConfigCommand(Command):
         help_text += "    http.retries    - Number of retry attempts (default: 3)\n"
         help_text += "    http.proxy      - HTTP proxy URL (optional)\n"
         help_text += "    http.response.type - Response format: json, table, "
-        help_text += "csv, human (default: json)\n\n"
+        help_text += "csv (default: json)\n\n"
 
         help_text += "  Logging Configuration:\n"
         help_text += "    log.level       - Log level: TRACE, DEBUG, INFO, "
@@ -62,27 +62,6 @@ class SetConfigCommand(Command):
         help_text += "  Audit Configuration:\n"
         help_text += "    audit.logfile   - Path to audit log file (optional)\n\n"
 
-        help_text += "  LLM Configuration:\n"
-        help_text += (
-            "    llm.vendor      - LLM vendor: claude, gemini, grok, chatgpt "
-            "(default: gemini)\n"
-        )
-        help_text += (
-            "    llm.apikey      - API key for the selected LLM vendor (optional)\n"
-        )
-        help_text += (
-            "    llm.model       - Model name for the selected LLM vendor "
-            "(auto-set based on vendor)\n"
-        )
-        help_text += (
-            "    llm.temperature - Temperature for response generation: 0.0-2.0 "
-            "(default: 0.2)\n"
-        )
-        help_text += (
-            "                     Note: Available models can be customized by "
-            "editing the config file\n\n"
-        )
-
         help_text += "Examples:\n"
         help_text += "  set-config http.timeout 60\n"
         help_text += "  set-config http.retries 5\n"
@@ -90,15 +69,10 @@ class SetConfigCommand(Command):
         help_text += "  set-config http.proxy none    # Remove proxy\n"
         help_text += "  set-config http.response.type table\n"
         help_text += "  set-config http.response.type csv\n"
-        help_text += "  set-config http.response.type human\n"
         help_text += "  set-config log.level DEBUG\n"
         help_text += "  set-config log.filepath ./my-app.log\n"
         help_text += "  set-config log.rotate.onsize 50MB\n"
         help_text += "  set-config audit.logfile ./audit.log\n"
-        help_text += "  set-config llm.vendor claude\n"
-        help_text += "  set-config llm.apikey your-api-key-here\n"
-        help_text += "  set-config llm.model claude-3-5-sonnet-20241022\n"
-        help_text += "  set-config llm.temperature 0.7\n"
         help_text += "  set-config --list             # Show all configuration\n"
         help_text += "  set-config --show log.level   # Show specific value\n"
 
@@ -231,7 +205,6 @@ class SetConfigCommand(Command):
         """
         grouped = {
             "HTTP Configuration": {},
-            "LLM Configuration": {},
             "Logging Configuration": {},
             "Audit Configuration": {},
             "Other Configuration": {},
@@ -240,8 +213,6 @@ class SetConfigCommand(Command):
         for key, item in config_items.items():
             if key.startswith("http."):
                 grouped["HTTP Configuration"][key] = item
-            elif key.startswith("llm."):
-                grouped["LLM Configuration"][key] = item
             elif key.startswith("log."):
                 grouped["Logging Configuration"][key] = item
             elif key.startswith("audit."):
